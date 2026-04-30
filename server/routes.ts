@@ -136,13 +136,17 @@ export function registerRoutes(app: Express) {
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
+      // Check if attribution table exists (tracking tables auto-create on startup)
+      const attrCheck = await pool.query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'attribution')");
+      const hasAttr = attrCheck.rows[0].exists;
+
       const membersResult = await pool.query(`
         SELECT u.id, u.email, u.first_name, u.last_name, u.subscription_tier, u.subscription_status,
-               u.stripe_customer_id, u.created_at, u.last_active_date,
-               a.first_touch_source, a.ltv_lifetime, a.total_revenue, a.first_touch_campaign
+               u.stripe_customer_id, u.created_at, u.last_active_date
+               ${hasAttr ? ", a.first_touch_source, a.ltv_lifetime, a.total_revenue, a.first_touch_campaign" : ""}
         FROM users u
-        LEFT JOIN attribution a ON a.user_id = u.id
-        ${where ? where.replace(/(\b)(email|first_name|last_name|subscription_tier|subscription_status|created_at)(\b)/g, '$1u.$2$3') : ''}
+        ${hasAttr ? "LEFT JOIN attribution a ON a.user_id = u.id" : ""}
+        ${where}
         ORDER BY u.created_at DESC
         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
       `, [...params, limit, offset]);

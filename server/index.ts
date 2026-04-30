@@ -3,7 +3,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
-import { verifyConnection } from "./db";
+import { verifyConnection, pool } from "./db";
 import { registerRoutes } from "./routes";
 import { registerTrackingRoutes } from "./tracking";
 import { registerGoogleAuthRoutes } from "./google-auth";
@@ -43,12 +43,27 @@ if (process.env.NODE_ENV === "production") {
   }
 }
 
+async function ensureTrackingTables() {
+  try {
+    const schemaPath = path.resolve(import.meta.dirname, "tracking-schema.sql");
+    if (fs.existsSync(schemaPath)) {
+      const sql = fs.readFileSync(schemaPath, "utf-8");
+      await pool.query(sql);
+      console.log("[OPS] Tracking tables verified");
+    }
+  } catch (error: any) {
+    console.warn("[OPS] Tracking tables setup warning:", error.message);
+  }
+}
+
 async function start() {
   const dbOk = await verifyConnection();
   if (!dbOk) {
     console.error("[OPS] Cannot start without database connection");
     process.exit(1);
   }
+
+  await ensureTrackingTables();
 
   app.listen(PORT, () => {
     console.log(`[OPS] FitScript Ops Dashboard running on http://localhost:${PORT}`);
