@@ -10,7 +10,7 @@ env:
   ECR_REGISTRY: 251522454901.dkr.ecr.us-east-1.amazonaws.com
   ECR_REPOSITORY: fitscript-ops
   ECS_CLUSTER: fitscript-cluster
-  ECS_SERVICE: fitscript-ops-service
+  ECS_SERVICE: fitscript-ops-task-service-vnvy470x
   ECS_TASK_DEFINITION: fitscript-ops-task
   CONTAINER_NAME: fitscript-ops-container
 
