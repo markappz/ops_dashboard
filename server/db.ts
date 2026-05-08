@@ -12,9 +12,12 @@ if (!connectionString) {
   throw new Error("DATABASE_URL must be set. This connects to the same RDS as the main FitScript app.");
 }
 
+// Both Neon and RDS terminate TLS with chains Node may not trust by default.
+// Skip cert validation unless the URL explicitly opts out of SSL.
+const wantsSsl = !/sslmode=disable/i.test(connectionString);
 const pool = new Pool({
   connectionString,
-  ssl: connectionString.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+  ssl: wantsSsl ? { rejectUnauthorized: false } : false,
 });
 
 export { pool };

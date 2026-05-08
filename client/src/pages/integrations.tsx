@@ -61,6 +61,17 @@ export default function Settings() {
     enabled: !!data?.google?.connected,
   });
 
+  const { data: klaviyo } = useQuery<{
+    configured: boolean;
+    connected: boolean;
+    organization?: string | null;
+    defaultSenderEmail?: string | null;
+    error?: string;
+  }>({
+    queryKey: ["klaviyo-status"],
+    queryFn: () => fetch("/api/ops/klaviyo/status").then((r) => r.json()),
+  });
+
   const handleDisconnect = async () => {
     if (!confirm("Disconnect Google account?")) return;
     await fetch("/api/ops/google/disconnect", { method: "POST" });
@@ -210,10 +221,56 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Klaviyo */}
+      <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
+        <div className="px-6 py-4 border-b border-ops-border">
+          <h2 className="text-lg font-semibold text-ops-text">Klaviyo</h2>
+        </div>
+        <div className="px-6 py-5">
+          {!klaviyo?.configured ? (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-3 h-3 rounded-full bg-ops-text-muted/40" />
+                <div className="text-sm font-medium text-ops-text">Not connected</div>
+              </div>
+              <p className="text-sm text-ops-text-muted mb-3">
+                Add a Klaviyo private API key to surface campaigns, flows, and lists.
+              </p>
+              <code className="block bg-ops-bg px-3 py-2 rounded text-xs font-mono text-ops-text-muted">
+                KLAVIYO_API_KEY=pk_...
+              </code>
+            </div>
+          ) : klaviyo.connected ? (
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-green-400" />
+              <div>
+                <div className="text-sm font-medium text-ops-text">
+                  {klaviyo.organization ? `Connected — ${klaviyo.organization}` : "Connected"}
+                </div>
+                <div className="text-xs text-ops-text-muted">
+                  {klaviyo.defaultSenderEmail
+                    ? `Default sender: ${klaviyo.defaultSenderEmail}`
+                    : "Campaigns, flows, lists, segments"}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-3 h-3 rounded-full bg-red-400" />
+                <div className="text-sm font-medium text-ops-text">Connection error</div>
+              </div>
+              <p className="text-xs text-ops-text-muted break-all">
+                {klaviyo.error || "Klaviyo API key was rejected"}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Coming Soon */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {[
-          { name: "Klaviyo", desc: "Email campaigns, lists, automations" },
           { name: "Meta Ads", desc: "Facebook + Instagram ad spend, ROAS" },
           { name: "Google Ads", desc: "Search ad spend, conversions, ROAS" },
         ].map((s) => (

@@ -9,6 +9,7 @@ import Orders from "./pages/orders";
 import Tracking from "./pages/tracking";
 import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
+import Email from "./pages/email";
 import Login from "./pages/login";
 
 interface Me {
@@ -77,6 +78,7 @@ export default function App() {
           <Route path="/orders" component={Orders} />
           <Route path="/tracking" component={Tracking} />
           <Route path="/marketing" component={Marketing} />
+          <Route path="/email" component={Email} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Integrations} />
           <Route>

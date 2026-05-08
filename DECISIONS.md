@@ -18,6 +18,26 @@ Record of every important decision so we don't revisit settled questions.
 
 ---
 
+## 2026-05-08 — Klaviyo connector is HTTP-only, key in env
+
+**Decision:** Klaviyo lives under `/api/ops/klaviyo/*` behind the admin gate. Auth uses `KLAVIYO_API_KEY` (private `pk_*`) directly — no Klaviyo OAuth. API revision pinned to `2025-04-15`.
+
+**Why:** Klaviyo's OAuth is for marketplace listings. We're an internal tool; private API keys are the right fit. Pinning the revision means contract drifts surface as our deliberate bump, not as silent breakage. Rate-limit retries are 429-aware with one Retry-After honoring; deeper backoff isn't worth the code until we hit it.
+
+**How to apply:** New Klaviyo endpoints go in `server/klaviyo.ts` and use the existing `klaviyoFetch` wrapper. For server-side autonomy (push events, trigger flows), call `trackKlaviyoEvent()` directly — keep that out of the HTTP API since the dashboard never needs to expose write actions to clients.
+
+---
+
+## 2026-05-08 — Single-port dev via Vite middleware
+
+**Decision:** `npm run dev` runs Express + Vite middleware on one port (5001) in dev. No separate `vite` process, no `/api` proxy in `vite.config.ts` (the entry stays for documentation but isn't used in dev). OAuth callback redirects to `/` and lands on the same React app the user logged in from.
+
+**Why:** Dual-port dev (Express on 5001, Vite on 5173 with proxy) made the OAuth flow awkward — Google's `redirect_uri` had to point at one port, the React app lived on another, and post-login the user landed on the API port with no UI. Single port means the OAuth callback's `res.redirect("/")` lands on the same surface the React app is mounted on.
+
+**How to apply:** Vite is conditionally imported in `server/index.ts` only when `NODE_ENV !== 'production'` so the prod build never bundles it. Vite stays in `devDependencies`. To run prod-style locally, use `npm run build && NODE_ENV=production node dist/index.js`.
+
+---
+
 ## 2026-05-06 — Raw SQL only, no Drizzle in this repo
 
 **Decision:** All DB access uses `pool.query()` (raw SQL). `server/schema.ts` exists as a stub; do not grow it.

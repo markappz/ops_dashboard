@@ -8,6 +8,7 @@ import { registerRoutes } from "./routes";
 import { registerTrackingRoutes } from "./tracking";
 import { registerGoogleAuthRoutes } from "./google-auth";
 import { registerAdminAuthRoutes, opsGate } from "./admin-auth";
+import { registerKlaviyoRoutes } from "./klaviyo";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -39,16 +40,28 @@ app.use(opsGate);
 registerRoutes(app);
 registerTrackingRoutes(app);
 registerGoogleAuthRoutes(app);
+registerKlaviyoRoutes(app);
 
-// Serve static files in production
-if (process.env.NODE_ENV === "production") {
-  const publicDir = path.resolve(import.meta.dirname, "public");
-  if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(publicDir, "index.html"));
-    });
+async function setupClient() {
+  if (process.env.NODE_ENV === "production") {
+    const publicDir = path.resolve(import.meta.dirname, "public");
+    if (fs.existsSync(publicDir)) {
+      app.use(express.static(publicDir));
+      app.get("*", (_req, res) => {
+        res.sendFile(path.join(publicDir, "index.html"));
+      });
+    }
+    return;
   }
+
+  // Dev: mount Vite as middleware so the React app + HMR ride on the
+  // same port as the API. No separate vite dev server, no proxy.
+  const { createServer: createViteServer } = await import("vite");
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  });
+  app.use(vite.middlewares);
 }
 
 async function ensureTrackingTables() {
@@ -72,6 +85,7 @@ async function start() {
   }
 
   await ensureTrackingTables();
+  await setupClient();
 
   app.listen(PORT, () => {
     console.log(`[OPS] FitScript Ops Dashboard running on http://localhost:${PORT}`);

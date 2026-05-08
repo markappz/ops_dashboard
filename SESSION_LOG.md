@@ -48,3 +48,27 @@ Running history of every development session. Autom reads this at the start of e
 - `package.json` — removed `drizzle-orm`, `drizzle-zod`, `zod` (zero usage after schema deletion).
 
 **Verified:** `npx tsc --noEmit` exits 0. `vite build` + `esbuild server/index.ts` both succeed. Server bundle dropped from 137.7kb → 53.6kb after dropping drizzle.
+
+---
+
+## 2026-05-08 — Klaviyo connector v1 (read-only) + dev DX overhaul
+
+**Worked on:** P1 in the autonomy roadmap — first external connector. Plus a few dev-environment fixes that came out of testing locally.
+
+**Klaviyo connector (server):**
+- `server/klaviyo.ts` (new) — `KlaviyoClient` style fetch wrapper with rate-limit-aware 429 retry, pinned API revision `2025-04-15`, key from `KLAVIYO_API_KEY`. Endpoints: `/api/ops/klaviyo/status`, `/campaigns`, `/flows`, `/lists`, `/segments`. All gated by the existing admin gate. Also exports `trackKlaviyoEvent()` for future server-side autonomy jobs (not yet exposed via HTTP).
+- `server/index.ts` — registers Klaviyo routes after the gate.
+
+**Klaviyo connector (client):**
+- `client/src/pages/email.tsx` (new) — fills in the previously-empty `/email` sidebar slot. Connection status chip, 4-stat strip (campaigns / sent / live flows / lists+segments), tabbed Campaigns/Flows/Lists tables. Graceful "not connected" state when `KLAVIYO_API_KEY` is unset.
+- `client/src/App.tsx` — wired the `/email` route.
+- `client/src/pages/integrations.tsx` — replaced the "Coming soon" Klaviyo tile with live status (Connected / Not configured / Connection error).
+
+**Dev DX changes:**
+- `server/index.ts` — Vite is now mounted as Express middleware in dev mode (single-port `npm run dev` on 5001 with full HMR). No more dual `tsx` + `vite` setup, no proxy. Prod path unchanged.
+- `server/db.ts` — SSL config now `rejectUnauthorized: false` for any URL not opting out via `sslmode=disable`. Local Node didn't trust the AWS RDS cert chain; this matches how the existing Neon path already worked.
+- `.gitignore` — added `.env.*` so backup .env files from local cleanup don't show up in `git status`.
+
+**Verified:** `tsc --noEmit` clean. `vite build` + esbuild green. Login flow tested locally end-to-end (Google OAuth → callback → cookie → dashboard). Klaviyo Email page renders the "not connected" placeholder when key is absent (was the local state during testing).
+
+**Lesson learned for memory:** the AWS Console "Plaintext → copy" of a JSON secret pastes the contents *with their JSON syntax* — every value ends up wrapped in `"` and followed by `,` when piped into a `.env`. Three concrete bugs from this on Paul's local .env: corrupted `DATABASE_URL` (URL parse failure → garbage hostname), corrupted `OPS_PORT` → NaN crash on `app.listen`, corrupted `GOOGLE_CLIENT_ID` → Google "invalid_client" rejection. Also created duplicate keys (last write wins via dotenv), with the corrupted copy winning. Future .env builds from prod secrets must dedupe + strip both wrapping quotes AND trailing commas.

@@ -26,6 +26,7 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `ADMIN_EMAILS` — comma-separated allowlist (e.g. `paulclotar@gmail.com,michael@...`)
 - `OPS_PORT` — defaults to 5001
 - `NODE_ENV=production` in deploys
+- `KLAVIYO_API_KEY` — `pk_*` private key (read-only connector for now)
 
 ## Structure
 - `server/index.ts` — bootstraps express, mounts auth gate, registers routes
