@@ -18,6 +18,26 @@ Record of every important decision so we don't revisit settled questions.
 
 ---
 
+## 2026-05-08 — Klaviyo send: template-trigger model, never an in-dashboard composer
+
+**Decision:** Klaviyo "send from dashboard" is a template-trigger product. Marketing designs templates in Klaviyo. Dashboard picks template → audience → schedule → confirm → send. The dashboard never builds an HTML composer or rich-text editor.
+
+**Why:** Klaviyo's drag-and-drop editor is years of UX work. Rebuilding it inside the dashboard pulls focus off ops + creates ongoing maintenance debt as Klaviyo's editor evolves. The actual ops use-case is "send the right template to the right people right now" — the dashboard layer adds value at the audience-selection / safety-rail / audit step, not the design step.
+
+**How to apply:** When extending email features, ask "is this about *who/when/why* a send happens?" → dashboard problem. "Is this about *what the email looks like*?" → Klaviyo problem, never solve here. Same rule applies to SMS / push when those land.
+
+---
+
+## 2026-05-08 — Send safety: typed-confirmation threshold + audit log
+
+**Decision:** Sends to ≥1000 recipients require typing "SEND" to enable the submit button. Every send attempt — successful or failed — writes a row to `ops_campaign_sends` with the admin email, status, audience, recipient count, and any error.
+
+**Why:** Marketing-team mistakes (wrong segment, wrong subject) are recoverable in Klaviyo's UI through the cancel-window. Cross-team mistakes from ops staff sending to wrong audiences are irrecoverable and expensive. Friction at high-volume is cheap insurance. Audit log gives postmortem clarity ("who sent the bad email") without needing Klaviyo's audit log access.
+
+**How to apply:** Threshold lives in `TYPE_TO_CONFIRM_THRESHOLD` (`client/src/pages/email-send.tsx`). Tune up if it gets annoying for daily ops, or down if a near-miss happens. Server-side audit is non-negotiable — every new write action through the dashboard should append to a similar audit table (e.g. future `ops_admin_actions` for cancel/refund/comp).
+
+---
+
 ## 2026-05-08 — Klaviyo connector is HTTP-only, key in env
 
 **Decision:** Klaviyo lives under `/api/ops/klaviyo/*` behind the admin gate. Auth uses `KLAVIYO_API_KEY` (private `pk_*`) directly — no Klaviyo OAuth. API revision pinned to `2025-04-15`.

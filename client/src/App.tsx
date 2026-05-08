@@ -10,6 +10,7 @@ import Tracking from "./pages/tracking";
 import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
 import Email from "./pages/email";
+import EmailSend from "./pages/email-send";
 import Login from "./pages/login";
 
 interface Me {
@@ -79,6 +80,7 @@ export default function App() {
           <Route path="/tracking" component={Tracking} />
           <Route path="/marketing" component={Marketing} />
           <Route path="/email" component={Email} />
+          <Route path="/email/send" component={EmailSend} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Integrations} />
           <Route>

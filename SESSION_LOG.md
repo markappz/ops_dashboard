@@ -72,3 +72,56 @@ Running history of every development session. Autom reads this at the start of e
 **Verified:** `tsc --noEmit` clean. `vite build` + esbuild green. Login flow tested locally end-to-end (Google OAuth → callback → cookie → dashboard). Klaviyo Email page renders the "not connected" placeholder when key is absent (was the local state during testing).
 
 **Lesson learned for memory:** the AWS Console "Plaintext → copy" of a JSON secret pastes the contents *with their JSON syntax* — every value ends up wrapped in `"` and followed by `,` when piped into a `.env`. Three concrete bugs from this on Paul's local .env: corrupted `DATABASE_URL` (URL parse failure → garbage hostname), corrupted `OPS_PORT` → NaN crash on `app.listen`, corrupted `GOOGLE_CLIENT_ID` → Google "invalid_client" rejection. Also created duplicate keys (last write wins via dotenv), with the corrupted copy winning. Future .env builds from prod secrets must dedupe + strip both wrapping quotes AND trailing commas.
+
+---
+
+## 2026-05-08 (continued) — Klaviyo send capability (Option A: template trigger)
+
+**Worked on:** Promoted Klaviyo from read-only to send-capable. Dashboard becomes the action layer; Klaviyo stays the design layer.
+
+**Server (`server/klaviyo.ts`):**
+- `GET /api/ops/klaviyo/templates` — list email templates with editor type + updated time
+- `GET /api/ops/klaviyo/templates/:id/html` — fetch raw template HTML for preview iframe
+- `POST /api/ops/klaviyo/audience-size` — given list/segment IDs, returns total + breakdown via `additional-fields[list]=profile_count` and `additional-fields[segment]=profile_count`. Documented as upper-bound (Klaviyo dedups at send time).
+- `POST /api/ops/klaviyo/send` — multi-step orchestration: create campaign + message → assign-template → submit send-job. Validates inputs, writes audit row to `ops_campaign_sends` BEFORE attempting send, updates row with `status=submitted` + Klaviyo campaign ID on success or `status=failed` + error on failure. Logs `[OPS][KLAVIYO] send submitted by ${admin}`.
+- `GET /api/ops/klaviyo/sends` — recent 50 audit rows for the dashboard's Recent Sends tab.
+- `ensureSendsTable()` — creates `ops_campaign_sends(id, admin_email, klaviyo_campaign_id, name, subject, audience_summary jsonb, send_method, scheduled_for, recipient_count, status, error, created_at, updated_at)` lazily on first call.
+
+**Client (`client/src/pages/email-send.tsx`, new):**
+- 4-step composer at `/email/send`: Template → Audience → Compose → Confirm.
+- Step 2 shows live audience-size estimate as user toggles lists/segments + per-audience breakdown + optional excluded segments.
+- Step 4 shows side-by-side: send summary (template, recipient count, when, from) + email preview rendered via `srcdoc` iframe.
+- **Safety rail**: if recipient count ≥1000, requires typed "SEND" string before the send button enables. Threshold tunable via constant.
+- Default sender pre-fills from Klaviyo account info.
+
+**Email page (`client/src/pages/email.tsx`):**
+- Header gains a "Send campaign" CTA (only shown when Klaviyo is connected).
+- New 4th tab "Recent sends" — surfaces the audit log with admin email, status (queued/submitted/failed), method, recipients, error.
+
+**Verified:** `tsc --noEmit` clean. `vite build` + `esbuild` green. Server bundle now 67.8kb.
+
+**Local browser test (paulclotar@gmail.com → 1-person Internal Test list):** end-to-end send works. Email arrived in inbox. Audit log row recorded with `status=submitted` and Klaviyo campaign id.
+
+**Six Klaviyo API gotchas surfaced during testing — all fixed:**
+
+1. `/templates/` page[size] caps at **10** (other endpoints allow 50-100). Was using 100 → 400 "Page size must be an integer between 1 and 10".
+2. `/lists/` page[size] caps at **10**. Was 100 → same error. Lists are paginated; cap stays low.
+3. `/segments/` page[size] caps at **10**. Same.
+4. `/flows/` page[size] caps at **50**. Was 100 → "Page size must be an integer between 1 and 50".
+5. `/campaigns/` sort field allowlist is `[scheduled_at, created_at, updated_at, id, name]` — **`send_time` is NOT valid** despite being a returned attribute. Switched to `-scheduled_at`.
+6. `/campaigns/{id}/campaign-messages/` sparse fieldset rejects `label` — `label` lives inside `definition`, not as a top-level field. Dropped the fields filter; we only need `id` anyway.
+
+Plus two send-orchestration path bugs:
+
+7. `assign-template` is **NOT** at `/campaign-messages/{id}/assign-template/` — it's a top-level action endpoint at `/campaign-message-assign-template/` with the message id in the body.
+8. Success-screen "Open in Klaviyo" link used `https://www.klaviyo.com/campaign/{id}` (404). Correct: `https://www.klaviyo.com/campaign/{id}/reports/overview`.
+
+**Frontend resilience bug (also fixed):** `templatesData?.templates.find(...)` chained one level short — when the templates endpoint returned an error JSON `{error: "..."}` instead of `{templates: [...]}`, `.find` blew up. Now `templatesData?.templates?.find(...)`.
+
+**The frontend was also silently swallowing 400s from the connector** — error responses became `{error: "..."}`, but the queries pulled `data?.field ?? []` which falls back to empty arrays. Looked like "Klaviyo is empty" when in fact every read was failing. Worth a future hardening pass: add an error path in the read pages.
+
+**Deliberately deferred:**
+- Throttled send method (`send_strategy=throttled` with delivery window).
+- Customer-defined sender email (currently uses Klaviyo's account default).
+- Campaign-level metrics post-send (opens/clicks/revenue) — still on the v1.5 roadmap.
+- Surfacing connector errors visibly on read pages (currently empty-state masks them).

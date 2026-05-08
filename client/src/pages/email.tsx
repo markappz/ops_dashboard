@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "wouter";
 
 interface KlaviyoStatus {
   configured: boolean;
@@ -39,7 +40,21 @@ interface Segment extends List {
   isActive: boolean;
 }
 
-type Tab = "campaigns" | "flows" | "lists";
+type Tab = "campaigns" | "flows" | "lists" | "sends";
+
+interface DashboardSend {
+  id: number;
+  admin_email: string;
+  klaviyo_campaign_id: string | null;
+  name: string;
+  subject: string;
+  recipient_count: number;
+  send_method: string;
+  scheduled_for: string | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   Sent: "text-fitscript-green",
@@ -136,6 +151,13 @@ export default function Email() {
     enabled,
   });
 
+  const { data: sendsData } = useQuery<{ sends: DashboardSend[] }>({
+    queryKey: ["klaviyo-dashboard-sends"],
+    queryFn: () => fetch("/api/ops/klaviyo/sends").then((r) => r.json()),
+    enabled,
+    refetchInterval: 30_000,
+  });
+
   if (statusLoading) {
     return (
       <div className="text-sm text-ops-text-muted">Loading Klaviyo…</div>
@@ -145,7 +167,7 @@ export default function Email() {
   if (!status?.configured) {
     return (
       <>
-        <Header />
+        <Header canSend={false} />
         <NotConfigured />
       </>
     );
@@ -154,7 +176,7 @@ export default function Email() {
   if (!status.connected) {
     return (
       <>
-        <Header />
+        <Header canSend={false} />
         <ConnectionError message={status.error || "Unknown error"} />
       </>
     );
@@ -172,7 +194,7 @@ export default function Email() {
 
   return (
     <div>
-      <Header />
+      <Header canSend />
 
       {/* Connection chip */}
       <div className="bg-ops-surface border border-ops-border rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
@@ -204,17 +226,24 @@ export default function Email() {
 
       {/* Tabs */}
       <div className="border-b border-ops-border mb-4 flex gap-6">
-        {(["campaigns", "flows", "lists"] as Tab[]).map((t) => (
+        {(
+          [
+            { v: "campaigns", label: "Campaigns" },
+            { v: "flows", label: "Flows" },
+            { v: "lists", label: "Lists" },
+            { v: "sends", label: "Recent sends" },
+          ] as { v: Tab; label: string }[]
+        ).map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.v}
+            onClick={() => setTab(t.v)}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
-              tab === t
+              tab === t.v
                 ? "border-fitscript-green text-fitscript-green"
                 : "border-transparent text-ops-text-muted hover:text-ops-text"
             }`}
           >
-            {t[0].toUpperCase() + t.slice(1)}
+            {t.label}
           </button>
         ))}
       </div>
@@ -226,17 +255,87 @@ export default function Email() {
       {tab === "lists" && (
         <ListsAndSegments lists={lists} segments={segments} />
       )}
+      {tab === "sends" && <DashboardSendsTable sends={sendsData?.sends ?? []} />}
     </div>
   );
 }
 
-function Header() {
+function DashboardSendsTable({ sends }: { sends: DashboardSend[] }) {
+  if (sends.length === 0) {
+    return (
+      <div className="text-sm text-ops-text-muted">
+        No sends from this dashboard yet. Hit{" "}
+        <span className="text-ops-text font-medium">Send campaign</span> in the top right to send your first one.
+      </div>
+    );
+  }
+  const statusColor: Record<string, string> = {
+    submitted: "text-fitscript-green",
+    queued: "text-yellow-400",
+    failed: "text-red-400",
+  };
   return (
-    <div className="mb-8">
-      <h1 className="text-2xl font-bold text-ops-text">Email</h1>
-      <p className="text-sm text-ops-text-muted mt-1">
-        Klaviyo campaigns, flows, and audiences
-      </p>
+    <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
+          <tr>
+            <th className="text-left px-5 py-3 font-medium">Subject</th>
+            <th className="text-left px-5 py-3 font-medium">Sent by</th>
+            <th className="text-left px-5 py-3 font-medium">Method</th>
+            <th className="text-right px-5 py-3 font-medium">Recipients</th>
+            <th className="text-left px-5 py-3 font-medium">Status</th>
+            <th className="text-left px-5 py-3 font-medium">When</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-ops-border">
+          {sends.map((s) => (
+            <tr key={s.id}>
+              <td className="px-5 py-3 text-ops-text">
+                <div className="truncate max-w-[280px]">{s.subject}</div>
+                <div className="text-xs text-ops-text-muted truncate max-w-[280px]">
+                  {s.name}
+                </div>
+              </td>
+              <td className="px-5 py-3 text-ops-text-muted text-xs">{s.admin_email}</td>
+              <td className="px-5 py-3 text-ops-text-muted text-xs">{s.send_method}</td>
+              <td className="px-5 py-3 text-ops-text text-right">
+                {s.recipient_count.toLocaleString()}
+              </td>
+              <td className={`px-5 py-3 text-xs font-medium ${statusColor[s.status] || "text-ops-text-muted"}`}>
+                {s.status}
+                {s.error && (
+                  <div className="text-xs text-red-400/80 truncate max-w-[180px]" title={s.error}>
+                    {s.error}
+                  </div>
+                )}
+              </td>
+              <td className="px-5 py-3 text-ops-text-muted text-xs">
+                {fmtDate(s.created_at)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Header({ canSend = false }: { canSend?: boolean }) {
+  return (
+    <div className="mb-8 flex items-center justify-between">
+      <div>
+        <h1 className="text-2xl font-bold text-ops-text">Email</h1>
+        <p className="text-sm text-ops-text-muted mt-1">
+          Klaviyo campaigns, flows, and audiences
+        </p>
+      </div>
+      {canSend && (
+        <Link href="/email/send">
+          <button className="px-4 py-2 text-sm font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90">
+            Send campaign
+          </button>
+        </Link>
+      )}
     </div>
   );
 }

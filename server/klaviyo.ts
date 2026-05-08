@@ -1,16 +1,23 @@
 /**
- * Klaviyo connector — read-only v1.
+ * Klaviyo connector.
  *
  * Auth: KLAVIYO_API_KEY (private key, pk_*) in env. No OAuth — Klaviyo's
  * OAuth is for marketplace listings, not internal tools.
  *
- * Surfaces: account info, campaigns, flows, lists, segments. Campaign-level
- * metrics (opens/clicks/revenue) are intentionally deferred to v1.5 — they
- * require a separate POST /campaign-values-reports/ flow.
- *
- * All routes mount under /api/ops/klaviyo/* so they inherit the admin gate.
+ * Surfaces: account info, campaigns, flows, lists, segments, templates,
+ * audience sizing, and outbound campaign sends from existing templates.
+ * Send orchestration is the multi-step Klaviyo dance:
+ *   1. POST /campaigns/                       — create draft + message
+ *   2. POST /campaign-messages/{id}/assign-template/  — link template
+ *   3. POST /campaign-send-jobs/              — actually fire / schedule
+ * Every send is logged to ops_campaign_sends with the admin email.
  */
-import type { Express } from "express";
+import type { Express, Request } from "express";
+import { pool } from "./db";
+
+interface AdminReq extends Request {
+  adminEmail?: string;
+}
 
 const KLAVIYO_BASE = "https://a.klaviyo.com/api";
 // Pin the revision so contract changes don't silently break us.
@@ -120,9 +127,12 @@ export function registerKlaviyoRoutes(app: Express) {
   // Recent email campaigns. Klaviyo requires filtering campaigns by channel.
   app.get("/api/ops/klaviyo/campaigns", async (_req, res) => {
     try {
+      // Klaviyo /campaigns/ allows sort by: scheduled_at, created_at,
+      // updated_at, id, name (each with optional - prefix). send_time is
+      // not a valid sort field. Page size cap = 100.
       const data = await klaviyoFetch<{ data: any[] }>(
         `/campaigns/?filter=${encodeURIComponent('equals(messages.channel,"email")')}` +
-          `&sort=-send_time&page[size]=50`
+          `&sort=-scheduled_at&page[size]=50`
       );
       const campaigns = (data.data || []).map((c) => ({
         id: c.id,
@@ -143,9 +153,10 @@ export function registerKlaviyoRoutes(app: Express) {
   // Live + draft flows (most recent first).
   app.get("/api/ops/klaviyo/flows", async (_req, res) => {
     try {
+      // Klaviyo /flows/ page[size] cap = 50.
       const data = await klaviyoFetch<{ data: any[] }>(
         `/flows/?fields[flow]=name,status,trigger_type,created,updated` +
-          `&sort=-updated&page[size]=100`
+          `&sort=-updated&page[size]=50`
       );
       const flows = (data.data || []).map((f) => ({
         id: f.id,
@@ -164,8 +175,9 @@ export function registerKlaviyoRoutes(app: Express) {
   // Lists (manual audiences).
   app.get("/api/ops/klaviyo/lists", async (_req, res) => {
     try {
+      // Klaviyo /lists/ page[size] cap = 10.
       const data = await klaviyoFetch<{ data: any[] }>(
-        `/lists/?fields[list]=name,created,updated&page[size]=100`
+        `/lists/?fields[list]=name,created,updated&page[size]=10`
       );
       const lists = (data.data || []).map((l) => ({
         id: l.id,
@@ -182,8 +194,9 @@ export function registerKlaviyoRoutes(app: Express) {
   // Segments (dynamic audiences).
   app.get("/api/ops/klaviyo/segments", async (_req, res) => {
     try {
+      // Klaviyo /segments/ page[size] cap = 10.
       const data = await klaviyoFetch<{ data: any[] }>(
-        `/segments/?fields[segment]=name,is_active,created,updated&page[size]=100`
+        `/segments/?fields[segment]=name,is_active,created,updated&page[size]=10`
       );
       const segments = (data.data || []).map((s) => ({
         id: s.id,
@@ -197,6 +210,329 @@ export function registerKlaviyoRoutes(app: Express) {
       res.status(e.status || 500).json({ error: e.message });
     }
   });
+
+  // Email templates (for the send composer).
+  app.get("/api/ops/klaviyo/templates", async (_req, res) => {
+    try {
+      // Klaviyo caps /templates/ page[size] at 10 (other endpoints allow 100).
+      const data = await klaviyoFetch<{ data: any[] }>(
+        `/templates/?fields[template]=name,editor_type,created,updated&sort=-updated&page[size]=10`
+      );
+      const templates = (data.data || []).map((t) => ({
+        id: t.id,
+        name: t.attributes?.name ?? "(unnamed)",
+        editorType: t.attributes?.editor_type ?? null,
+        createdAt: t.attributes?.created ?? null,
+        updatedAt: t.attributes?.updated ?? null,
+      }));
+      res.json({ templates });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Render a template (HTML preview) — used by the confirmation step.
+  app.get("/api/ops/klaviyo/templates/:id/html", async (req, res) => {
+    try {
+      const data = await klaviyoFetch<{ data: any }>(
+        `/templates/${encodeURIComponent(req.params.id)}/?fields[template]=name,html,text`
+      );
+      res.json({
+        name: data.data?.attributes?.name ?? null,
+        html: data.data?.attributes?.html ?? "",
+        text: data.data?.attributes?.text ?? "",
+      });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Estimate audience size given list + segment IDs.
+  // Klaviyo dedups across lists/segments at send time; this is an
+  // upper-bound sum, not the exact deduped recipient count.
+  app.post("/api/ops/klaviyo/audience-size", async (req, res) => {
+    try {
+      const listIds = Array.isArray(req.body?.listIds) ? req.body.listIds : [];
+      const segmentIds = Array.isArray(req.body?.segmentIds)
+        ? req.body.segmentIds
+        : [];
+      if (listIds.length === 0 && segmentIds.length === 0) {
+        return res.json({ total: 0, breakdown: [] });
+      }
+
+      const breakdown: Array<{
+        kind: "list" | "segment";
+        id: string;
+        name: string;
+        count: number;
+      }> = [];
+
+      for (const id of listIds) {
+        const data = await klaviyoFetch<{ data: any }>(
+          `/lists/${encodeURIComponent(id)}/?additional-fields[list]=profile_count` +
+            `&fields[list]=name,profile_count`
+        );
+        breakdown.push({
+          kind: "list",
+          id,
+          name: data.data?.attributes?.name ?? "(unnamed)",
+          count: parseInt(data.data?.attributes?.profile_count ?? "0", 10) || 0,
+        });
+      }
+
+      for (const id of segmentIds) {
+        const data = await klaviyoFetch<{ data: any }>(
+          `/segments/${encodeURIComponent(id)}/?additional-fields[segment]=profile_count` +
+            `&fields[segment]=name,profile_count`
+        );
+        breakdown.push({
+          kind: "segment",
+          id,
+          name: data.data?.attributes?.name ?? "(unnamed)",
+          count: parseInt(data.data?.attributes?.profile_count ?? "0", 10) || 0,
+        });
+      }
+
+      const total = breakdown.reduce((s, x) => s + x.count, 0);
+      res.json({ total, breakdown });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Recent send audit log — most recent 50.
+  app.get("/api/ops/klaviyo/sends", async (_req, res) => {
+    try {
+      await ensureSendsTable();
+      const r = await pool.query(
+        `SELECT id, admin_email, klaviyo_campaign_id, name, subject,
+                recipient_count, audience_summary, send_method, scheduled_for,
+                status, error, created_at
+         FROM ops_campaign_sends
+         ORDER BY created_at DESC
+         LIMIT 50`
+      );
+      res.json({ sends: r.rows });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Send a campaign from a template. Multi-step Klaviyo orchestration +
+  // audit log row. Errors mid-flight roll forward — the audit row records
+  // whichever step failed so the operator can retry deliberately.
+  app.post("/api/ops/klaviyo/send", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const {
+      name,
+      templateId,
+      subject,
+      previewText,
+      fromEmail,
+      fromLabel,
+      listIds = [],
+      segmentIds = [],
+      excludedSegmentIds = [],
+      sendMethod = "immediate",
+      scheduledFor,
+      smartSendingEnabled = true,
+    } = req.body || {};
+
+    // Basic input validation. Klaviyo will catch deeper issues but cheap
+    // checks here give better error messages and stop accidental sends.
+    const issues: string[] = [];
+    if (!name || typeof name !== "string") issues.push("name is required");
+    if (!templateId || typeof templateId !== "string")
+      issues.push("templateId is required");
+    if (!subject || typeof subject !== "string")
+      issues.push("subject is required");
+    if (!fromEmail || typeof fromEmail !== "string")
+      issues.push("fromEmail is required");
+    if (!fromLabel || typeof fromLabel !== "string")
+      issues.push("fromLabel is required");
+    if (
+      !Array.isArray(listIds) ||
+      !Array.isArray(segmentIds) ||
+      listIds.length + segmentIds.length === 0
+    ) {
+      issues.push("at least one list or segment must be included");
+    }
+    if (
+      sendMethod !== "immediate" &&
+      sendMethod !== "smart_send_time" &&
+      sendMethod !== "static"
+    ) {
+      issues.push("sendMethod must be immediate, static, or smart_send_time");
+    }
+    if (sendMethod === "static" && !scheduledFor) {
+      issues.push("scheduledFor is required when sendMethod=static");
+    }
+    if (issues.length > 0) {
+      return res.status(400).json({ error: "validation failed", issues });
+    }
+
+    await ensureSendsTable();
+    const auditId = (
+      await pool.query(
+        `INSERT INTO ops_campaign_sends
+          (admin_email, name, subject, audience_summary, send_method,
+           scheduled_for, status, recipient_count)
+         VALUES ($1, $2, $3, $4, $5, $6, 'queued', 0)
+         RETURNING id`,
+        [
+          adminEmail,
+          name,
+          subject,
+          JSON.stringify({ listIds, segmentIds, excludedSegmentIds }),
+          sendMethod,
+          sendMethod === "static" ? scheduledFor : null,
+        ]
+      )
+    ).rows[0].id;
+
+    try {
+      // Step 1: create the campaign + message envelope.
+      const audiences: { included: string[]; excluded?: string[] } = {
+        included: [...listIds, ...segmentIds],
+      };
+      if (excludedSegmentIds.length > 0) {
+        audiences.excluded = excludedSegmentIds;
+      }
+
+      const sendStrategy: Record<string, any> = (() => {
+        if (sendMethod === "static") {
+          return {
+            method: "static",
+            datetime: scheduledFor,
+            options_static: {
+              is_local: false,
+              send_past_recipients_immediately: false,
+            },
+          };
+        }
+        if (sendMethod === "smart_send_time") {
+          return {
+            method: "smart_send_time",
+            datetime: scheduledFor || new Date().toISOString(),
+          };
+        }
+        return { method: "immediate" };
+      })();
+
+      const createBody = {
+        data: {
+          type: "campaign",
+          attributes: {
+            name,
+            audiences,
+            send_strategy: sendStrategy,
+            send_options: { use_smart_sending: smartSendingEnabled },
+            "campaign-messages": {
+              data: [
+                {
+                  type: "campaign-message",
+                  attributes: {
+                    definition: {
+                      channel: "email",
+                      label: name,
+                      content: {
+                        subject,
+                        preview_text: previewText || "",
+                        from_email: fromEmail,
+                        from_label: fromLabel,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      const created = await klaviyoFetch<any>("/campaigns/", {
+        method: "POST",
+        body: JSON.stringify(createBody),
+      });
+      const campaignId: string = created?.data?.id;
+      if (!campaignId) throw new Error("campaign creation returned no id");
+
+      // We only need the message id; skip the sparse fieldset entirely so
+      // we don't trip Klaviyo's strict allowlist (label lives in definition,
+      // not as a top-level field).
+      const messages = await klaviyoFetch<any>(
+        `/campaigns/${encodeURIComponent(campaignId)}/campaign-messages/`
+      );
+      const messageId: string | undefined = messages?.data?.[0]?.id;
+      if (!messageId) throw new Error("no campaign-message id returned");
+
+      // Step 2: bind the template to the message. Klaviyo exposes this as
+      // a top-level action endpoint, not a sub-resource of campaign-messages
+      // — message id goes in the body, not the URL.
+      await klaviyoFetch("/campaign-message-assign-template/", {
+        method: "POST",
+        body: JSON.stringify({
+          data: {
+            type: "campaign-message",
+            id: messageId,
+            relationships: {
+              template: { data: { type: "template", id: templateId } },
+            },
+          },
+        }),
+      });
+
+      // Step 3: submit the send job. This commits the send (or schedules
+      // it based on the campaign's send_strategy).
+      await klaviyoFetch("/campaign-send-jobs/", {
+        method: "POST",
+        body: JSON.stringify({
+          data: { type: "campaign-send-job", id: campaignId },
+        }),
+      });
+
+      await pool.query(
+        `UPDATE ops_campaign_sends
+         SET klaviyo_campaign_id = $1, status = 'submitted', updated_at = NOW()
+         WHERE id = $2`,
+        [campaignId, auditId]
+      );
+
+      console.log(
+        `[OPS][KLAVIYO] send submitted by ${adminEmail}: campaign=${campaignId} method=${sendMethod}`
+      );
+      res.json({ success: true, campaignId, auditId });
+    } catch (e: any) {
+      console.error(`[OPS][KLAVIYO] send failed: ${e.message}`);
+      await pool.query(
+        `UPDATE ops_campaign_sends
+         SET status = 'failed', error = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [e.message?.slice(0, 1000) || "unknown error", auditId]
+      );
+      res.status(e.status || 500).json({ error: e.message, auditId });
+    }
+  });
+}
+
+async function ensureSendsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ops_campaign_sends (
+      id SERIAL PRIMARY KEY,
+      admin_email TEXT NOT NULL,
+      klaviyo_campaign_id TEXT,
+      name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      audience_summary JSONB NOT NULL,
+      send_method TEXT NOT NULL,
+      scheduled_for TIMESTAMP,
+      recipient_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 /**
