@@ -281,7 +281,7 @@ export function registerGoogleAuthRoutes(app: Express) {
           dimensions: [{ name: "sessionDefaultChannelGroup" }],
           metrics: [{ name: "sessions" }, { name: "totalUsers" }, { name: "screenPageViews" }],
           orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-          limit: 20,
+          limit: "20",
         },
       });
 
@@ -300,7 +300,7 @@ export function registerGoogleAuthRoutes(app: Express) {
           dimensions: [{ name: "pagePath" }],
           metrics: [{ name: "screenPageViews" }, { name: "averageSessionDuration" }],
           orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }],
-          limit: 15,
+          limit: "15",
         },
       });
 

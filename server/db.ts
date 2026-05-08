@@ -1,10 +1,9 @@
 /**
  * Database connection — shares the same RDS as the main FitScript app.
- * Same DATABASE_URL, same tables, read/write access.
+ * Raw SQL only via pool.query. Drizzle is intentionally not used here
+ * (see DECISIONS.md — "Raw SQL only, no Drizzle in this repo").
  */
-import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import * as schema from "./schema";
 
 const { Pool } = pg;
 
@@ -18,7 +17,6 @@ const pool = new Pool({
   ssl: connectionString.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
 });
 
-export const db = drizzle(pool, { schema });
 export { pool };
 
 export async function verifyConnection(): Promise<boolean> {

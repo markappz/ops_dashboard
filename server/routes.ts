@@ -401,9 +401,11 @@ export function registerRoutes(app: Express) {
       const member = await getMember(req.params.id);
       if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "No active subscription" });
 
-      // Get current subscription
+      // Get current subscription. Stripe moved current_period_end from
+      // Subscription to SubscriptionItem in the 2025 API version.
       const sub = await stripe.subscriptions.retrieve(member.stripe_subscription_id);
-      const currentEnd = sub.current_period_end;
+      const currentEnd =
+        sub.items.data[0]?.current_period_end ?? Math.floor(Date.now() / 1000);
       const newTrialEnd = currentEnd + months * 30 * 24 * 60 * 60;
 
       // Add free time by setting trial_end

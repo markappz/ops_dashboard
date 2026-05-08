@@ -7,6 +7,7 @@ import { verifyConnection, pool } from "./db";
 import { registerRoutes } from "./routes";
 import { registerTrackingRoutes } from "./tracking";
 import { registerGoogleAuthRoutes } from "./google-auth";
+import { registerAdminAuthRoutes, opsGate } from "./admin-auth";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -22,12 +23,19 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Health check
+// Health check (public)
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "fitscript-ops", timestamp: new Date().toISOString() });
 });
 
-// Register API routes
+// Admin auth routes register BEFORE the gate so they stay reachable.
+registerAdminAuthRoutes(app);
+
+// Gate every /api/ops/* (except /api/ops/auth/*) behind admin session.
+// /api/t/* (tracking pixel ingest) stays public.
+app.use(opsGate);
+
+// Register protected API routes
 registerRoutes(app);
 registerTrackingRoutes(app);
 registerGoogleAuthRoutes(app);

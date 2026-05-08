@@ -1,4 +1,5 @@
 import { Route, Switch } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { OpsLayout } from "./components/layout/ops-layout";
 import { Component, type ReactNode } from "react";
 import CommandCenter from "./pages/command-center";
@@ -8,6 +9,26 @@ import Orders from "./pages/orders";
 import Tracking from "./pages/tracking";
 import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
+import Login from "./pages/login";
+
+interface Me {
+  email: string;
+}
+
+function useAdminSession() {
+  return useQuery<Me | null>({
+    queryKey: ["ops-auth-me"],
+    queryFn: async () => {
+      const r = await fetch("/api/ops/auth/me");
+      if (r.status === 401 || r.status === 403) return null;
+      if (!r.ok) throw new Error("auth check failed");
+      return r.json();
+    },
+    retry: false,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+}
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -32,8 +53,22 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 export default function App() {
+  const { data: me, isLoading } = useAdminSession();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-ops-bg text-ops-text-muted text-sm">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!me) {
+    return <Login />;
+  }
+
   return (
-    <OpsLayout>
+    <OpsLayout adminEmail={me.email}>
       <ErrorBoundary>
         <Switch>
           <Route path="/" component={CommandCenter} />
