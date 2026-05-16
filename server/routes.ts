@@ -7,6 +7,7 @@
 import type { Express } from "express";
 import { pool } from "./db";
 import Stripe from "stripe";
+import { getMembersMtdCostMap } from "./economics";
 
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
@@ -154,21 +155,29 @@ export function registerRoutes(app: Express) {
       const totalResult = await pool.query(`SELECT count(*) FROM users ${where}`, params);
       const total = parseInt(totalResult.rows[0].count);
 
-      const members = membersResult.rows.map((r: any) => ({
-        id: r.id,
-        email: r.email,
-        firstName: r.first_name,
-        lastName: r.last_name,
-        subscriptionTier: r.subscription_tier,
-        subscriptionStatus: r.subscription_status,
-        stripeCustomerId: r.stripe_customer_id,
-        createdAt: r.created_at,
-        lastActiveDate: r.last_active_date,
-        source: r.first_touch_source || null,
-        campaign: r.first_touch_campaign || null,
-        ltv: r.ltv_lifetime ? parseFloat(r.ltv_lifetime) : 0,
-        totalRevenue: r.total_revenue ? parseFloat(r.total_revenue) : 0,
-      }));
+      const costMap = await getMembersMtdCostMap();
+
+      const members = membersResult.rows.map((r: any) => {
+        const aiCostMtd = costMap.get(r.id) ?? 0;
+        const totalRevenue = r.total_revenue ? parseFloat(r.total_revenue) : 0;
+        return {
+          id: r.id,
+          email: r.email,
+          firstName: r.first_name,
+          lastName: r.last_name,
+          subscriptionTier: r.subscription_tier,
+          subscriptionStatus: r.subscription_status,
+          stripeCustomerId: r.stripe_customer_id,
+          createdAt: r.created_at,
+          lastActiveDate: r.last_active_date,
+          source: r.first_touch_source || null,
+          campaign: r.first_touch_campaign || null,
+          ltv: r.ltv_lifetime ? parseFloat(r.ltv_lifetime) : 0,
+          totalRevenue,
+          aiCostMtd,
+          marginPct: totalRevenue > 0 ? ((totalRevenue - aiCostMtd) / totalRevenue) * 100 : null,
+        };
+      });
 
       res.json({
         members,

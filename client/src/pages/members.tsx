@@ -16,6 +16,25 @@ interface Member {
   campaign: string | null;
   ltv: number;
   totalRevenue: number;
+  aiCostMtd: number;
+  marginPct: number | null;
+}
+
+type SortKey = "default" | "ai_cost" | "ltv" | "margin";
+
+function formatUSD(n: number, digits = 2): string {
+  if (n === 0) return "$0";
+  if (n < 0.01) return `$${n.toFixed(4)}`;
+  return `$${n.toFixed(digits)}`;
+}
+
+function MarginBadge({ pct }: { pct: number | null }) {
+  if (pct === null) {
+    return <span className="text-ops-text-muted">—</span>;
+  }
+  const color =
+    pct >= 80 ? "text-fitscript-green" : pct >= 50 ? "text-amber-400" : "text-red-400";
+  return <span className={`font-medium ${color}`}>{pct.toFixed(0)}%</span>;
 }
 
 interface MembersResponse {
@@ -48,6 +67,7 @@ export default function Members() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("default");
 
   const { data, isLoading } = useQuery<MembersResponse>({
     queryKey: ["ops-members", page, search, tierFilter],
@@ -101,19 +121,50 @@ export default function Members() {
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Tier</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Status</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Source</th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">LTV</th>
+              <th
+                className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider cursor-pointer hover:text-ops-text"
+                onClick={() => setSortKey(sortKey === "ai_cost" ? "default" : "ai_cost")}
+                title="AI cost month-to-date (Atlas chat; other surfaces pending instrumentation)"
+              >
+                AI Cost MTD {sortKey === "ai_cost" && "↓"}
+              </th>
+              <th
+                className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider cursor-pointer hover:text-ops-text"
+                onClick={() => setSortKey(sortKey === "ltv" ? "default" : "ltv")}
+              >
+                LTV {sortKey === "ltv" && "↓"}
+              </th>
+              <th
+                className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider cursor-pointer hover:text-ops-text"
+                onClick={() => setSortKey(sortKey === "margin" ? "default" : "margin")}
+                title="(Revenue - AI Cost) / Revenue. Higher is better."
+              >
+                Margin {sortKey === "margin" && "↓"}
+              </th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Signed Up</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-ops-border">
             {isLoading ? (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center">
+                <td colSpan={8} className="px-5 py-12 text-center">
                   <div className="w-6 h-6 border-2 border-fitscript-green border-t-transparent rounded-full animate-spin mx-auto" />
                 </td>
               </tr>
             ) : (
-              data?.members.map((member, idx) => (
+              (() => {
+                const rows = data?.members ?? [];
+                const sorted = [...rows].sort((a, b) => {
+                  if (sortKey === "ai_cost") return b.aiCostMtd - a.aiCostMtd;
+                  if (sortKey === "ltv") return b.ltv - a.ltv;
+                  if (sortKey === "margin") {
+                    const ax = a.marginPct ?? -Infinity;
+                    const bx = b.marginPct ?? -Infinity;
+                    return bx - ax;
+                  }
+                  return 0;
+                });
+                return sorted.map((member) => (
                 <tr key={member.id} className="hover:bg-ops-surface-hover transition-colors cursor-pointer"
                     onClick={() => { console.log("Navigating to member:", member.id); navigate(`/members/${member.id}`); }}>
                   <td className="px-5 py-3">
@@ -137,14 +188,25 @@ export default function Members() {
                     {member.source || "---"}
                     {member.campaign && <div className="text-[10px] text-ops-text-muted/60">{member.campaign}</div>}
                   </td>
+                  <td className="px-5 py-3 text-right text-sm">
+                    {member.aiCostMtd > 0 ? (
+                      <span className="text-amber-300 font-medium">{formatUSD(member.aiCostMtd)}</span>
+                    ) : (
+                      <span className="text-ops-text-muted">$0</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-right text-sm font-medium">
                     {member.ltv > 0 ? <span className="text-fitscript-green">${member.ltv.toFixed(0)}</span> : <span className="text-ops-text-muted">$0</span>}
+                  </td>
+                  <td className="px-5 py-3 text-right text-sm">
+                    <MarginBadge pct={member.marginPct} />
                   </td>
                   <td className="px-5 py-3 text-sm text-ops-text-muted">
                     {member.createdAt ? new Date(member.createdAt).toLocaleDateString() : "---"}
                   </td>
                 </tr>
-              ))
+                ));
+              })()
             )}
           </tbody>
         </table>

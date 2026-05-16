@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { CostVsRevenueChart } from "../components/charts/cost-vs-revenue-chart";
 
 interface ChannelData {
   channel: string;
@@ -82,6 +83,11 @@ export default function Tracking() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ops-text">Tracking & Attribution</h1>
         <p className="text-sm text-ops-text-muted mt-1">Full funnel from first visit to lifetime value</p>
+      </div>
+
+      {/* Unit Economics Chart */}
+      <div className="mb-6">
+        <CostVsRevenueChart />
       </div>
 
       {/* Funnel */}

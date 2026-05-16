@@ -65,3 +65,23 @@ Record of every important decision so we don't revisit settled questions.
 **Why:** Drizzle ORM crashed in the ops-dashboard runtime previously (logged in cross-project memory `feedback_ops_raw_sql`). Cost a debugging session. Raw SQL is also the pattern already used throughout `server/routes.ts`.
 
 **How to apply:** New endpoints write SQL directly. Schema-of-record lives in the main FitScript repo's Drizzle schema; ops only reads from those tables.
+
+---
+
+## 2026-05-15 — Unified `ai_costs` table + dual-write from Atlas
+
+**Decision:** All AI surfaces in FitScript write per-call cost to a single `ai_costs(user_id, surface, model, input/output/cache tokens, cost_usd, metadata, created_at)` table. Atlas keeps writing detailed turn-level data to `atlas_turn_analytics` AND dual-writes a roll-up row to `ai_costs`. Ops dashboard reads via runtime-detected UNION (atlas_turn_analytics + ai_costs) so coverage upgrades automatically as instrumentation lands.
+
+**Why:** Two tables would have required ops dashboard to maintain two parallel query paths forever, plus a third for any future surface. One unified `ai_costs` keeps the read path stable while still letting Atlas keep its rich classifier/cache analytics. The dual-write is intentional duplication — Atlas spend appears in both tables — but the ops dashboard's UNION dedupe is unnecessary because we report cost as `SUM(cost_usd)` over distinct sources, not row counts. Keeping `atlas_turn_analytics` untouched preserves all the per-turn metadata Atlas's own tooling reads.
+
+**How to apply:** Any new Claude/Bedrock call site in FitScript imports `logAiCost` from `server/services/aiCostLogger.ts` and calls it after the API response, passing tokens + a stable `surface` name. The helper handles cost calc (mirrors `atlasAnalytics` cache math: reads at 10%, writes at 2.0x for 1h TTL) and is try/catch-wrapped so analytics failures never throw into the user path. Embeddings have their own `EMBEDDING_PRICING` map inside the helper since Titan isn't in `MODEL_PRICING`. Surface naming convention: `<feature>` or `atlas_<subroutine>`. New surfaces don't need ops-dashboard changes — they appear in the per-user breakdown via `surface` group-by automatically.
+
+---
+
+## 2026-05-15 — Economics endpoint reports coverage flag with every payload
+
+**Decision:** Every economics response (`/api/ops/economics/platform`, `/api/ops/economics/members/:id`, members-list MTD injection) includes a `coverage: "atlas_only" | "all_surfaces"` field derived from `information_schema.tables` lookup of `ai_costs`. UI surfaces this verbatim with the label "Atlas chat only · other AI surfaces pending instrumentation".
+
+**Why:** Reporting AI cost without disclosing which surfaces are counted creates the worst kind of dashboard — one that looks complete but isn't. If a session lands on `/command-center` and sees `Gross Margin: 99.5%`, that conclusion is meaningful only when the user knows we're only counting Atlas. Forced labeling prevents that misread. Once Phase 2 instrumentation deploys to FitScript prod and `ai_costs` fills with non-atlas rows, the flag flips automatically — no UI changes needed.
+
+**How to apply:** Every new economics surface inherits this. Don't strip the flag from response payloads. Don't hardcode the UI to expect "all_surfaces" — render the literal flag value so future expansions (a third "all_surfaces_plus_embeddings_excluded" mode, etc.) need only a label-map update.

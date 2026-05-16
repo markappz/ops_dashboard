@@ -102,6 +102,26 @@ export default function MemberDetail({ id }: { id: string }) {
     enabled: !!memberId,
   });
 
+  const { data: economics } = useQuery<{
+    coverage: string;
+    cost_mtd: number;
+    cost_ltd: number;
+    turns_mtd: number;
+    turns_ltd: number;
+    avg_cost_per_turn: number;
+    avg_latency_ms: number | null;
+    revenue_total: number;
+    ltv: number;
+    cost_to_revenue_pct: number | null;
+    surfaces: { surface: string; cost_usd: number; calls: number }[];
+    model_mix: { model: string; turns: number; cost_usd: number }[];
+    daily_last_30d: { date: string; cost_usd: number }[];
+  }>({
+    queryKey: ["ops-member-economics", memberId],
+    queryFn: () => fetch(`/api/ops/economics/members/${memberId}`).then((r) => r.json()),
+    enabled: !!memberId,
+  });
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["ops-member", memberId] });
     queryClient.invalidateQueries({ queryKey: ["ops-member-payments", memberId] });
@@ -248,6 +268,127 @@ export default function MemberDetail({ id }: { id: string }) {
           <InfoRow label="Atlas Chats" value={chatCount} />
         </div>
       </div>
+
+      {/* AI Economics */}
+      {economics && (
+        <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-sm font-semibold text-ops-text">AI Economics</h3>
+            <div className="text-xs text-ops-text-muted">
+              {economics.coverage === "atlas_only"
+                ? "Atlas chat only · other AI surfaces pending instrumentation"
+                : "All AI surfaces"}
+            </div>
+          </div>
+          <div className="grid grid-cols-5 gap-6">
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Cost MTD</div>
+              <div className="text-lg font-bold text-amber-300">
+                {economics.cost_mtd < 0.01 ? `$${economics.cost_mtd.toFixed(4)}` : `$${economics.cost_mtd.toFixed(2)}`}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">{economics.turns_mtd} turns</div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Cost LTD</div>
+              <div className="text-lg font-bold text-amber-300">
+                {economics.cost_ltd < 0.01 ? `$${economics.cost_ltd.toFixed(4)}` : `$${economics.cost_ltd.toFixed(2)}`}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">{economics.turns_ltd} turns</div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Avg / Turn</div>
+              <div className="text-lg font-bold text-ops-text">
+                ${economics.avg_cost_per_turn.toFixed(4)}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">
+                {economics.avg_latency_ms ? `${economics.avg_latency_ms}ms avg` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Revenue</div>
+              <div className="text-lg font-bold text-fitscript-green">
+                ${economics.revenue_total.toFixed(2)}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">LTV ${economics.ltv.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Cost / Revenue</div>
+              <div
+                className={`text-lg font-bold ${
+                  economics.cost_to_revenue_pct === null
+                    ? "text-ops-text-muted"
+                    : economics.cost_to_revenue_pct < 20
+                    ? "text-fitscript-green"
+                    : economics.cost_to_revenue_pct < 50
+                    ? "text-amber-400"
+                    : "text-red-400"
+                }`}
+              >
+                {economics.cost_to_revenue_pct === null
+                  ? "—"
+                  : `${economics.cost_to_revenue_pct.toFixed(1)}%`}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">
+                {economics.cost_to_revenue_pct === null
+                  ? "no revenue yet"
+                  : economics.cost_to_revenue_pct < 20
+                  ? "healthy"
+                  : economics.cost_to_revenue_pct < 50
+                  ? "watch"
+                  : "review"}
+              </div>
+            </div>
+          </div>
+
+          {/* Model mix + 30d sparkline */}
+          {(economics.model_mix.length > 0 || economics.daily_last_30d.length > 0) && (
+            <div className="grid grid-cols-2 gap-6 mt-6 pt-5 border-t border-ops-border">
+              <div>
+                <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">Model Mix</div>
+                {economics.model_mix.length === 0 ? (
+                  <div className="text-sm text-ops-text-muted">No Atlas activity yet.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {economics.model_mix.map((m) => (
+                      <div key={m.model} className="flex items-center justify-between text-sm">
+                        <span className="text-ops-text-muted font-mono text-xs truncate max-w-[60%]" title={m.model}>
+                          {m.model.replace("us.anthropic.", "").replace(/-v\d+:\d+$/, "")}
+                        </span>
+                        <div className="flex gap-3">
+                          <span className="text-ops-text-muted">{m.turns} turns</span>
+                          <span className="text-amber-300 font-medium w-16 text-right">
+                            ${m.cost_usd.toFixed(4)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">Last 30 Days</div>
+                {economics.daily_last_30d.length === 0 ? (
+                  <div className="text-sm text-ops-text-muted">No activity in last 30 days.</div>
+                ) : (
+                  <div className="flex items-end gap-1 h-16">
+                    {(() => {
+                      const max = Math.max(...economics.daily_last_30d.map((d) => d.cost_usd), 0.0001);
+                      return economics.daily_last_30d.map((d) => (
+                        <div
+                          key={d.date}
+                          className="flex-1 bg-amber-400/60 rounded-t-sm hover:bg-amber-400 transition-colors"
+                          style={{ height: `${(d.cost_usd / max) * 100}%`, minHeight: d.cost_usd > 0 ? "2px" : "0" }}
+                          title={`${d.date}: $${d.cost_usd.toFixed(4)}`}
+                        />
+                      ));
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">

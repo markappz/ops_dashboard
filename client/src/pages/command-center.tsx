@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
 
 interface Snapshot {
@@ -102,6 +103,19 @@ export default function CommandCenter() {
     refetchInterval: 15_000,
   });
 
+  const { data: economics } = useQuery<{
+    coverage: string;
+    cost_mtd: number;
+    revenue_mtd: number;
+    gross_margin_pct: number | null;
+    users_mtd: number;
+    top_users: { user_id: string; email: string; cost_usd: number; calls: number; revenue_usd: number }[];
+  }>({
+    queryKey: ["ops-economics-platform"],
+    queryFn: () => fetch("/api/ops/economics/platform?days=30").then((r) => r.json()),
+    refetchInterval: 60_000,
+  });
+
   if (isLoading || !snapshot) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -160,6 +174,119 @@ export default function CommandCenter() {
         <MetricCard label="Atlas Chats" value={snapshot.totalAtlasChats} />
         <MetricCard label="Waitlist" value={snapshot.waitlistCount} />
       </div>
+
+      {/* Unit Economics */}
+      {economics && (
+        <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-sm font-semibold text-ops-text">Unit Economics — Last 30 Days</h3>
+            <div className="text-xs text-ops-text-muted">
+              {economics.coverage === "atlas_only"
+                ? "Atlas chat only · other AI surfaces pending instrumentation"
+                : "All AI surfaces"}
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-4 mb-5">
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Revenue MTD</div>
+              <div className="text-2xl font-bold text-fitscript-green">
+                {formatCurrency(economics.revenue_mtd)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">AI Cost MTD</div>
+              <div className="text-2xl font-bold text-amber-300">
+                {economics.cost_mtd < 1
+                  ? `$${economics.cost_mtd.toFixed(4)}`
+                  : formatCurrency(economics.cost_mtd)}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">{economics.users_mtd} active users</div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Gross Margin</div>
+              <div
+                className={`text-2xl font-bold ${
+                  economics.gross_margin_pct === null
+                    ? "text-ops-text-muted"
+                    : economics.gross_margin_pct >= 70
+                    ? "text-fitscript-green"
+                    : economics.gross_margin_pct >= 40
+                    ? "text-amber-400"
+                    : "text-red-400"
+                }`}
+              >
+                {economics.gross_margin_pct === null
+                  ? "—"
+                  : `${economics.gross_margin_pct.toFixed(1)}%`}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">
+                Rev − AI cost
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider">Cost / User</div>
+              <div className="text-2xl font-bold text-ops-text">
+                {economics.users_mtd > 0
+                  ? `$${(economics.cost_mtd / economics.users_mtd).toFixed(4)}`
+                  : "—"}
+              </div>
+              <div className="text-xs text-ops-text-muted mt-1">avg AI cost MTD</div>
+            </div>
+          </div>
+
+          {/* Top costly users */}
+          {economics.top_users.length > 0 && (
+            <div className="pt-4 border-t border-ops-border">
+              <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+                Highest AI Cost (MTD)
+              </div>
+              <div className="space-y-2">
+                {economics.top_users.map((u) => {
+                  const ratio = u.revenue_usd > 0 ? (u.cost_usd / u.revenue_usd) * 100 : null;
+                  return (
+                    <Link
+                      key={u.user_id}
+                      href={`/members/${u.user_id}`}
+                      className="flex items-center justify-between text-sm py-1.5 hover:bg-ops-surface-hover rounded px-2 -mx-2"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-ops-text truncate">{u.email || u.user_id.slice(0, 8)}</div>
+                        <div className="text-xs text-ops-text-muted">{u.calls} calls</div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <div className="text-fitscript-green font-medium">${u.revenue_usd.toFixed(2)}</div>
+                          <div className="text-[10px] text-ops-text-muted">revenue</div>
+                        </div>
+                        <div className="text-right w-20">
+                          <div className="text-amber-300 font-medium">${u.cost_usd.toFixed(4)}</div>
+                          <div className="text-[10px] text-ops-text-muted">cost</div>
+                        </div>
+                        <div className="text-right w-16">
+                          <div
+                            className={
+                              ratio === null
+                                ? "text-ops-text-muted"
+                                : ratio < 20
+                                ? "text-fitscript-green"
+                                : ratio < 50
+                                ? "text-amber-400"
+                                : "text-red-400"
+                            }
+                          >
+                            {ratio === null ? "—" : `${ratio.toFixed(1)}%`}
+                          </div>
+                          <div className="text-[10px] text-ops-text-muted">cost/rev</div>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Revenue Chart */}
       <div className="mb-6">

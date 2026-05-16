@@ -125,3 +125,53 @@ Plus two send-orchestration path bugs:
 - Customer-defined sender email (currently uses Klaviyo's account default).
 - Campaign-level metrics post-send (opens/clicks/revenue) — still on the v1.5 roadmap.
 - Surfacing connector errors visibly on read pages (currently empty-state masks them).
+
+---
+
+## 2026-05-15 — Unit Economics (Phase 1): per-user + platform AI cost vs revenue
+
+**Worked on:** Backlog audit + brand-new unit-economics surface so Paul can see "what each user costs us in AI vs what they pay" and "platform AI spend vs revenue."
+
+**Backlog snapshot (cataloged at start of session):**
+- Broken sidebar nav: `/content`, `/creative`, `/clinical` linked from `ops-layout.tsx:7-17` but no routes/pages exist.
+- Stubbed integration tiles on `/integrations`: Meta Ads, Google Ads (lines 274-275 of `integrations.tsx`).
+- Klaviyo v1.5 polish deferred: throttled send, custom sender, post-send metrics, visible 4xx error surfacing.
+- `server/routes.ts:100` waitlistCount hardcoded `0` (TODO).
+- No `ops_admin_actions` audit table — every cancel/refund/pause/comp through dashboard is unaudited.
+- Tracking depth gaps per the Hyros-style spec in `project_fitscript_tracking_system.md`.
+
+**Phase 1 — ops dashboard work (this repo):**
+- `server/economics.ts` (new) — `getPlatformEconomics(days)`, `getMemberEconomics(userId)`, `getMembersMtdCostMap()`. Detects `ai_costs` table existence at runtime; runs UNION over `atlas_turn_analytics + ai_costs` when present, falls back to Atlas-only otherwise. Coverage flag returned in every response (`"atlas_only"` vs `"all_surfaces"`) so the UI can label honestly.
+- `server/index.ts` — registered `registerEconomicsRoutes(app)` after the admin gate.
+- `server/routes.ts` — `/api/ops/members` now injects `aiCostMtd` and `marginPct` per row using `getMembersMtdCostMap` (one bulk query, no N+1).
+- `client/src/pages/members.tsx` — new sortable columns (AI Cost MTD, LTV, Margin %). Click header to sort, click again to clear.
+- `client/src/pages/member-detail.tsx` — new "AI Economics" card with 5 KPIs (cost MTD/LTD, avg/turn + latency, revenue, cost/revenue ratio), plus model mix + 30d sparkline. Color-coded threshold: <20% green, <50% amber, else red.
+- `client/src/pages/command-center.tsx` — new "Unit Economics — Last 30 Days" tile with Revenue MTD / AI Cost MTD / Gross Margin / Cost per User, plus top-5 highest-cost users (click-through to their detail page).
+- `client/src/components/charts/cost-vs-revenue-chart.tsx` (new) — Recharts ComposedChart (Area for revenue, Line for AI cost on right axis), with 30/60/90d toggle. Mounted at top of `/tracking`.
+
+**Coverage gating:** every economics surface shows `"Atlas chat only · other AI surfaces pending instrumentation"` until `ai_costs` table contains rows from non-atlas surfaces.
+
+**Phase 2 — FitScript instrumentation (delegated to agent, uncommitted in `/Users/clomark/Projects/fitscript`):**
+- `scripts/migrations/2026-05-15-ai-costs.sql` — DDL for `ai_costs(id, user_id, surface, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, latency_ms, metadata, created_at)` + 3 indexes. **APPLIED to RDS this session** (additive `IF NOT EXISTS`).
+- `server/services/aiCostLogger.ts` (new) — Anthropic + Titan-Embed pricing, cache math mirrors `atlasAnalytics`, raw `pool.query` insert wrapped in try/catch.
+- 8 surfaces instrumented: `meal_vision`, `lab_analysis`, `lab_narrative`, `protocol`, `embedding`, `ai_service`, `atlas` (dual-write — preserves existing `atlas_turn_analytics`), `atlas_classifier`, `atlas_title`.
+- Files touched: `mealVisionService.ts`, `labAnalysisService.ts`, `labProcessingService.ts`, `protocol-engine.ts`, `rag/embedding-service.ts`, `aiService.ts`, `atlasAnalytics.ts`, `aiAdvisorService.ts`, `routes.ts` (userId threading).
+- Verification: `npx tsc --noEmit` → zero new errors in touched files (120 pre-existing unrelated). `npm run build` → clean.
+
+**Verified live:**
+- `npx tsc --noEmit` in ops-dashboard → clean.
+- `npm run build` → clean (742kb client gz 199kb; 78.8kb server bundle).
+- Dev server bound to `localhost:5001`. `/api/health` returns ok. `/api/ops/economics/platform?days=30` correctly 401s through the auth gate.
+- Direct SQL replay confirms `cost_mtd: $0.7588 across 1 user (paulclotar@gmail.com, 19 turns)`. LTD `$1.19`. Top users + members map + UNION query all return correct shape.
+- `ai_costs` table created on RDS with all 4 indexes (`pkey`, `user_created`, `surface_created`, `created`).
+
+**Pending — not pushed yet (per "Don't push without approval"):**
+- ops-dashboard: all 6 file edits + 1 new endpoint + 1 new chart component.
+- fitscript: 9 service edits + 2 new files. Paul needs to local-test that AI surfaces still respond before pushing.
+
+**Next session:**
+1. Paul browser-verifies all 4 surfaces on `localhost:5001`.
+2. Push ops-dashboard.
+3. Local-test fitscript AI surfaces (Atlas, meal photo, lab upload, protocol gen) to confirm `logAiCost` doesn't crash anything.
+4. Push fitscript → ECS deploy → `ai_costs` starts populating from all 8 surfaces → coverage flag flips to `"all_surfaces"`.
+5. Then move to whatever's next in the backlog (Meta Ads or `/content` page were the impact-ordered candidates).
