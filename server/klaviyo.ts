@@ -105,12 +105,18 @@ interface ConversionMetric {
   isRevenueMetric: boolean;
 }
 
-let conversionMetric: ConversionMetric | null = null;
-let conversionMetricFetchedAt = 0;
+type MetricPurpose = "campaign" | "flow";
+
+// Cache per purpose. The same metric isn't always compatible across
+// campaign-values-reports and flow-values-reports — Klaviyo's quirks.
+const conversionMetricCache = new Map<
+  MetricPurpose,
+  { metric: ConversionMetric; fetchedAt: number }
+>();
 const METRIC_CACHE_TTL_MS = 1000 * 60 * 30; // 30 min
 
 // Revenue-producing metric names from common ecommerce integrations.
-// First match wins. Override with KLAVIYO_CONVERSION_METRIC_NAME env if needed.
+// Override with KLAVIYO_CONVERSION_METRIC_NAME env if needed.
 const REVENUE_METRIC_NAME_PRIORITY = [
   "placed order",
   "order placed",
@@ -118,22 +124,25 @@ const REVENUE_METRIC_NAME_PRIORITY = [
   "checkout completed",
 ];
 
-// Klaviyo requires conversion_metric_id on campaign-values-reports even if you
-// only want engagement stats. If no revenue metric is found (account has no
-// Shopify/Stripe integration), fall back to an engagement metric so opens/clicks
-// still work — but flag revenue as unavailable.
-const ENGAGEMENT_METRIC_FALLBACK_NAMES = [
-  "opened email",
-  "received email",
-  "clicked email",
-];
+// Engagement metric fallbacks (per-purpose, because Klaviyo accepts different
+// ones for campaign vs flow values reports — empirically determined).
+const ENGAGEMENT_FALLBACK_BY_PURPOSE: Record<MetricPurpose, string[]> = {
+  campaign: ["opened email", "received email", "clicked email", "bounced email"],
+  flow: ["bounced email", "received email", "opened email", "clicked email"],
+};
 
-async function getConversionMetric(): Promise<ConversionMetric | null> {
-  if (
-    conversionMetric &&
-    Date.now() - conversionMetricFetchedAt < METRIC_CACHE_TTL_MS
-  ) {
-    return conversionMetric;
+function isUnsupportedConversionMetricError(e: any): boolean {
+  const msg = String(e?.message || "");
+  const bodyDetail = e?.body?.errors?.[0]?.detail || "";
+  return /does not support querying for values data/i.test(msg + " " + bodyDetail);
+}
+
+async function getConversionMetric(
+  purpose: MetricPurpose,
+): Promise<ConversionMetric | null> {
+  const cached = conversionMetricCache.get(purpose);
+  if (cached && Date.now() - cached.fetchedAt < METRIC_CACHE_TTL_MS) {
+    return cached.metric;
   }
   try {
     // /metrics/ does NOT accept page[size] — it 400s. Default returns all.
@@ -145,29 +154,56 @@ async function getConversionMetric(): Promise<ConversionMetric | null> {
       ? [override, ...REVENUE_METRIC_NAME_PRIORITY]
       : REVENUE_METRIC_NAME_PRIORITY;
 
-    // 1. Try a real revenue metric first
+    // Build candidate list: revenue first (flagged), then engagement fallbacks.
+    const candidates: ConversionMetric[] = [];
     for (const wanted of revenueNames) {
       const match = all.find((m) => m.attributes?.name?.toLowerCase() === wanted);
-      if (match) {
-        conversionMetric = { id: match.id, name: match.attributes!.name!, isRevenueMetric: true };
-        conversionMetricFetchedAt = Date.now();
-        return conversionMetric;
-      }
+      if (match) candidates.push({ id: match.id, name: match.attributes!.name!, isRevenueMetric: true });
+    }
+    for (const wanted of ENGAGEMENT_FALLBACK_BY_PURPOSE[purpose]) {
+      const match = all.find((m) => m.attributes?.name?.toLowerCase() === wanted);
+      if (match) candidates.push({ id: match.id, name: match.attributes!.name!, isRevenueMetric: false });
     }
 
-    // 2. Fall back to engagement metric so opens/clicks still report.
-    //    Klaviyo will accept any "values-data-compatible" metric. Custom API
-    //    metrics (category=API) are NOT compatible; only Internal Klaviyo ones.
-    for (const wanted of ENGAGEMENT_METRIC_FALLBACK_NAMES) {
-      const match = all.find((m) => m.attributes?.name?.toLowerCase() === wanted);
-      if (match) {
-        conversionMetric = { id: match.id, name: match.attributes!.name!, isRevenueMetric: false };
-        conversionMetricFetchedAt = Date.now();
-        return conversionMetric;
+    // Probe each candidate with a minimal report — first one that 200s wins.
+    // This avoids the per-purpose compatibility surprises Klaviyo throws at us.
+    const reportType =
+      purpose === "campaign" ? "campaign-values-report" : "flow-values-report";
+    const reportPath =
+      purpose === "campaign" ? "/campaign-values-reports/" : "/flow-values-reports/";
+
+    for (const cand of candidates) {
+      try {
+        await klaviyoFetch(reportPath, {
+          method: "POST",
+          body: JSON.stringify({
+            data: {
+              type: reportType,
+              attributes: {
+                statistics: ["delivered"],
+                timeframe: { key: "last_7_days" },
+                conversion_metric_id: cand.id,
+              },
+            },
+          }),
+        });
+        // Worked. Cache and return.
+        conversionMetricCache.set(purpose, { metric: cand, fetchedAt: Date.now() });
+        return cand;
+      } catch (e: any) {
+        if (isUnsupportedConversionMetricError(e)) {
+          // Try next candidate.
+          continue;
+        }
+        // Other errors (rate limit, network, etc.) — re-throw outward.
+        throw e;
       }
     }
   } catch (e) {
-    console.warn("[KLAVIYO] metric discovery failed:", (e as Error).message);
+    console.warn(
+      `[KLAVIYO] ${purpose} metric discovery failed:`,
+      (e as Error).message,
+    );
   }
   return null;
 }
@@ -250,6 +286,145 @@ export function registerKlaviyoRoutes(app: Express) {
         updatedAt: f.attributes?.updated ?? null,
       }));
       res.json({ flows });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Flip a flow between live and draft. Klaviyo doesn't distinguish "pause"
+  // from "draft" via the API — both are just status changes.
+  app.patch("/api/ops/klaviyo/flows/:id/status", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const { status } = req.body ?? {};
+    const targetId = req.params.id;
+    if (status !== "live" && status !== "draft" && status !== "manual") {
+      return res.status(400).json({
+        error: "status must be 'live', 'draft', or 'manual'",
+      });
+    }
+    try {
+      const data = await klaviyoFetch<{ data: any }>(
+        `/flows/${encodeURIComponent(targetId)}/`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            data: {
+              type: "flow",
+              id: targetId,
+              attributes: { status },
+            },
+          }),
+        },
+      );
+      const newStatus = data.data?.attributes?.status ?? status;
+      const name = data.data?.attributes?.name ?? null;
+      await logAdminAction({
+        adminEmail,
+        actionType: `flow.${status === "live" ? "activate" : "deactivate"}`,
+        targetKind: "klaviyo_flow",
+        targetId,
+        targetLabel: name,
+        status: "ok",
+        metadata: { newStatus },
+      });
+      console.log(
+        `[OPS][KLAVIYO] flow ${targetId} → ${newStatus} by ${adminEmail}`,
+      );
+      res.json({ id: targetId, status: newStatus, name });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: `flow.${status === "live" ? "activate" : "deactivate"}`,
+        targetKind: "klaviyo_flow",
+        targetId,
+        status: "failed",
+        error: e.message,
+      });
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Per-flow stats over a time window. Mirrors campaign-metrics:
+  // one POST to Klaviyo returns all flows in the window — no N+1.
+  app.get("/api/ops/klaviyo/flow-metrics", async (req, res) => {
+    try {
+      const days = Math.min(
+        Math.max(parseInt((req.query.days as string) || "30"), 7),
+        365,
+      );
+      const presetKey =
+        days <= 7
+          ? "last_7_days"
+          : days <= 30
+            ? "last_30_days"
+            : days <= 90
+              ? "last_90_days"
+              : "last_365_days";
+
+      const conv = await getConversionMetric("flow");
+      if (!conv) {
+        return res.json({
+          metrics: {},
+          revenueAvailable: false,
+          warning: "No usable conversion metric found in this Klaviyo account.",
+        });
+      }
+
+      const body = {
+        data: {
+          type: "flow-values-report",
+          attributes: {
+            statistics: [
+              "opens",
+              "opens_unique",
+              "clicks",
+              "clicks_unique",
+              "delivered",
+              "bounced",
+              "unsubscribes",
+              "spam_complaints",
+              "conversions",
+              "conversion_uniques",
+              "conversion_value",
+              "recipients",
+              "open_rate",
+              "click_rate",
+              "click_to_open_rate",
+              "bounce_rate",
+              "unsubscribe_rate",
+              "revenue_per_recipient",
+            ],
+            timeframe: { key: presetKey },
+            conversion_metric_id: conv.id,
+          },
+        },
+      };
+
+      const data = await klaviyoFetch<{
+        data: { attributes?: { results?: any[] } };
+      }>("/flow-values-reports/", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+
+      const rows = data.data?.attributes?.results || [];
+      const metrics: Record<string, any> = {};
+      for (const row of rows) {
+        const id = row.groupings?.flow_id;
+        if (!id) continue;
+        metrics[id] = row.statistics || {};
+      }
+
+      res.json({
+        metrics,
+        timeframe: presetKey,
+        flowCount: Object.keys(metrics).length,
+        revenueAvailable: conv.isRevenueMetric,
+        conversionMetricName: conv.name,
+        warning: conv.isRevenueMetric
+          ? null
+          : `Using ${conv.name} as the conversion metric. Revenue values will be 0 until a values-data-compatible revenue event exists.`,
+      });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message });
     }
@@ -405,7 +580,7 @@ export function registerKlaviyoRoutes(app: Express) {
               ? "last_90_days"
               : "last_365_days";
 
-      const conv = await getConversionMetric();
+      const conv = await getConversionMetric("campaign");
       if (!conv) {
         return res.json({
           metrics: {},
@@ -707,6 +882,68 @@ async function ensureSendsTable() {
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+}
+
+/**
+ * Generic audit log for write actions performed through the ops dashboard.
+ * action_type examples: "flow.activate", "flow.deactivate", "member.cancel",
+ * "member.refund", "member.comp", "member.change_tier".
+ *
+ * Schema is deliberately loose (metadata jsonb + free-form action_type)
+ * so any new admin action can append a row without a migration.
+ */
+async function ensureAdminActionsTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ops_admin_actions (
+      id SERIAL PRIMARY KEY,
+      admin_email TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      target_kind TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      target_label TEXT,
+      status TEXT NOT NULL,
+      error TEXT,
+      metadata JSONB,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_actions_created
+      ON ops_admin_actions (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_admin_actions_target
+      ON ops_admin_actions (target_kind, target_id, created_at DESC);
+  `);
+}
+
+async function logAdminAction(args: {
+  adminEmail: string;
+  actionType: string;
+  targetKind: string;
+  targetId: string;
+  targetLabel?: string | null;
+  status: "ok" | "failed";
+  error?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  try {
+    await ensureAdminActionsTable();
+    await pool.query(
+      `INSERT INTO ops_admin_actions
+       (admin_email, action_type, target_kind, target_id, target_label, status, error, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        args.adminEmail,
+        args.actionType,
+        args.targetKind,
+        args.targetId,
+        args.targetLabel ?? null,
+        args.status,
+        args.error ?? null,
+        args.metadata ? JSON.stringify(args.metadata) : null,
+      ],
+    );
+  } catch (e) {
+    // Never throw out of an audit log write.
+    console.warn("[OPS] admin action log failed:", (e as Error).message);
+  }
 }
 
 /**

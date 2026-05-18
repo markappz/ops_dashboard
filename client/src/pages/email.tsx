@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
 
@@ -257,6 +257,18 @@ export default function Email() {
     staleTime: 60_000 * 5,
   });
 
+  const { data: flowMetricsData } = useQuery<{
+    metrics: Record<string, CampaignStats>;
+    revenueAvailable: boolean;
+    warning: string | null;
+  }>({
+    queryKey: ["klaviyo-flow-metrics"],
+    queryFn: () =>
+      fetch("/api/ops/klaviyo/flow-metrics?days=30").then((r) => r.json()),
+    enabled,
+    staleTime: 60_000 * 5,
+  });
+
   if (statusLoading) {
     return (
       <div className="text-sm text-ops-text-muted">Loading Klaviyo…</div>
@@ -356,7 +368,14 @@ export default function Email() {
           metricsWarning={metricsData?.warning ?? null}
         />
       )}
-      {tab === "flows" && <FlowsTable flows={flows} />}
+      {tab === "flows" && (
+        <FlowsTable
+          flows={flows}
+          metrics={flowMetricsData?.metrics ?? {}}
+          revenueAvailable={flowMetricsData?.revenueAvailable ?? false}
+          metricsWarning={flowMetricsData?.warning ?? null}
+        />
+      )}
       {tab === "lists" && (
         <ListsAndSegments lists={lists} segments={segments} />
       )}
@@ -660,39 +679,173 @@ function Leaderboard({
   );
 }
 
-function FlowsTable({ flows }: { flows: Flow[] }) {
+function FlowsTable({
+  flows,
+  metrics,
+  revenueAvailable,
+  metricsWarning,
+}: {
+  flows: Flow[];
+  metrics: Record<string, CampaignStats>;
+  revenueAvailable: boolean;
+  metricsWarning: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{ flow: Flow; nextStatus: "live" | "draft" } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async (args: { id: string; status: "live" | "draft" }) => {
+      const r = await fetch(`/api/ops/klaviyo/flows/${args.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: args.status }),
+      });
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      return body as { id: string; status: string };
+    },
+    onMutate: (args) => {
+      setPendingId(args.id);
+      setActionError(null);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["klaviyo-flows"] });
+    },
+    onError: (e: Error) => {
+      setActionError(e.message);
+    },
+    onSettled: () => {
+      setPendingId(null);
+    },
+  });
+
   if (flows.length === 0) {
     return <div className="text-sm text-ops-text-muted">No flows found.</div>;
   }
+
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
-          <tr>
-            <th className="text-left px-5 py-3 font-medium">Name</th>
-            <th className="text-left px-5 py-3 font-medium">Status</th>
-            <th className="text-left px-5 py-3 font-medium">Trigger</th>
-            <th className="text-left px-5 py-3 font-medium">Updated</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ops-border">
-          {flows.map((f) => (
-            <tr key={f.id}>
-              <td className="px-5 py-3 text-ops-text">{f.name}</td>
-              <td className="px-5 py-3">
-                <StatusPill status={f.status} />
-              </td>
-              <td className="px-5 py-3 text-ops-text-muted">
-                {f.triggerType || "—"}
-              </td>
-              <td className="px-5 py-3 text-ops-text-muted">
-                {fmtDate(f.updatedAt)}
-              </td>
+    <>
+      {metricsWarning && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-4 text-xs text-amber-200/90">
+          {metricsWarning}
+        </div>
+      )}
+      {actionError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-4 text-xs text-red-300">
+          {actionError}
+        </div>
+      )}
+
+      {confirm && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
+          onClick={() => setConfirm(null)}
+        >
+          <div
+            className="bg-ops-surface border border-ops-border rounded-xl p-6 max-w-md w-full shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-ops-text mb-2">
+              {confirm.nextStatus === "draft" ? "Pause this flow?" : "Activate this flow?"}
+            </h3>
+            <p className="text-sm text-ops-text-muted mb-1">{confirm.flow.name}</p>
+            <p className="text-xs text-ops-text-muted mb-5">
+              {confirm.nextStatus === "draft"
+                ? "Klaviyo will stop firing this flow for any new triggers until it's re-activated. Subscribers already in the flow continue."
+                : "Klaviyo will start firing this flow on its trigger immediately. Make sure the email content is ready."}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirm(null)}
+                className="px-4 py-2 text-sm text-ops-text-muted hover:text-ops-text"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  mutation.mutate({ id: confirm.flow.id, status: confirm.nextStatus });
+                  setConfirm(null);
+                }}
+                className={`px-4 py-2 text-sm rounded-lg text-white font-medium ${
+                  confirm.nextStatus === "draft"
+                    ? "bg-red-500 hover:bg-red-600"
+                    : "bg-fitscript-green hover:bg-fitscript-green/90"
+                }`}
+              >
+                {confirm.nextStatus === "draft" ? "Pause Flow" : "Activate Flow"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
+            <tr>
+              <th className="text-left px-5 py-3 font-medium">Name</th>
+              <th className="text-left px-5 py-3 font-medium">Status</th>
+              <th className="text-left px-5 py-3 font-medium">Trigger</th>
+              <th className="text-right px-5 py-3 font-medium">Sent</th>
+              <th className="text-right px-5 py-3 font-medium">Open</th>
+              <th className="text-right px-5 py-3 font-medium">Click</th>
+              <th className="text-right px-5 py-3 font-medium">
+                {revenueAvailable ? "Revenue" : "Conv."}
+              </th>
+              <th className="text-right px-5 py-3 font-medium">Action</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-ops-border">
+            {flows.map((f) => {
+              const m = metrics[f.id];
+              const isLive = f.status?.toLowerCase() === "live";
+              const isPending = pendingId === f.id;
+              const next: "live" | "draft" = isLive ? "draft" : "live";
+              return (
+                <tr key={f.id}>
+                  <td className="px-5 py-3 text-ops-text max-w-[280px] truncate" title={f.name}>
+                    {f.name}
+                  </td>
+                  <td className="px-5 py-3">
+                    <StatusPill status={f.status} />
+                  </td>
+                  <td className="px-5 py-3 text-ops-text-muted text-xs">
+                    {f.triggerType || "—"}
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text-muted">
+                    {fmtInt(m?.delivered)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text">
+                    {fmtPct(m?.open_rate)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text">
+                    {fmtPct(m?.click_rate)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-fitscript-green font-medium">
+                    {revenueAvailable ? fmtMoney(m?.conversion_value) : fmtInt(m?.conversions)}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      disabled={isPending}
+                      onClick={() => setConfirm({ flow: f, nextStatus: next })}
+                      className={`px-3 py-1 text-xs rounded font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        isLive
+                          ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                          : "bg-fitscript-green/10 text-fitscript-green hover:bg-fitscript-green/20"
+                      }`}
+                    >
+                      {isPending ? "…" : isLive ? "Pause" : "Activate"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
