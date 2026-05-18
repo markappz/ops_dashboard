@@ -40,11 +40,17 @@ const TYPE_TO_CONFIRM_THRESHOLD = 1000;
 
 export default function EmailSend() {
   const [, navigate] = useLocation();
-  const [step, setStep] = useState<Step>(1);
+  // Pre-select template if /email/send?templateId=... (from compose handoff)
+  const initialTemplateId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("templateId") || "";
+  }, []);
+
+  const [step, setStep] = useState<Step>(initialTemplateId ? 2 : 1);
 
   // form state
   const [name, setName] = useState("");
-  const [templateId, setTemplateId] = useState<string>("");
+  const [templateId, setTemplateId] = useState<string>(initialTemplateId);
   const [includeListIds, setIncludeListIds] = useState<string[]>([]);
   const [includeSegmentIds, setIncludeSegmentIds] = useState<string[]>([]);
   const [excludedSegmentIds, setExcludedSegmentIds] = useState<string[]>([]);

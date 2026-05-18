@@ -11,6 +11,7 @@ import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
 import Email from "./pages/email";
 import EmailSend from "./pages/email-send";
+import EmailCompose from "./pages/email-compose";
 import Login from "./pages/login";
 
 interface Me {
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="/marketing" component={Marketing} />
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
+          <Route path="/email/compose" component={EmailCompose} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Integrations} />
           <Route>

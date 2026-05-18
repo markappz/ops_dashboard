@@ -10,6 +10,7 @@ import { registerGoogleAuthRoutes } from "./google-auth";
 import { registerAdminAuthRoutes, opsGate } from "./admin-auth";
 import { registerKlaviyoRoutes } from "./klaviyo";
 import { registerEconomicsRoutes } from "./economics";
+import { registerEmailComposeRoutes } from "./email-compose";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -43,6 +44,7 @@ registerTrackingRoutes(app);
 registerGoogleAuthRoutes(app);
 registerKlaviyoRoutes(app);
 registerEconomicsRoutes(app);
+registerEmailComposeRoutes(app);
 
 async function setupClient() {
   if (process.env.NODE_ENV === "production") {

@@ -104,13 +104,64 @@ function NotConfigured() {
   );
 }
 
+function summarizeKlaviyoError(raw: string): { headline: string; hint: string; detail: string } {
+  // Klaviyo errors come back as "Klaviyo 401: {\"errors\":[{...}]}" from our wrapper.
+  // Pull the first errors[].detail and pair it with an actionable hint.
+  let status: number | null = null;
+  let detail = "";
+  const statusMatch = raw.match(/Klaviyo (\d{3})/);
+  if (statusMatch) status = parseInt(statusMatch[1]);
+  const jsonStart = raw.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const body = JSON.parse(raw.slice(jsonStart));
+      detail = body?.errors?.[0]?.detail || body?.message || "";
+    } catch {
+      /* fall through */
+    }
+  }
+  if (status === 401 || /incorrect.*credentials/i.test(detail)) {
+    return {
+      headline: "Klaviyo rejected the API key",
+      hint: "Generate a new private key in Klaviyo (Account → Settings → API Keys) and update KLAVIYO_API_KEY in the ops .env. Required scopes: Campaigns + Templates + Lists + Segments + Flows + Profiles + Accounts.",
+      detail: detail || "401 Unauthorized",
+    };
+  }
+  if (status === 403) {
+    return {
+      headline: "Klaviyo key is missing a required scope",
+      hint: "Edit the key in Klaviyo and add the missing permission. Restart isn't needed for scope changes.",
+      detail,
+    };
+  }
+  if (status === 429) {
+    return {
+      headline: "Klaviyo rate-limited the request",
+      hint: "Will retry automatically. If this persists, the account-level limits may be exhausted.",
+      detail,
+    };
+  }
+  return {
+    headline: status ? `Klaviyo returned ${status}` : "Klaviyo connection failed",
+    hint: "Check the Klaviyo status page or verify the API key.",
+    detail: detail || raw.slice(0, 200),
+  };
+}
+
 function ConnectionError({ message }: { message: string }) {
+  const { headline, hint, detail } = summarizeKlaviyoError(message);
   return (
-    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-5">
-      <div className="text-sm font-medium text-red-300 mb-1">
-        Klaviyo connection failed
-      </div>
-      <div className="text-xs text-red-300/80 break-all">{message}</div>
+    <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-5 max-w-3xl">
+      <div className="text-sm font-medium text-red-300 mb-1">{headline}</div>
+      <div className="text-xs text-red-200/80 mb-3">{hint}</div>
+      <details>
+        <summary className="text-[11px] text-red-300/60 cursor-pointer hover:text-red-300/90">
+          Show raw error
+        </summary>
+        <div className="mt-2 text-[11px] font-mono text-red-300/60 bg-red-500/5 rounded p-2 break-all">
+          {detail}
+        </div>
+      </details>
     </div>
   );
 }
@@ -330,11 +381,18 @@ function Header({ canSend = false }: { canSend?: boolean }) {
         </p>
       </div>
       {canSend && (
-        <Link href="/email/send">
-          <button className="px-4 py-2 text-sm font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90">
-            Send campaign
-          </button>
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/email/compose">
+            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ops-surface border border-ops-border text-ops-text hover:bg-ops-surface-hover">
+              Compose with Claude
+            </button>
+          </Link>
+          <Link href="/email/send">
+            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90">
+              Send campaign
+            </button>
+          </Link>
+        </div>
       )}
     </div>
   );
