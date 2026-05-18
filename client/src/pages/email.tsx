@@ -42,6 +42,39 @@ interface Segment extends List {
 
 type Tab = "campaigns" | "flows" | "lists" | "sends";
 
+interface CampaignStats {
+  opens?: number;
+  opens_unique?: number;
+  clicks?: number;
+  clicks_unique?: number;
+  delivered?: number;
+  bounced?: number;
+  unsubscribes?: number;
+  recipients?: number;
+  open_rate?: number;
+  click_rate?: number;
+  click_to_open_rate?: number;
+  bounce_rate?: number;
+  unsubscribe_rate?: number;
+  conversions?: number;
+  conversion_value?: number;
+  revenue_per_recipient?: number;
+}
+
+function fmtPct(v: number | undefined): string {
+  if (v === undefined || v === null) return "—";
+  return `${(v * 100).toFixed(1)}%`;
+}
+function fmtInt(v: number | undefined): string {
+  if (v === undefined || v === null) return "—";
+  return v.toLocaleString();
+}
+function fmtMoney(v: number | undefined): string {
+  if (v === undefined || v === null) return "—";
+  if (v === 0) return "$0";
+  return v < 1 ? `$${v.toFixed(2)}` : `$${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
 interface DashboardSend {
   id: number;
   admin_email: string;
@@ -209,6 +242,21 @@ export default function Email() {
     refetchInterval: 30_000,
   });
 
+  const { data: metricsData } = useQuery<{
+    metrics: Record<string, CampaignStats>;
+    timeframe: string;
+    campaignCount: number;
+    revenueAvailable: boolean;
+    conversionMetricName: string | null;
+    warning: string | null;
+  }>({
+    queryKey: ["klaviyo-campaign-metrics"],
+    queryFn: () =>
+      fetch("/api/ops/klaviyo/campaign-metrics?days=30").then((r) => r.json()),
+    enabled,
+    staleTime: 60_000 * 5,
+  });
+
   if (statusLoading) {
     return (
       <div className="text-sm text-ops-text-muted">Loading Klaviyo…</div>
@@ -300,18 +348,38 @@ export default function Email() {
       </div>
 
       {tab === "campaigns" && (
-        <CampaignsTable campaigns={campaigns} loading={campaignsLoading} />
+        <CampaignsTable
+          campaigns={campaigns}
+          loading={campaignsLoading}
+          metrics={metricsData?.metrics ?? {}}
+          revenueAvailable={metricsData?.revenueAvailable ?? false}
+          metricsWarning={metricsData?.warning ?? null}
+        />
       )}
       {tab === "flows" && <FlowsTable flows={flows} />}
       {tab === "lists" && (
         <ListsAndSegments lists={lists} segments={segments} />
       )}
-      {tab === "sends" && <DashboardSendsTable sends={sendsData?.sends ?? []} />}
+      {tab === "sends" && (
+        <DashboardSendsTable
+          sends={sendsData?.sends ?? []}
+          metrics={metricsData?.metrics ?? {}}
+          revenueAvailable={metricsData?.revenueAvailable ?? false}
+        />
+      )}
     </div>
   );
 }
 
-function DashboardSendsTable({ sends }: { sends: DashboardSend[] }) {
+function DashboardSendsTable({
+  sends,
+  metrics,
+  revenueAvailable,
+}: {
+  sends: DashboardSend[];
+  metrics: Record<string, CampaignStats>;
+  revenueAvailable: boolean;
+}) {
   if (sends.length === 0) {
     return (
       <div className="text-sm text-ops-text-muted">
@@ -332,25 +400,49 @@ function DashboardSendsTable({ sends }: { sends: DashboardSend[] }) {
           <tr>
             <th className="text-left px-5 py-3 font-medium">Subject</th>
             <th className="text-left px-5 py-3 font-medium">Sent by</th>
-            <th className="text-left px-5 py-3 font-medium">Method</th>
             <th className="text-right px-5 py-3 font-medium">Recipients</th>
+            <th className="text-right px-5 py-3 font-medium">Delivered</th>
+            <th className="text-right px-5 py-3 font-medium">Open</th>
+            <th className="text-right px-5 py-3 font-medium">Click</th>
+            <th className="text-right px-5 py-3 font-medium">
+              {revenueAvailable ? "Revenue" : "Conv."}
+            </th>
             <th className="text-left px-5 py-3 font-medium">Status</th>
             <th className="text-left px-5 py-3 font-medium">When</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-ops-border">
-          {sends.map((s) => (
+          {sends.map((s) => {
+            const m = s.klaviyo_campaign_id ? metrics[s.klaviyo_campaign_id] : undefined;
+            const ageMin = (Date.now() - new Date(s.created_at).getTime()) / 60000;
+            const tooFresh = ageMin < 30 && !m;
+            return (
             <tr key={s.id}>
               <td className="px-5 py-3 text-ops-text">
-                <div className="truncate max-w-[280px]">{s.subject}</div>
-                <div className="text-xs text-ops-text-muted truncate max-w-[280px]">
+                <div className="truncate max-w-[260px]">{s.subject}</div>
+                <div className="text-xs text-ops-text-muted truncate max-w-[260px]">
                   {s.name}
                 </div>
               </td>
               <td className="px-5 py-3 text-ops-text-muted text-xs">{s.admin_email}</td>
-              <td className="px-5 py-3 text-ops-text-muted text-xs">{s.send_method}</td>
               <td className="px-5 py-3 text-ops-text text-right">
                 {s.recipient_count.toLocaleString()}
+              </td>
+              <td className="px-5 py-3 text-right text-ops-text-muted">
+                {m ? fmtInt(m.delivered) : tooFresh ? <span className="opacity-50">pending</span> : "—"}
+              </td>
+              <td className="px-5 py-3 text-right text-ops-text">
+                {m ? fmtPct(m.open_rate) : "—"}
+              </td>
+              <td className="px-5 py-3 text-right text-ops-text">
+                {m ? fmtPct(m.click_rate) : "—"}
+              </td>
+              <td className="px-5 py-3 text-right text-fitscript-green font-medium">
+                {m
+                  ? revenueAvailable
+                    ? fmtMoney(m.conversion_value)
+                    : fmtInt(m.conversions)
+                  : "—"}
               </td>
               <td className={`px-5 py-3 text-xs font-medium ${statusColor[s.status] || "text-ops-text-muted"}`}>
                 {s.status}
@@ -364,7 +456,8 @@ function DashboardSendsTable({ sends }: { sends: DashboardSend[] }) {
                 {fmtDate(s.created_at)}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -412,9 +505,15 @@ function Stat({ label, value }: { label: string; value: number }) {
 function CampaignsTable({
   campaigns,
   loading,
+  metrics,
+  revenueAvailable,
+  metricsWarning,
 }: {
   campaigns: Campaign[];
   loading: boolean;
+  metrics: Record<string, CampaignStats>;
+  revenueAvailable: boolean;
+  metricsWarning: string | null;
 }) {
   if (loading) {
     return <div className="text-sm text-ops-text-muted">Loading campaigns…</div>;
@@ -424,34 +523,139 @@ function CampaignsTable({
       <div className="text-sm text-ops-text-muted">No campaigns found.</div>
     );
   }
+
+  // Leaderboards over campaigns that have metrics in the window
+  const withMetrics = campaigns
+    .map((c) => ({ c, m: metrics[c.id] }))
+    .filter((x) => x.m && (x.m.recipients ?? 0) > 0);
+  const topOpens = [...withMetrics]
+    .sort((a, b) => (b.m.open_rate ?? 0) - (a.m.open_rate ?? 0))
+    .slice(0, 3);
+  const topRevenue = revenueAvailable
+    ? [...withMetrics]
+        .sort((a, b) => (b.m.conversion_value ?? 0) - (a.m.conversion_value ?? 0))
+        .slice(0, 3)
+    : [];
+
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
-          <tr>
-            <th className="text-left px-5 py-3 font-medium">Name</th>
-            <th className="text-left px-5 py-3 font-medium">Status</th>
-            <th className="text-left px-5 py-3 font-medium">Send time</th>
-            <th className="text-left px-5 py-3 font-medium">Created</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-ops-border">
-          {campaigns.map((c) => (
-            <tr key={c.id}>
-              <td className="px-5 py-3 text-ops-text">{c.name}</td>
-              <td className="px-5 py-3">
-                <StatusPill status={c.status} />
-              </td>
-              <td className="px-5 py-3 text-ops-text-muted">
-                {fmtDate(c.sendTime || c.scheduledAt)}
-              </td>
-              <td className="px-5 py-3 text-ops-text-muted">
-                {fmtDate(c.createdAt)}
-              </td>
+    <>
+      {metricsWarning && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-4 text-xs text-amber-200/90">
+          {metricsWarning}
+        </div>
+      )}
+
+      {(topOpens.length > 0 || topRevenue.length > 0) && (
+        <div className="grid grid-cols-2 gap-4 mb-5">
+          <Leaderboard
+            title="Top open rate (last 30d)"
+            rows={topOpens.map((x) => ({
+              name: x.c.name,
+              primary: fmtPct(x.m.open_rate),
+              secondary: `${fmtInt(x.m.delivered)} delivered`,
+            }))}
+          />
+          {revenueAvailable ? (
+            <Leaderboard
+              title="Top revenue (last 30d)"
+              rows={topRevenue.map((x) => ({
+                name: x.c.name,
+                primary: fmtMoney(x.m.conversion_value),
+                secondary: `${fmtInt(x.m.conversions)} conversions`,
+              }))}
+            />
+          ) : (
+            <div className="bg-ops-surface border border-ops-border rounded-xl p-4 text-xs text-ops-text-muted">
+              Revenue leaderboard unavailable until a store integration
+              (Shopify/Stripe) is connected in Klaviyo.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
+            <tr>
+              <th className="text-left px-5 py-3 font-medium">Name</th>
+              <th className="text-left px-5 py-3 font-medium">Status</th>
+              <th className="text-right px-5 py-3 font-medium">Sent</th>
+              <th className="text-right px-5 py-3 font-medium">Open</th>
+              <th className="text-right px-5 py-3 font-medium">Click</th>
+              <th className="text-right px-5 py-3 font-medium">
+                {revenueAvailable ? "Revenue" : "Conv."}
+              </th>
+              <th className="text-left px-5 py-3 font-medium">Send time</th>
             </tr>
+          </thead>
+          <tbody className="divide-y divide-ops-border">
+            {campaigns.map((c) => {
+              const m = metrics[c.id];
+              return (
+                <tr key={c.id}>
+                  <td className="px-5 py-3 text-ops-text max-w-[300px] truncate" title={c.name}>
+                    {c.name}
+                  </td>
+                  <td className="px-5 py-3">
+                    <StatusPill status={c.status} />
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text-muted">
+                    {fmtInt(m?.delivered)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text">
+                    {fmtPct(m?.open_rate)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-ops-text">
+                    {fmtPct(m?.click_rate)}
+                  </td>
+                  <td className="px-5 py-3 text-right text-fitscript-green font-medium">
+                    {revenueAvailable
+                      ? fmtMoney(m?.conversion_value)
+                      : fmtInt(m?.conversions)}
+                  </td>
+                  <td className="px-5 py-3 text-ops-text-muted">
+                    {fmtDate(c.sendTime || c.scheduledAt)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function Leaderboard({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { name: string; primary: string; secondary: string }[];
+}) {
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl p-4">
+      <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+        {title}
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-xs text-ops-text-muted">No data yet.</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center justify-between text-sm">
+              <div className="flex-1 min-w-0 pr-3">
+                <div className="text-ops-text truncate" title={r.name}>
+                  <span className="text-ops-text-muted mr-2">{i + 1}.</span>
+                  {r.name}
+                </div>
+                <div className="text-[10px] text-ops-text-muted">{r.secondary}</div>
+              </div>
+              <div className="text-fitscript-green font-medium">{r.primary}</div>
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -89,6 +89,89 @@ function safeJson(text: string): unknown {
   }
 }
 
+// ─── Metric discovery (for campaign-values-reports conversion_metric_id) ───
+
+interface KlaviyoMetric {
+  id: string;
+  attributes?: {
+    name?: string;
+    integration?: { category?: string; name?: string };
+  };
+}
+
+interface ConversionMetric {
+  id: string;
+  name: string;
+  isRevenueMetric: boolean;
+}
+
+let conversionMetric: ConversionMetric | null = null;
+let conversionMetricFetchedAt = 0;
+const METRIC_CACHE_TTL_MS = 1000 * 60 * 30; // 30 min
+
+// Revenue-producing metric names from common ecommerce integrations.
+// First match wins. Override with KLAVIYO_CONVERSION_METRIC_NAME env if needed.
+const REVENUE_METRIC_NAME_PRIORITY = [
+  "placed order",
+  "order placed",
+  "order completed",
+  "checkout completed",
+];
+
+// Klaviyo requires conversion_metric_id on campaign-values-reports even if you
+// only want engagement stats. If no revenue metric is found (account has no
+// Shopify/Stripe integration), fall back to an engagement metric so opens/clicks
+// still work — but flag revenue as unavailable.
+const ENGAGEMENT_METRIC_FALLBACK_NAMES = [
+  "opened email",
+  "received email",
+  "clicked email",
+];
+
+async function getConversionMetric(): Promise<ConversionMetric | null> {
+  if (
+    conversionMetric &&
+    Date.now() - conversionMetricFetchedAt < METRIC_CACHE_TTL_MS
+  ) {
+    return conversionMetric;
+  }
+  try {
+    // /metrics/ does NOT accept page[size] — it 400s. Default returns all.
+    const data = await klaviyoFetch<{ data: KlaviyoMetric[] }>("/metrics/");
+    const all = data.data || [];
+
+    const override = process.env.KLAVIYO_CONVERSION_METRIC_NAME?.toLowerCase();
+    const revenueNames = override
+      ? [override, ...REVENUE_METRIC_NAME_PRIORITY]
+      : REVENUE_METRIC_NAME_PRIORITY;
+
+    // 1. Try a real revenue metric first
+    for (const wanted of revenueNames) {
+      const match = all.find((m) => m.attributes?.name?.toLowerCase() === wanted);
+      if (match) {
+        conversionMetric = { id: match.id, name: match.attributes!.name!, isRevenueMetric: true };
+        conversionMetricFetchedAt = Date.now();
+        return conversionMetric;
+      }
+    }
+
+    // 2. Fall back to engagement metric so opens/clicks still report.
+    //    Klaviyo will accept any "values-data-compatible" metric. Custom API
+    //    metrics (category=API) are NOT compatible; only Internal Klaviyo ones.
+    for (const wanted of ENGAGEMENT_METRIC_FALLBACK_NAMES) {
+      const match = all.find((m) => m.attributes?.name?.toLowerCase() === wanted);
+      if (match) {
+        conversionMetric = { id: match.id, name: match.attributes!.name!, isRevenueMetric: false };
+        conversionMetricFetchedAt = Date.now();
+        return conversionMetric;
+      }
+    }
+  } catch (e) {
+    console.warn("[KLAVIYO] metric discovery failed:", (e as Error).message);
+  }
+  return null;
+}
+
 // ─── Routes ────────────────────────────────────────────────────────
 
 export function registerKlaviyoRoutes(app: Express) {
@@ -295,6 +378,97 @@ export function registerKlaviyoRoutes(app: Express) {
 
       const total = breakdown.reduce((s, x) => s + x.count, 0);
       res.json({ total, breakdown });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Campaign metrics for a date range. Returns a map of campaign_id → stats
+  // (opens, opens_unique, clicks, clicks_unique, delivered, bounced,
+  // unsubscribes, conversions, revenue). One Klaviyo POST returns all
+  // email campaigns in the timeframe — no N+1 needed.
+  app.get("/api/ops/klaviyo/campaign-metrics", async (req, res) => {
+    try {
+      const days = Math.min(
+        Math.max(parseInt((req.query.days as string) || "30"), 7),
+        365,
+      );
+      // Klaviyo timeframe options: today, yesterday, this_week, last_week,
+      // last_7_days, last_30_days, last_90_days, last_365_days, this_month,
+      // last_month, this_year, last_year, all_time, or custom {start,end}.
+      const presetKey =
+        days <= 7
+          ? "last_7_days"
+          : days <= 30
+            ? "last_30_days"
+            : days <= 90
+              ? "last_90_days"
+              : "last_365_days";
+
+      const conv = await getConversionMetric();
+      if (!conv) {
+        return res.json({
+          metrics: {},
+          revenueAvailable: false,
+          warning:
+            "No usable conversion metric found in this Klaviyo account. Engagement and revenue stats will not load.",
+        });
+      }
+
+      const body = {
+        data: {
+          type: "campaign-values-report",
+          attributes: {
+            statistics: [
+              "opens",
+              "opens_unique",
+              "clicks",
+              "clicks_unique",
+              "delivered",
+              "bounced",
+              "unsubscribes",
+              "unsubscribe_uniques",
+              "spam_complaints",
+              "conversions",
+              "conversion_uniques",
+              "conversion_value",
+              "recipients",
+              "open_rate",
+              "click_rate",
+              "click_to_open_rate",
+              "bounce_rate",
+              "unsubscribe_rate",
+              "revenue_per_recipient",
+            ],
+            timeframe: { key: presetKey },
+            conversion_metric_id: conv.id,
+          },
+        },
+      };
+
+      const data = await klaviyoFetch<{ data: { attributes?: { results?: any[] } } }>(
+        "/campaign-values-reports/",
+        { method: "POST", body: JSON.stringify(body) },
+      );
+
+      const rows = data.data?.attributes?.results || [];
+      const metrics: Record<string, any> = {};
+      for (const row of rows) {
+        const id = row.groupings?.campaign_id || row.groupings?.send_channel;
+        if (!id) continue;
+        metrics[id] = row.statistics || {};
+      }
+
+      res.json({
+        metrics,
+        timeframe: presetKey,
+        campaignCount: Object.keys(metrics).length,
+        revenueAvailable: conv.isRevenueMetric,
+        conversionMetricName: conv.name,
+        warning: conv.isRevenueMetric
+          ? null
+          : `Using ${conv.name} as the conversion metric. Revenue values will be 0 until a store integration (Shopify/Stripe) is connected in Klaviyo, or set KLAVIYO_CONVERSION_METRIC_NAME to your account's revenue event.`,
+      });
     } catch (e: any) {
       res.status(e.status || 500).json({ error: e.message });
     }
