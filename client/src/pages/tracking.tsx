@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { CostVsRevenueChart } from "../components/charts/cost-vs-revenue-chart";
+import { InlineError, hasApiError } from "../components/query-error";
 
 interface ChannelData {
   channel: string;
@@ -54,17 +55,17 @@ function FunnelBar({ label, value, total, color }: { label: string; value: numbe
 }
 
 export default function Tracking() {
-  const { data: attrData } = useQuery<{ channels: ChannelData[] }>({
+  const { data: attrData, error: attrErr } = useQuery<{ channels: ChannelData[] }>({
     queryKey: ["ops-attribution"],
     queryFn: () => fetch("/api/ops/attribution").then((r) => r.json()),
   });
 
-  const { data: funnelData } = useQuery<FunnelData>({
+  const { data: funnelData, error: funnelErr } = useQuery<FunnelData>({
     queryKey: ["ops-funnel"],
     queryFn: () => fetch("/api/ops/funnel").then((r) => r.json()),
   });
 
-  const { data: campaignData } = useQuery<{ campaigns: Campaign[] }>({
+  const { data: campaignData, error: campaignErr } = useQuery<{ campaigns: Campaign[] }>({
     queryKey: ["ops-campaigns"],
     queryFn: () => fetch("/api/ops/campaigns").then((r) => r.json()),
   });
@@ -93,6 +94,11 @@ export default function Tracking() {
       {/* Funnel */}
       <div className="bg-ops-surface border border-ops-border rounded-xl p-6 shadow-card mb-6">
         <h3 className="text-sm font-semibold text-ops-text mb-5">Conversion Funnel</h3>
+        {(hasApiError(funnelData) || funnelErr) && (
+          <div className="mb-4">
+            <InlineError context="Funnel" data={funnelData} error={funnelErr as Error | null} />
+          </div>
+        )}
         {funnel ? (
           <>
             <FunnelBar label="Visitors" value={funnel.visitors} total={funnel.visitors} color="bg-ops-text-muted/30" />
@@ -109,6 +115,11 @@ export default function Tracking() {
       </div>
 
       {/* Attribution by Channel */}
+      {(hasApiError(attrData) || attrErr) && (
+        <div className="mb-3">
+          <InlineError context="Channel attribution" data={attrData} error={attrErr as Error | null} />
+        </div>
+      )}
       <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6 overflow-hidden">
         <div className="px-5 py-4 border-b border-ops-border">
           <h3 className="text-sm font-semibold text-ops-text">Attribution by Channel (First Touch)</h3>
@@ -148,6 +159,11 @@ export default function Tracking() {
       </div>
 
       {/* Campaign Performance */}
+      {(hasApiError(campaignData) || campaignErr) && (
+        <div className="mb-3">
+          <InlineError context="Campaign performance" data={campaignData} error={campaignErr as Error | null} />
+        </div>
+      )}
       <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
         <div className="px-5 py-4 border-b border-ops-border">
           <h3 className="text-sm font-semibold text-ops-text">Campaign Performance</h3>

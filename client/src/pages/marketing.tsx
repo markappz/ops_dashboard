@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, Legend, AreaChart, Area } from "recharts";
+import { InlineError, hasApiError } from "../components/query-error";
 
 interface ChannelData {
   channel: string;
@@ -56,12 +57,12 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string 
 }
 
 export default function Marketing() {
-  const { data: attrData } = useQuery<{ channels: ChannelData[] }>({
+  const { data: attrData, error: attrErr } = useQuery<{ channels: ChannelData[] }>({
     queryKey: ["ops-attribution"],
     queryFn: () => fetch("/api/ops/attribution").then((r) => r.json()),
   });
 
-  const { data: funnelData } = useQuery<FunnelData>({
+  const { data: funnelData, error: funnelErr } = useQuery<FunnelData>({
     queryKey: ["ops-funnel"],
     queryFn: () => fetch("/api/ops/funnel").then((r) => r.json()),
   });
@@ -103,6 +104,17 @@ export default function Marketing() {
         <h1 className="text-2xl font-bold text-ops-text">Marketing</h1>
         <p className="text-sm text-ops-text-muted mt-1">Traffic, channels, conversions, and attribution</p>
       </div>
+
+      {(hasApiError(attrData) || attrErr) && (
+        <div className="mb-4">
+          <InlineError context="Channel attribution" data={attrData} error={attrErr as Error | null} />
+        </div>
+      )}
+      {(hasApiError(funnelData) || funnelErr) && (
+        <div className="mb-4">
+          <InlineError context="Funnel" data={funnelData} error={funnelErr as Error | null} />
+        </div>
+      )}
 
       {/* Top metrics */}
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -381,7 +393,7 @@ function MetaAdsSection() {
     queryFn: () => fetch("/api/ops/meta/status").then((r) => r.json()),
   });
   const enabled = !!status?.connected;
-  const { data, isLoading } = useQuery<MetaCampaignsResp>({
+  const { data, isLoading, error: metaErr } = useQuery<MetaCampaignsResp>({
     queryKey: ["meta-campaigns"],
     queryFn: () =>
       fetch("/api/ops/meta/campaigns?days=30").then((r) => r.json()),
@@ -483,6 +495,11 @@ function MetaAdsSection() {
           )}
 
           {/* Campaigns table */}
+          {(hasApiError(data) || metaErr) && (
+            <div className="mb-3">
+              <InlineError context="Meta Ads campaigns" data={data} error={metaErr as Error | null} />
+            </div>
+          )}
           {isLoading ? (
             <div className="text-sm text-ops-text-muted">Loading campaigns…</div>
           ) : (

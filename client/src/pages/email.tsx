@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
+import { InlineError, hasApiError } from "../components/query-error";
 
 interface KlaviyoStatus {
   configured: boolean;
@@ -209,7 +210,7 @@ export default function Email() {
 
   const enabled = !!status?.connected;
 
-  const { data: campaignsData, isLoading: campaignsLoading } = useQuery<{
+  const { data: campaignsData, isLoading: campaignsLoading, error: campaignsErr } = useQuery<{
     campaigns: Campaign[];
   }>({
     queryKey: ["klaviyo-campaigns"],
@@ -217,7 +218,7 @@ export default function Email() {
     enabled,
   });
 
-  const { data: flowsData } = useQuery<{ flows: Flow[] }>({
+  const { data: flowsData, error: flowsErr } = useQuery<{ flows: Flow[] }>({
     queryKey: ["klaviyo-flows"],
     queryFn: () => fetch("/api/ops/klaviyo/flows").then((r) => r.json()),
     enabled,
@@ -235,7 +236,7 @@ export default function Email() {
     enabled,
   });
 
-  const { data: sendsData } = useQuery<{ sends: DashboardSend[] }>({
+  const { data: sendsData, error: sendsErr } = useQuery<{ sends: DashboardSend[] }>({
     queryKey: ["klaviyo-dashboard-sends"],
     queryFn: () => fetch("/api/ops/klaviyo/sends").then((r) => r.json()),
     enabled,
@@ -360,31 +361,52 @@ export default function Email() {
       </div>
 
       {tab === "campaigns" && (
-        <CampaignsTable
-          campaigns={campaigns}
-          loading={campaignsLoading}
-          metrics={metricsData?.metrics ?? {}}
-          revenueAvailable={metricsData?.revenueAvailable ?? false}
-          metricsWarning={metricsData?.warning ?? null}
-        />
+        <>
+          {(hasApiError(campaignsData) || campaignsErr) && (
+            <div className="mb-3">
+              <InlineError context="Campaigns" data={campaignsData} error={campaignsErr as Error | null} />
+            </div>
+          )}
+          <CampaignsTable
+            campaigns={campaigns}
+            loading={campaignsLoading}
+            metrics={metricsData?.metrics ?? {}}
+            revenueAvailable={metricsData?.revenueAvailable ?? false}
+            metricsWarning={metricsData?.warning ?? null}
+          />
+        </>
       )}
       {tab === "flows" && (
-        <FlowsTable
-          flows={flows}
-          metrics={flowMetricsData?.metrics ?? {}}
-          revenueAvailable={flowMetricsData?.revenueAvailable ?? false}
-          metricsWarning={flowMetricsData?.warning ?? null}
-        />
+        <>
+          {(hasApiError(flowsData) || flowsErr) && (
+            <div className="mb-3">
+              <InlineError context="Flows" data={flowsData} error={flowsErr as Error | null} />
+            </div>
+          )}
+          <FlowsTable
+            flows={flows}
+            metrics={flowMetricsData?.metrics ?? {}}
+            revenueAvailable={flowMetricsData?.revenueAvailable ?? false}
+            metricsWarning={flowMetricsData?.warning ?? null}
+          />
+        </>
       )}
       {tab === "lists" && (
         <ListsAndSegments lists={lists} segments={segments} />
       )}
       {tab === "sends" && (
-        <DashboardSendsTable
-          sends={sendsData?.sends ?? []}
-          metrics={metricsData?.metrics ?? {}}
-          revenueAvailable={metricsData?.revenueAvailable ?? false}
-        />
+        <>
+          {(hasApiError(sendsData) || sendsErr) && (
+            <div className="mb-3">
+              <InlineError context="Recent sends" data={sendsData} error={sendsErr as Error | null} />
+            </div>
+          )}
+          <DashboardSendsTable
+            sends={sendsData?.sends ?? []}
+            metrics={metricsData?.metrics ?? {}}
+            revenueAvailable={metricsData?.revenueAvailable ?? false}
+          />
+        </>
       )}
     </div>
   );
