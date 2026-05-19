@@ -12,6 +12,8 @@ import { registerKlaviyoRoutes } from "./klaviyo";
 import { registerEconomicsRoutes } from "./economics";
 import { registerEmailComposeRoutes } from "./email-compose";
 import { registerSettingsRoutes } from "./settings";
+import { registerMetaAdsRoutes } from "./meta-ads";
+import { registerAdminActionsRoutes } from "./admin-actions";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -47,6 +49,8 @@ registerKlaviyoRoutes(app);
 registerEconomicsRoutes(app);
 registerEmailComposeRoutes(app);
 registerSettingsRoutes(app);
+registerMetaAdsRoutes(app);
+registerAdminActionsRoutes(app);
 
 async function setupClient() {
   if (process.env.NODE_ENV === "production") {

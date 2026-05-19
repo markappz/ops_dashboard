@@ -302,6 +302,21 @@ export function registerKlaviyoRoutes(app: Express) {
         error: "status must be 'live', 'draft', or 'manual'",
       });
     }
+
+    // Pre-fetch the flow name so a failed PATCH still produces a useful
+    // audit row (otherwise the target_label is "unnamed" and an operator
+    // has to cross-reference the ID).
+    let flowName: string | null = null;
+    try {
+      const pre = await klaviyoFetch<{ data: any }>(
+        `/flows/${encodeURIComponent(targetId)}/?fields[flow]=name`,
+      );
+      flowName = pre.data?.attributes?.name ?? null;
+    } catch {
+      // Name lookup is best-effort. If even the GET fails, fall through
+      // to the PATCH so the error path still records something.
+    }
+
     try {
       const data = await klaviyoFetch<{ data: any }>(
         `/flows/${encodeURIComponent(targetId)}/`,
@@ -317,7 +332,7 @@ export function registerKlaviyoRoutes(app: Express) {
         },
       );
       const newStatus = data.data?.attributes?.status ?? status;
-      const name = data.data?.attributes?.name ?? null;
+      const name = data.data?.attributes?.name ?? flowName;
       await logAdminAction({
         adminEmail,
         actionType: `flow.${status === "live" ? "activate" : "deactivate"}`,
@@ -337,6 +352,7 @@ export function registerKlaviyoRoutes(app: Express) {
         actionType: `flow.${status === "live" ? "activate" : "deactivate"}`,
         targetKind: "klaviyo_flow",
         targetId,
+        targetLabel: flowName,
         status: "failed",
         error: e.message,
       });

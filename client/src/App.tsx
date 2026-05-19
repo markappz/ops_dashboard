@@ -14,6 +14,7 @@ import EmailSend from "./pages/email-send";
 import EmailCompose from "./pages/email-compose";
 import ContentComingSoon, { CreativeComingSoon, ClinicalComingSoon } from "./pages/coming-soon";
 import Settings from "./pages/settings";
+import AdminActions from "./pages/admin-actions";
 import Login from "./pages/login";
 
 interface Me {
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="/clinical" component={ClinicalComingSoon} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Settings} />
+          <Route path="/admin-actions" component={AdminActions} />
           <Route>
             <div className="flex items-center justify-center h-[60vh] text-ops-text-muted">
               Coming soon

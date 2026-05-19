@@ -5,7 +5,17 @@
  */
 import pg from "pg";
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// All TIMESTAMP WITHOUT TIME ZONE columns in this database store UTC
+// values (Postgres session is UTC, all inserts use NOW() or UTC ISO).
+// Without this override, pg-types parses naive timestamps in the Node
+// process's LOCAL TZ — on a PDT dev box that shifts every read by +7h.
+// OID 1114 is the timestamp-without-tz type.
+//
+// TIMESTAMPTZ (OID 1184) already round-trips correctly because the
+// wire format carries the offset.
+types.setTypeParser(1114, (str) => (str ? new Date(str + "Z") : null));
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {

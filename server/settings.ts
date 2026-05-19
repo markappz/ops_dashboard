@@ -72,6 +72,14 @@ export function registerSettingsRoutes(app: Express) {
         clientIdTail: tail(process.env.GOOGLE_CLIENT_ID, 8),
         label: "Powers admin sign-in + GA4/Search Console data connectors",
       },
+      metaAds: {
+        configured:
+          !!process.env.META_SYSTEM_USER_TOKEN && !!process.env.META_AD_ACCOUNT_ID,
+        adAccountId: process.env.META_AD_ACCOUNT_ID || null,
+        tokenTail: tail(process.env.META_SYSTEM_USER_TOKEN),
+        apiVersion: process.env.META_API_VERSION || "v21.0",
+        label: "Meta (Facebook + Instagram) ad spend, performance, ROAS on Marketing",
+      },
     };
 
     const auth = {

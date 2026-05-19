@@ -28,6 +28,13 @@ interface SettingsData {
       clientIdTail: string;
       label: string;
     };
+    metaAds: {
+      configured: boolean;
+      adAccountId: string | null;
+      tokenTail: string;
+      apiVersion: string;
+      label: string;
+    };
   };
   auth: {
     sessionSecretConfigured: boolean;
@@ -244,6 +251,22 @@ export default function Settings() {
                 : []
             }
             description={data.integrations.googleOAuth.label}
+          />
+          <IntegrationRow
+            name="Meta Ads"
+            configured={data.integrations.metaAds.configured}
+            badges={
+              data.integrations.metaAds.configured
+                ? [
+                    { label: data.integrations.metaAds.apiVersion, tone: "info" as const },
+                    {
+                      label: `act_${data.integrations.metaAds.adAccountId}`,
+                    },
+                    { label: data.integrations.metaAds.tokenTail },
+                  ]
+                : []
+            }
+            description={data.integrations.metaAds.label}
           />
         </div>
       </div>
