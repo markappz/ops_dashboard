@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { QueryError, hasApiError } from "../components/query-error";
 
 interface Member {
   id: string;
@@ -69,7 +70,7 @@ export default function Members() {
   const [tierFilter, setTierFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
 
-  const { data, isLoading } = useQuery<MembersResponse>({
+  const { data, isLoading, error, refetch } = useQuery<MembersResponse>({
     queryKey: ["ops-members", page, search, tierFilter],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -82,14 +83,27 @@ export default function Members() {
     },
   });
 
+  const apiFailed = hasApiError(data) || !!error;
+
   return (
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ops-text">Members</h1>
         <p className="text-sm text-ops-text-muted mt-1">
-          {data?.pagination.total.toLocaleString() || "—"} total members
+          {apiFailed ? "—" : data?.pagination.total.toLocaleString() || "—"} total members
         </p>
       </div>
+
+      {apiFailed && (
+        <div className="mb-6">
+          <QueryError
+            context="Members list"
+            data={data}
+            error={error as Error | null}
+            onRetry={() => refetch()}
+          />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-4 mb-6">
