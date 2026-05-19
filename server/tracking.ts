@@ -8,10 +8,42 @@
  * The client pixel (tracking.ts) sends events here.
  * Attribution is computed on identify and updated on each payment.
  */
-import type { Express, Request } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { pool } from "./db";
 
+// Allowed origins for the tracking pixel. The pixel lives on fitscript.me
+// (and any preview/dev variant) while ingest is on ops.fitscript.me, so
+// browsers will block POSTs without explicit CORS allow.
+//
+// Keep this list narrow — it's NOT a generic CORS — and case-insensitive.
+const TRACKING_ALLOWED_ORIGINS = new Set([
+  "https://fitscript.me",
+  "https://www.fitscript.me",
+  "http://localhost:5000",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://127.0.0.1:5000",
+  "http://127.0.0.1:5173",
+]);
+
+function trackingCors(req: Request, res: Response, next: NextFunction) {
+  const origin = req.headers.origin || "";
+  if (TRACKING_ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "86400");
+  }
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  return next();
+}
+
 export function registerTrackingRoutes(app: Express) {
+  // Apply CORS to every /api/t/* route. No-op for same-origin requests.
+  app.use("/api/t", trackingCors);
 
   // ─── Receive tracking events ─────────────────────────────────────
   app.post("/api/t", async (req: Request, res) => {
