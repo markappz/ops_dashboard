@@ -122,6 +122,45 @@ export default function MemberDetail({ id }: { id: string }) {
     enabled: !!memberId,
   });
 
+  const { data: engagement } = useQuery<{
+    email: string;
+    profile_id: string | null;
+    klaviyo_url: string | null;
+    summary: {
+      received: number;
+      opened: number;
+      clicked: number;
+      unsubscribed: boolean;
+      last_engaged_at: string | null;
+    };
+    campaigns: Array<{
+      name: string;
+      type: "campaign" | "flow";
+      received: number;
+      opened: number;
+      clicked: number;
+      revenue: number;
+      lastAt: string;
+    }>;
+    events: Array<{
+      datetime: string;
+      metric: string;
+      campaign_name: string | null;
+      flow_id: string | null;
+      value: number;
+    }>;
+    note?: string;
+    error?: string;
+  }>({
+    queryKey: ["ops-member-email-engagement", memberId],
+    queryFn: () =>
+      fetch(`/api/ops/klaviyo/member/${memberId}/email-engagement`).then((r) =>
+        r.json(),
+      ),
+    enabled: !!memberId,
+    staleTime: 60_000 * 5,
+  });
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["ops-member", memberId] });
     queryClient.invalidateQueries({ queryKey: ["ops-member-payments", memberId] });
@@ -349,10 +388,14 @@ export default function MemberDetail({ id }: { id: string }) {
                   <div className="text-sm text-ops-text-muted">No Atlas activity yet.</div>
                 ) : (
                   <div className="space-y-2">
-                    {economics.model_mix.map((m) => (
-                      <div key={m.model} className="flex items-center justify-between text-sm">
-                        <span className="text-ops-text-muted font-mono text-xs truncate max-w-[60%]" title={m.model}>
-                          {m.model.replace("us.anthropic.", "").replace(/-v\d+:\d+$/, "")}
+                    {economics.model_mix.map((m, i) => {
+                      const modelLabel = (m.model ?? "unknown")
+                        .replace("us.anthropic.", "")
+                        .replace(/-v\d+:\d+$/, "");
+                      return (
+                      <div key={m.model ?? `unknown-${i}`} className="flex items-center justify-between text-sm">
+                        <span className="text-ops-text-muted font-mono text-xs truncate max-w-[60%]" title={m.model ?? "unknown"}>
+                          {modelLabel}
                         </span>
                         <div className="flex gap-3">
                           <span className="text-ops-text-muted">{m.turns} turns</span>
@@ -361,7 +404,8 @@ export default function MemberDetail({ id }: { id: string }) {
                           </span>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -385,6 +429,175 @@ export default function MemberDetail({ id }: { id: string }) {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Email Engagement */}
+      {engagement && (
+        <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
+          <div className="flex items-baseline justify-between mb-4">
+            <h3 className="text-sm font-semibold text-ops-text">Email Engagement</h3>
+            <div className="flex items-center gap-3 text-xs">
+              {engagement.summary.unsubscribed && (
+                <span className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 font-medium">
+                  Unsubscribed
+                </span>
+              )}
+              {engagement.klaviyo_url ? (
+                <a
+                  href={engagement.klaviyo_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ops-text-muted hover:text-fitscript-green"
+                >
+                  Open in Klaviyo ↗
+                </a>
+              ) : (
+                <span className="text-ops-text-muted">{engagement.note || "no profile"}</span>
+              )}
+            </div>
+          </div>
+
+          {engagement.profile_id ? (
+            <>
+              <div className="grid grid-cols-4 gap-6 mb-5">
+                <div>
+                  <div className="text-xs text-ops-text-muted uppercase tracking-wider">Received</div>
+                  <div className="text-lg font-bold text-ops-text">{engagement.summary.received}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-ops-text-muted uppercase tracking-wider">Opened</div>
+                  <div className="text-lg font-bold text-fitscript-green">
+                    {engagement.summary.opened}
+                  </div>
+                  <div className="text-[10px] text-ops-text-muted mt-1">
+                    {engagement.summary.received > 0
+                      ? `${((engagement.summary.opened / engagement.summary.received) * 100).toFixed(0)}% open rate`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-ops-text-muted uppercase tracking-wider">Clicked</div>
+                  <div className="text-lg font-bold text-fitscript-green">
+                    {engagement.summary.clicked}
+                  </div>
+                  <div className="text-[10px] text-ops-text-muted mt-1">
+                    {engagement.summary.opened > 0
+                      ? `${((engagement.summary.clicked / engagement.summary.opened) * 100).toFixed(0)}% CTOR`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-ops-text-muted uppercase tracking-wider">Last Engaged</div>
+                  <div className="text-base font-medium text-ops-text">
+                    {engagement.summary.last_engaged_at
+                      ? new Date(engagement.summary.last_engaged_at).toLocaleDateString()
+                      : "Never"}
+                  </div>
+                  {engagement.summary.last_engaged_at && (
+                    <div className="text-[10px] text-ops-text-muted mt-1">
+                      {Math.floor(
+                        (Date.now() - new Date(engagement.summary.last_engaged_at).getTime()) /
+                          (1000 * 60 * 60 * 24),
+                      )}d ago
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {engagement.campaigns.length > 0 && (
+                <div className="pt-4 border-t border-ops-border">
+                  <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+                    Campaigns &amp; Flows
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
+                        <th className="text-left pb-2 font-medium">Name</th>
+                        <th className="text-right pb-2 font-medium">Rec.</th>
+                        <th className="text-right pb-2 font-medium">Open</th>
+                        <th className="text-right pb-2 font-medium">Click</th>
+                        <th className="text-right pb-2 font-medium">Revenue</th>
+                        <th className="text-right pb-2 font-medium">Last</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-ops-border/40">
+                      {engagement.campaigns.map((c, i) => (
+                        <tr key={i}>
+                          <td className="py-2 pr-3 max-w-[300px] truncate" title={c.name}>
+                            <span
+                              className={`inline-block w-1.5 h-1.5 rounded-full mr-2 ${
+                                c.type === "flow" ? "bg-blue-400" : "bg-amber-400"
+                              }`}
+                            />
+                            <span className="text-ops-text">{c.name}</span>
+                          </td>
+                          <td className="py-2 text-right text-ops-text-muted">{c.received}</td>
+                          <td className="py-2 text-right text-fitscript-green">{c.opened}</td>
+                          <td className="py-2 text-right text-fitscript-green">{c.clicked}</td>
+                          <td className="py-2 text-right text-fitscript-green font-medium">
+                            {c.revenue > 0 ? `$${c.revenue.toFixed(2)}` : "—"}
+                          </td>
+                          <td className="py-2 text-right text-ops-text-muted text-xs">
+                            {new Date(c.lastAt).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {engagement.events.length > 0 && (
+                <details className="pt-4 border-t border-ops-border mt-4">
+                  <summary className="text-xs text-ops-text-muted uppercase tracking-wider cursor-pointer hover:text-ops-text">
+                    Recent event timeline ({engagement.events.length})
+                  </summary>
+                  <div className="mt-3 space-y-1 max-h-80 overflow-y-auto">
+                    {engagement.events.map((e, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 hover:bg-ops-surface-hover rounded">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <span className="text-ops-text-muted w-32 shrink-0">
+                            {new Date(e.datetime).toLocaleString()}
+                          </span>
+                          <span
+                            className={
+                              e.metric === "Opened Email"
+                                ? "text-fitscript-green font-medium"
+                                : e.metric === "Clicked Email"
+                                  ? "text-fitscript-green font-medium"
+                                  : e.metric === "Bounced Email"
+                                    ? "text-red-400"
+                                    : "text-ops-text"
+                            }
+                          >
+                            {e.metric}
+                          </span>
+                          {e.campaign_name && (
+                            <span className="text-ops-text-muted truncate">
+                              · {e.campaign_name}
+                            </span>
+                          )}
+                          {!e.campaign_name && e.flow_id && (
+                            <span className="text-ops-text-muted font-mono text-[10px]">
+                              · flow {e.flow_id}
+                            </span>
+                          )}
+                        </div>
+                        {e.value > 0 && (
+                          <span className="text-fitscript-green font-medium">${e.value.toFixed(2)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </>
+          ) : (
+            <div className="text-sm text-ops-text-muted py-3">
+              No Klaviyo profile found for {engagement.email}. This user may not be in any Klaviyo list yet.
             </div>
           )}
         </div>

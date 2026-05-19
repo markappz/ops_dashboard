@@ -650,6 +650,144 @@ export function registerKlaviyoRoutes(app: Express) {
   });
 
   // Recent send audit log — most recent 50.
+  // Per-member email engagement. Looks up the user's email in RDS, finds
+  // the Klaviyo profile, pulls recent events and groups them by campaign/flow.
+  // Used by the member-detail page.
+  app.get("/api/ops/klaviyo/member/:userId/email-engagement", async (req, res) => {
+    try {
+      const userId = req.params.userId;
+      const userRes = await pool.query(
+        "SELECT email FROM users WHERE id = $1",
+        [userId],
+      );
+      const email = userRes.rows[0]?.email;
+      if (!email) {
+        return res.status(404).json({ error: "user not found" });
+      }
+
+      // 1. Profile lookup by email.
+      const profileRes = await klaviyoFetch<{ data: any[] }>(
+        `/profiles/?filter=equals(email,"${encodeURIComponent(email)}")`,
+      );
+      const profile = profileRes.data?.[0];
+      if (!profile) {
+        return res.json({
+          email,
+          profile_id: null,
+          klaviyo_url: null,
+          summary: { received: 0, opened: 0, clicked: 0, unsubscribed: false, last_engaged_at: null },
+          campaigns: [],
+          events: [],
+          note: "No Klaviyo profile found for this email.",
+        });
+      }
+
+      // 2. Recent events for this profile (last 50 across all metrics).
+      const eventsRes = await klaviyoFetch<{ data: any[]; included?: any[] }>(
+        `/events/?filter=equals(profile_id,"${profile.id}")` +
+          `&sort=-datetime&page[size]=50&include=metric`,
+      );
+      const events = eventsRes.data || [];
+      const metricMap: Record<string, string> = {};
+      for (const inc of eventsRes.included || []) {
+        if (inc.type === "metric") metricMap[inc.id] = inc.attributes?.name || "(unnamed)";
+      }
+
+      // Pre-compute campaign/flow aggregates and a flat timeline.
+      const campaignAgg: Record<
+        string,
+        { name: string; type: "campaign" | "flow"; received: number; opened: number; clicked: number; revenue: number; lastAt: string }
+      > = {};
+      const summary = {
+        received: 0,
+        opened: 0,
+        clicked: 0,
+        unsubscribed: false,
+        last_engaged_at: null as string | null,
+      };
+      const timeline: Array<{
+        datetime: string;
+        metric: string;
+        campaign_name: string | null;
+        flow_id: string | null;
+        message_id: string | null;
+        value: number;
+      }> = [];
+
+      for (const e of events) {
+        const metric = metricMap[e.relationships?.metric?.data?.id] || "Unknown";
+        const props = e.attributes?.event_properties || {};
+        const dt = e.attributes?.datetime as string;
+        const campaignName = (props["Campaign Name"] as string) || null;
+        const flowId = (props["$flow"] as string) || null;
+        const messageId = (props["$message"] as string) || null;
+        const value = parseFloat(props["$value"] || "0");
+
+        timeline.push({
+          datetime: dt,
+          metric,
+          campaign_name: campaignName,
+          flow_id: flowId,
+          message_id: messageId,
+          value,
+        });
+
+        // Summary counts (engagement metrics only).
+        const isEngagement = ["Received Email", "Opened Email", "Clicked Email"].includes(metric);
+        if (isEngagement) {
+          if (!summary.last_engaged_at || dt > summary.last_engaged_at) {
+            summary.last_engaged_at = dt;
+          }
+          if (metric === "Received Email") summary.received++;
+          else if (metric === "Opened Email") summary.opened++;
+          else if (metric === "Clicked Email") summary.clicked++;
+        }
+        if (metric === "Unsubscribed from Email Marketing") summary.unsubscribed = true;
+
+        // Campaign/flow aggregation (only for email events with a campaign or flow tag).
+        if (!isEngagement && metric !== "Bounced Email") continue;
+        const key = campaignName
+          ? `c:${campaignName}`
+          : flowId
+            ? `f:${flowId}`
+            : null;
+        if (!key) continue;
+        if (!campaignAgg[key]) {
+          campaignAgg[key] = {
+            name: campaignName || `Flow ${flowId}`,
+            type: campaignName ? "campaign" : "flow",
+            received: 0,
+            opened: 0,
+            clicked: 0,
+            revenue: 0,
+            lastAt: dt,
+          };
+        }
+        const agg = campaignAgg[key];
+        if (dt > agg.lastAt) agg.lastAt = dt;
+        if (metric === "Received Email") agg.received++;
+        else if (metric === "Opened Email") agg.opened++;
+        else if (metric === "Clicked Email") agg.clicked++;
+        if (value > 0) agg.revenue += value;
+      }
+
+      const campaigns = Object.values(campaignAgg)
+        .sort((a, b) => (a.lastAt < b.lastAt ? 1 : -1));
+
+      res.json({
+        email,
+        profile_id: profile.id,
+        klaviyo_url: `https://www.klaviyo.com/profile/${profile.id}`,
+        summary,
+        campaigns,
+        events: timeline,
+      });
+    } catch (e: any) {
+      console.error("[OPS][KLAVIYO] member engagement error:", e.message);
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/klaviyo/sends", async (_req, res) => {
     try {
       await ensureSendsTable();
