@@ -85,3 +85,30 @@ Record of every important decision so we don't revisit settled questions.
 **Why:** Reporting AI cost without disclosing which surfaces are counted creates the worst kind of dashboard — one that looks complete but isn't. If a session lands on `/command-center` and sees `Gross Margin: 99.5%`, that conclusion is meaningful only when the user knows we're only counting Atlas. Forced labeling prevents that misread. Once Phase 2 instrumentation deploys to FitScript prod and `ai_costs` fills with non-atlas rows, the flag flips automatically — no UI changes needed.
 
 **How to apply:** Every new economics surface inherits this. Don't strip the flag from response payloads. Don't hardcode the UI to expect "all_surfaces" — render the literal flag value so future expansions (a third "all_surfaces_plus_embeddings_excluded" mode, etc.) need only a label-map update.
+
+---
+
+## 2026-05-20 — Clomark bridge = bearer-token ops API on Clomark, not DB read
+
+**Decision:** ops-dashboard reads Clomark data via a new bearer-token-authed `/api/ops/*` surface on the Clomark side (live repo `mujtabams/ClomarkNexus`). NOT direct DB queries, NOT iframe embed.
+
+**Why this and not alternatives:**
+- **vs. direct DB read:** Tight coupling. Any Clomark schema change (e.g. `seoScores.totalScore` vs `overallScore`, or moving from `status` to `approvalStatus`) silently breaks ops-dashboard. Already documented schema drift between the live repo and the older `markappz/clomark-platform` clone — building a DB query against the latter would have shipped broken code to prod. The ops API is the contract; schema changes inside Clomark are absorbed at the boundary.
+- **vs. iframe embed:** Loses the unified dashboard look and feel. Also doesn't compose with other ops-dashboard data (e.g. correlating Clomark content with GSC performance) since iframes are opaque.
+- **vs. shared OAuth or per-user JWT:** Overkill for a single trusted internal consumer. Bearer token can be rotated by regenerating in Clomark's Deployment secrets + matching in ops-dashboard's .env.
+
+**How to apply:**
+- New Clomark data the ops dashboard needs → add an endpoint in `ClomarkNexus/server/ops-api.ts` (under `requireOpsToken` middleware), add a wrapper in `ops-dashboard/server/clomark.ts`, surface on a page.
+- Surface naming convention: `/api/ops/business/:id/<resource>`. Resource scoped to the business profile so multi-tenant future is preserved.
+- Token rotation: regenerate via `openssl rand -hex 32`, update Replit Deployment secret + ops-dashboard `.env`, restart both.
+- Tables keyed by `userId` (seoScores, aiActivities, keywordAnalysis in the live schema) MUST resolve from the businessProfile.userId lookup first — the ops API hides this from the consumer.
+
+---
+
+## 2026-05-20 — Integration health surfaced where it matters, not just on Settings
+
+**Decision:** Command Center top-right shows a slim integration-health strip (Google / Klaviyo / Meta dots) that appears ONLY when at least one is disconnected. Clicking it routes to `/settings`. Settings page distinguishes "Configured" (env vars present) from "Connected" (OAuth/token actually validated).
+
+**Why:** A disconnected integration is invisible if you only check Settings periodically. Yesterday's "Google OAuth ✓ Configured" green dot when actually no OAuth row existed was the canonical confusion to avoid — env presence alone shouldn't read as healthy. Strip is opt-in noise — disappears entirely when all green, so it's never UI clutter for a fully-configured deployment.
+
+**How to apply:** Future integrations (Google Ads, Webflow, anything else) should plug into the same strip. The pattern in `command-center.tsx` is: a `useQuery` per integration's status endpoint, then a row in the `integrations` array with `{name, connected: boolean, detail: string}`. The strip auto-includes new entries.

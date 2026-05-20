@@ -175,3 +175,75 @@ Plus two send-orchestration path bugs:
 3. Local-test fitscript AI surfaces (Atlas, meal photo, lab upload, protocol gen) to confirm `logAiCost` doesn't crash anything.
 4. Push fitscript → ECS deploy → `ai_costs` starts populating from all 8 surfaces → coverage flag flips to `"all_surfaces"`.
 5. Then move to whatever's next in the backlog (Meta Ads or `/content` page were the impact-ordered candidates).
+
+---
+
+## 2026-05-19 → 2026-05-20 — Tracking pixel + Meta Ads + Admin Audit + Email Hub polish + Full day plan
+
+Big arc. Closes the tracking infrastructure loop, adds two new connector families, ships the Email Hub deferred polish, then a full focused day on Google connect + leads + Clomark bridge.
+
+### Commit ledger (this repo, chronological)
+
+```
+302ad35  Add CORS to /api/t/* for tracking pixel ingest
+8af3cf9  Apply QueryError pattern to /email, /tracking, /marketing
+ec5a996  Add Klaviyo throttled send strategy
+0bba2df  Add Google connect health, /leads, GA4 on Marketing, GSC on /content
+fb5d852  Add Clomark connector + surface on /content
+```
+
+Plus, in companion repos:
+- `fitscript` (markappz/Humn-Health): `08edc0c7` — first-party tracking pixel + server-side revenue notify
+- `ClomarkNexus` (mujtabams/ClomarkNexus): `5bdd9264` — `/api/ops/*` read-only API for downstream dashboards
+
+### What landed (arc by arc)
+
+**1. First-party tracking pixel went live (2026-05-19).** `client/src/lib/tracking.ts` in fitscript: visitor_id 2-yr cookie, session_id 30-min timeout, UTM capture, page_view + custom events, SPA route patching, sendBeacon w/ fetch fallback. `initTracking()` in main.tsx, `identifyUser()` on auth resolution (useAuth.ts), server-side `notifyOpsRevenue` + `notifyOpsEvent` from Stripe webhook (`server/lib/opsTracking.ts`). ops-dashboard side added CORS to `/api/t/*` for cross-origin from fitscript.me. Verified end-to-end against local DB.
+
+**2. QueryError pattern rolled out** to `/email` (all 4 tabs), `/tracking` (funnel + attribution + campaigns), `/marketing` (top + Meta Ads section). Existing `<InlineError>` + `hasApiError` type-guard now consumed across the pages where silent empty-state was masking 4xx.
+
+**3. Klaviyo throttled send.** 4th send method (alongside immediate / static / smart_send_time). Backend accepts `throttlePercentage` (1-100); frontend presents 5 preset durations (2h/4h/8h/12h/24h) mapped to Klaviyo's percentage. UI surfaces the percentage in Step 3 hint + Step 4 summary + success screen. Critical for larger sends — Gmail penalizes burst patterns.
+
+**4. Day plan — 5 blocks (2026-05-20).**
+
+- **Block 1: Google OAuth verified + health visibility.** Fixed callback redirect (`/integrations` not `/settings` — where the toast lives). Preserved existing refresh_token across re-connects (Google only issues on first consent). Preserved GA4 property + GSC site across re-connects. New integration-health strip on Command Center (Google/Klaviyo/Meta dots, top-right) — appears only when something's disconnected, click → /settings. Settings page row distinguishes "Configured" (env vars) from "Connected" (OAuth completed) with badges + inline "Connect now →" link.
+
+- **Block 2: GA4 on Marketing.** New "Google Analytics 4 (last 30d)" card on `/marketing`. 4 KPI tiles (sessions/users/page views/avg bounce), daily traffic AreaChart (sessions area + users line), traffic-by-channel breakdown, top pages. Cross-validates the first-party tracking pixel.
+
+- **Block 3: GSC on /content.** Replaced the "Planned" placeholder with `pages/content.tsx`. 4 KPI tiles (clicks/impressions+CTR/avg CTR/avg position with first-page hint), daily search performance ComposedChart (impressions area + clicks line on dual axes), top queries + top pages tables with position color-coded (green ≤10, amber ≤20, muted deeper). 7d/30d/90d toggle. Verified live: 1,633 clicks / 472k impressions / 1.3% CTR / position 8.0 over 30d.
+
+- **Block 4: /leads section.** New `pages/leads.tsx` + `server/leads.ts`. 4 status tiles (Paid/Hot/Engaged/Cold — clickable filters), funnel viz (visitor → quiz → signup → paid with conversion %), source dropdown auto-populated, lead table with status pill, name/email/visitor_id, sessions, revenue, first/last touch dates. Signed-up rows click through to member detail. Empty-state messaging when tracking tables haven't populated yet. Auto-classifies leads: Paid (revenue), Hot (signed up + lab/quiz/3+ sessions in last 14d), Engaged (signed up OR 3+ sessions OR quiz), Cold (1-2 sessions).
+
+- **Block 5: Clomark bridge.** Two-part shipment:
+  - **5a (ClomarkNexus repo)**: new `server/ops-api.ts` — bearer-token-authed `/api/ops/*` surface. Endpoints: status, business by-website, business by-id, keywords (with rank-position bucketing since live schema has no `status` col on `keyword_analysis`), content (suggestions + generated with `approvalStatus` for generated), seo-score (latest + 30-pt trend with `totalScore` normalized as `overallScore`), activities. CORS scoped to `ops.fitscript.me` + localhost dev ports.
+  - **5b (this repo)**: `server/clomark.ts` connector. Env: `CLOMARK_BASE_URL` + `CLOMARK_OPS_TOKEN` + `CLOMARK_BUSINESS_ID`. `/api/ops/clomark/{status,discover,overview,keywords,content,activities}` with 8s timeout. New ClomarkSection at top of `/content` (above GSC card) — 4 KPI tiles (SEO Score/Keywords/Content Suggestions/Generated Content), 3-column breakdown (keyword pipeline by position, content status with color dots, recent AI activity timeline). Multi-stage empty state guides the operator through 5-step setup. New Settings integration row.
+
+### Setup gotchas observed
+
+- **`pg-types` parses TIMESTAMP WITHOUT TIME ZONE in Node's local TZ by default.** Override OID 1114 to treat naive timestamps as UTC. Pacific dev box was shifting every read by +7h ("-25042s ago" in admin log) — fixed.
+- **First char of bearer token dropped during copy-paste** — verify length after pasting (`openssl rand -hex 32` = 64 chars; Paul's pasted value came back 63).
+- **Replit Workspace secrets DON'T sync to Autoscale Deployment secrets.** Must add to BOTH or just the Deployment one. Plus Autoscale doesn't auto-deploy on GitHub push — must hit Redeploy.
+- **GA4 / GSC require Google Cloud APIs to be enabled** in the OAuth client's project. Three APIs needed: `analyticsadmin`, `searchconsole`, `analyticsdata`. Setup link: `console.developers.google.com/apis/api/<api>.googleapis.com/overview?project=<project_number>`.
+
+### Live state (2026-05-20 end-of-day)
+
+- Google: `pc@realpeptides.co` connected, GA4 property `483543652` (Fitscript), GSC site `sc-domain:fitscript.me`
+- Klaviyo: `pk_V3sni5_…755b20de` with Campaigns:Full + Events:Full + Flows:Full + Templates:Full + everything-else Read
+- Meta Ads: not configured (deferred — needs `META_SYSTEM_USER_TOKEN` from business.facebook.com)
+- Clomark: connected to `clomark.ai` via Autoscale deployment, business ID `533eac81-2538-4ae8-9cc2-b578587cbcad` (Fitscript), token shared via Replit Deployment secret. Showing 3 content suggestions (generated status), 2 drafts pending approval, 0 keywords tracked yet, SEO score 0 (initial entry from April).
+- Tracking pixel: deployed, accumulating data slowly (touchpoints + visitor_sessions tables exist but light).
+
+### Pending / next session
+
+- **Verify tracking pixel data flowing in prod.** Watch `/leads` and `/marketing` first-party rows over the next few days as visitors land on fitscript.me.
+- **Meta Ads.** Generate System User token + ad account ID, add to .env. Connector is built and waiting (returns 503 with setup hint until configured).
+- **Google Ads.** Still needs developer-token approval (1-3 day wait at `developers.google.com/google-ads/api/docs/first-call/dev-token`).
+- **Revenue tracking gap.** Klaviyo dollar revenue stays $0 until a Shopify/Stripe integration is connected to Klaviyo OR FitScript's own attribution-derived revenue is computed in the ops dashboard. The first-party pixel + Stripe webhook revenue notify lays groundwork for path 2.
+- **Cleanup:** orphan stale changes at `~/Projects/clomark` (markappz/clomark-platform fork — reverted but the local clone still exists). Optional `rm -rf ~/Projects/clomark` once memory is fully internalized.
+- **Apply `QueryError` to remaining pages** as they're touched (Settings, Orders, Member detail — anywhere a useQuery silently empty-states on 4xx).
+
+### What I'll remember next session (via memory)
+
+- `[[reference_clomark_live_repo]]` — ClomarkNexus is live, markappz/clomark-platform is stale, schema diffs documented.
+- `[[feedback_env_append_trailing_newline]]` — Don't use `>>` on .env without trailing newline guarantee (caused the Klaviyo key concatenation bug May 18).
+- `[[project_fitscript_unit_economics]]` — `ai_costs` table architecture (May 15).
