@@ -838,6 +838,7 @@ export function registerKlaviyoRoutes(app: Express) {
       excludedSegmentIds = [],
       sendMethod = "immediate",
       scheduledFor,
+      throttlePercentage,
       smartSendingEnabled = true,
     } = req.body || {};
 
@@ -863,12 +864,28 @@ export function registerKlaviyoRoutes(app: Express) {
     if (
       sendMethod !== "immediate" &&
       sendMethod !== "smart_send_time" &&
-      sendMethod !== "static"
+      sendMethod !== "static" &&
+      sendMethod !== "throttled"
     ) {
-      issues.push("sendMethod must be immediate, static, or smart_send_time");
+      issues.push(
+        "sendMethod must be immediate, static, smart_send_time, or throttled",
+      );
     }
     if (sendMethod === "static" && !scheduledFor) {
       issues.push("scheduledFor is required when sendMethod=static");
+    }
+    if (sendMethod === "throttled") {
+      if (
+        typeof throttlePercentage !== "number" ||
+        throttlePercentage < 1 ||
+        throttlePercentage > 100
+      ) {
+        issues.push(
+          "throttlePercentage (1-100) is required when sendMethod=throttled",
+        );
+      }
+      // Klaviyo accepts datetime on throttled too (start time). Default to now
+      // when not specified — server-side default keeps the API simple.
     }
     if (issues.length > 0) {
       return res.status(400).json({ error: "validation failed", issues });
@@ -917,6 +934,15 @@ export function registerKlaviyoRoutes(app: Express) {
           return {
             method: "smart_send_time",
             datetime: scheduledFor || new Date().toISOString(),
+          };
+        }
+        if (sendMethod === "throttled") {
+          // Spread the send over (100 / throttle_percentage) hours.
+          // Examples: 50 → 2h, 25 → 4h, 13 → ~8h, 10 → 10h.
+          return {
+            method: "throttled",
+            datetime: scheduledFor || new Date().toISOString(),
+            options_throttled: { throttle_percentage: throttlePercentage },
           };
         }
         return { method: "immediate" };

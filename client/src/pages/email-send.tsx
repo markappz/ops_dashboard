@@ -33,7 +33,17 @@ interface Status {
   organization?: string | null;
 }
 
-type SendMethod = "immediate" | "static" | "smart_send_time";
+type SendMethod = "immediate" | "static" | "smart_send_time" | "throttled";
+
+// Klaviyo accepts throttle_percentage 1-100. These are the preset durations
+// we expose — each maps to (100 / pct) hours of send window.
+const THROTTLE_PRESETS: { label: string; hours: number; pct: number }[] = [
+  { label: "2 hours", hours: 2, pct: 50 },
+  { label: "4 hours", hours: 4, pct: 25 },
+  { label: "8 hours", hours: 8, pct: 13 },
+  { label: "12 hours", hours: 12, pct: 8 },
+  { label: "24 hours", hours: 24, pct: 4 },
+];
 type Step = 1 | 2 | 3 | 4;
 
 const TYPE_TO_CONFIRM_THRESHOLD = 1000;
@@ -60,6 +70,7 @@ export default function EmailSend() {
   const [fromLabel, setFromLabel] = useState("");
   const [sendMethod, setSendMethod] = useState<SendMethod>("immediate");
   const [scheduledFor, setScheduledFor] = useState<string>("");
+  const [throttlePercentage, setThrottlePercentage] = useState<number>(25);
   const [smartSendingEnabled, setSmartSendingEnabled] = useState(true);
   const [confirmText, setConfirmText] = useState("");
 
@@ -127,7 +138,8 @@ export default function EmailSend() {
         !!subject &&
         !!fromEmail &&
         !!fromLabel &&
-        (sendMethod !== "static" || !!scheduledFor)
+        (sendMethod !== "static" || !!scheduledFor) &&
+        (sendMethod !== "throttled" || throttlePercentage > 0)
       );
     return true;
   }
@@ -155,6 +167,7 @@ export default function EmailSend() {
           excludedSegmentIds,
           sendMethod,
           scheduledFor: sendMethod !== "immediate" ? scheduledFor : undefined,
+          throttlePercentage: sendMethod === "throttled" ? throttlePercentage : undefined,
           smartSendingEnabled,
         }),
       });
@@ -190,6 +203,8 @@ export default function EmailSend() {
                   ? "Sending now."
                   : sendMethod === "static"
                   ? `Scheduled for ${new Date(scheduledFor).toLocaleString()}.`
+                  : sendMethod === "throttled"
+                  ? `Throttled — Klaviyo will release ${throttlePercentage}% of recipients per hour.`
                   : "Smart Send Time — Klaviyo will pick the best time per recipient."}
               </div>
             </div>
@@ -273,6 +288,8 @@ export default function EmailSend() {
             setSendMethod={setSendMethod}
             scheduledFor={scheduledFor}
             setScheduledFor={setScheduledFor}
+            throttlePercentage={throttlePercentage}
+            setThrottlePercentage={setThrottlePercentage}
             smartSendingEnabled={smartSendingEnabled}
             setSmartSendingEnabled={setSmartSendingEnabled}
           />
@@ -288,6 +305,7 @@ export default function EmailSend() {
             fromLabel={fromLabel}
             sendMethod={sendMethod}
             scheduledFor={scheduledFor}
+            throttlePercentage={throttlePercentage}
             audienceSize={audienceSize}
             needsTypeConfirm={needsTypeConfirm}
             confirmText={confirmText}
@@ -577,6 +595,8 @@ function Step3({
   setSendMethod,
   scheduledFor,
   setScheduledFor,
+  throttlePercentage,
+  setThrottlePercentage,
   smartSendingEnabled,
   setSmartSendingEnabled,
 }: {
@@ -592,6 +612,8 @@ function Step3({
   setSendMethod: (v: SendMethod) => void;
   scheduledFor: string;
   setScheduledFor: (v: string) => void;
+  throttlePercentage: number;
+  setThrottlePercentage: (v: number) => void;
   smartSendingEnabled: boolean;
   setSmartSendingEnabled: (v: boolean) => void;
 }) {
@@ -627,12 +649,13 @@ function Step3({
       </div>
 
       <Field label="When to send">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(
             [
               { v: "immediate", label: "Now" },
               { v: "static", label: "Schedule" },
               { v: "smart_send_time", label: "Smart Send Time" },
+              { v: "throttled", label: "Throttled" },
             ] as { v: SendMethod; label: string }[]
           ).map((opt) => (
             <button
@@ -650,13 +673,23 @@ function Step3({
         </div>
       </Field>
 
-      {(sendMethod === "static" || sendMethod === "smart_send_time") && (
+      {(sendMethod === "static" ||
+        sendMethod === "smart_send_time" ||
+        sendMethod === "throttled") && (
         <Field
-          label={sendMethod === "static" ? "Send at" : "Window starts at"}
+          label={
+            sendMethod === "static"
+              ? "Send at"
+              : sendMethod === "throttled"
+                ? "Start sending at"
+                : "Window starts at"
+          }
           hint={
             sendMethod === "smart_send_time"
               ? "Klaviyo picks the optimal time per recipient inside a 24h window starting at this time."
-              : ""
+              : sendMethod === "throttled"
+                ? "Optional — leave blank to start immediately."
+                : ""
           }
         >
           <input
@@ -665,6 +698,32 @@ function Step3({
             value={scheduledFor}
             onChange={(e) => setScheduledFor(toIso(e.target.value))}
           />
+        </Field>
+      )}
+
+      {sendMethod === "throttled" && (
+        <Field
+          label="Spread over"
+          hint="Spreads the send across the chosen window. Easier on deliverability for larger lists."
+        >
+          <div className="flex gap-2 flex-wrap">
+            {THROTTLE_PRESETS.map((p) => (
+              <button
+                key={p.pct}
+                onClick={() => setThrottlePercentage(p.pct)}
+                className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
+                  throttlePercentage === p.pct
+                    ? "border-fitscript-green text-fitscript-green bg-fitscript-green/8"
+                    : "border-ops-border text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="text-[10px] text-ops-text-muted mt-2">
+            {throttlePercentage}% of recipients per hour
+          </div>
         </Field>
       )}
 
@@ -693,6 +752,7 @@ function Step4({
   fromLabel,
   sendMethod,
   scheduledFor,
+  throttlePercentage,
   audienceSize,
   needsTypeConfirm,
   confirmText,
@@ -710,6 +770,7 @@ function Step4({
   fromLabel: string;
   sendMethod: SendMethod;
   scheduledFor: string;
+  throttlePercentage: number;
   audienceSize: AudienceSize | undefined;
   needsTypeConfirm: boolean;
   confirmText: string;
@@ -765,6 +826,10 @@ function Step4({
                 ? "Now"
                 : sendMethod === "static"
                 ? new Date(scheduledFor).toLocaleString()
+                : sendMethod === "throttled"
+                ? `Throttled · ${throttlePercentage}%/hr starting ${
+                    scheduledFor ? new Date(scheduledFor).toLocaleString() : "now"
+                  }`
                 : `Smart Send Time after ${new Date(scheduledFor || Date.now()).toLocaleString()}`
             )}
           </div>
