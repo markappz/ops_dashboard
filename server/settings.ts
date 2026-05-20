@@ -80,6 +80,16 @@ export function registerSettingsRoutes(app: Express) {
         apiVersion: process.env.META_API_VERSION || "v21.0",
         label: "Meta (Facebook + Instagram) ad spend, performance, ROAS on Marketing",
       },
+      clomark: {
+        configured:
+          !!process.env.CLOMARK_BASE_URL && !!process.env.CLOMARK_OPS_TOKEN,
+        businessIdConfigured: !!process.env.CLOMARK_BUSINESS_ID,
+        baseUrl: process.env.CLOMARK_BASE_URL || null,
+        tokenTail: tail(process.env.CLOMARK_OPS_TOKEN),
+        businessIdTail: tail(process.env.CLOMARK_BUSINESS_ID, 8),
+        label:
+          "Clomark content pipeline: keyword research, content drafts, SEO score, AI activity on /content",
+      },
     };
 
     const auth = {

@@ -79,7 +79,7 @@ export default function Content() {
         <div>
           <h1 className="text-2xl font-bold text-ops-text">Content &amp; SEO</h1>
           <p className="text-sm text-ops-text-muted mt-1">
-            Search Console performance · last {range} days
+            Search Console performance + Clomark content pipeline · last {range} days
           </p>
         </div>
         <div className="flex gap-1 bg-ops-bg rounded-lg p-1">
@@ -98,6 +98,11 @@ export default function Content() {
           ))}
         </div>
       </div>
+
+      {/* Clomark content pipeline */}
+      <ClomarkSection />
+
+
 
       {!ready ? (
         <div className="bg-ops-bg border border-ops-border rounded-xl p-6 max-w-3xl">
@@ -389,5 +394,256 @@ function KpiTile({
       </div>
       {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
     </div>
+  );
+}
+
+// ─── Clomark Section ────────────────────────────────────────────────
+
+interface ClomarkStatus {
+  configured: boolean;
+  connected?: boolean;
+  businessIdConfigured?: boolean;
+  businessId?: string | null;
+  baseUrl?: string;
+  error?: string;
+  envHint?: string;
+}
+
+interface ClomarkOverview {
+  keywords: { all: number; byStatus: Record<string, number> };
+  content: {
+    suggestions: { all: number; byStatus: Record<string, number> };
+    generated: { all: number; byStatus: Record<string, number> };
+  };
+  seoScore: { overallScore?: number; createdAt?: string } | null;
+  seoScoreTrend: { overallScore: number; createdAt: string }[];
+  recentActivities: {
+    id: string;
+    activityType?: string;
+    description?: string;
+    createdAt: string;
+  }[];
+  error?: string;
+}
+
+function ClomarkSection() {
+  const { data: status } = useQuery<ClomarkStatus>({
+    queryKey: ["ops-clomark-status"],
+    queryFn: () => fetch("/api/ops/clomark/status").then((r) => r.json()),
+  });
+  const ready = !!status?.connected && !!status.businessIdConfigured;
+
+  const { data, isLoading, error } = useQuery<ClomarkOverview>({
+    queryKey: ["ops-clomark-overview"],
+    queryFn: () => fetch("/api/ops/clomark/overview").then((r) => r.json()),
+    enabled: ready,
+    staleTime: 60_000 * 5,
+  });
+
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
+      <div className="flex items-baseline justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-ops-text">
+            Clomark — Content &amp; SEO Pipeline
+          </h3>
+          {ready && (
+            <p className="text-xs text-ops-text-muted mt-0.5">
+              Business {status!.businessId?.slice(0, 8)}… · keyword research, content
+              drafts, SEO score
+            </p>
+          )}
+        </div>
+        {!ready && (
+          <span className="text-xs text-ops-text-muted">
+            {status?.configured ? "Business not selected" : "Not configured"}
+          </span>
+        )}
+      </div>
+
+      {!status?.configured ? (
+        <div className="bg-ops-bg border border-ops-border rounded-lg p-4 text-xs text-ops-text-muted">
+          <div className="font-medium text-ops-text mb-2">Connect Clomark</div>
+          <div className="space-y-2">
+            <p>{status?.envHint || "Set CLOMARK_BASE_URL + CLOMARK_OPS_TOKEN in .env."}</p>
+            <ol className="list-decimal list-inside space-y-1 text-ops-text-muted/80">
+              <li>
+                Generate a 32+ char random token. Set it as{" "}
+                <code className="bg-ops-bg px-1 rounded">CLOMARK_OPS_TOKEN</code> in
+                BOTH ops-dashboard's <code>.env</code> AND Clomark's <code>.env</code>
+              </li>
+              <li>
+                Set <code className="bg-ops-bg px-1 rounded">CLOMARK_BASE_URL</code>{" "}
+                in ops-dashboard (e.g.{" "}
+                <code>https://app.clomark.com</code> or{" "}
+                <code>http://localhost:5000</code> for local dev)
+              </li>
+              <li>Restart both servers</li>
+              <li>
+                Hit{" "}
+                <code className="bg-ops-bg px-1 rounded">
+                  /api/ops/clomark/discover?domain=fitscript.me
+                </code>{" "}
+                to find FitScript's business ID
+              </li>
+              <li>
+                Add the returned ID as{" "}
+                <code className="bg-ops-bg px-1 rounded">CLOMARK_BUSINESS_ID</code>{" "}
+                in ops-dashboard, restart
+              </li>
+            </ol>
+          </div>
+        </div>
+      ) : status?.configured && !status.connected ? (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-xs text-red-300">
+          {status.error || "Could not reach Clomark."}
+        </div>
+      ) : !status.businessIdConfigured ? (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-xs text-amber-300/90">
+          <div className="font-medium mb-1">Business ID not set</div>
+          <div className="text-amber-200/70">
+            Hit{" "}
+            <a
+              href="/api/ops/clomark/discover?domain=fitscript.me"
+              target="_blank"
+              rel="noreferrer"
+              className="underline text-amber-200"
+            >
+              /api/ops/clomark/discover?domain=fitscript.me
+            </a>{" "}
+            and set the returned <code>id</code> as <code>CLOMARK_BUSINESS_ID</code>{" "}
+            in <code>.env</code>, then restart.
+          </div>
+        </div>
+      ) : (hasApiError(data) || error) ? (
+        <InlineError context="Clomark" data={data} error={error as Error | null} />
+      ) : isLoading || !data ? (
+        <div className="text-sm text-ops-text-muted">Loading Clomark data…</div>
+      ) : (
+        <ClomarkBody data={data} />
+      )}
+    </div>
+  );
+}
+
+function ClomarkBody({ data }: { data: ClomarkOverview }) {
+  const kw = data.keywords;
+  const sugg = data.content.suggestions;
+  const gen = data.content.generated;
+  const score = data.seoScore;
+  const activities = data.recentActivities ?? [];
+
+  return (
+    <>
+      {/* 4 KPI tiles */}
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <KpiTile
+          label="SEO Score"
+          value={
+            score?.overallScore !== undefined
+              ? String(Math.round(score.overallScore))
+              : "—"
+          }
+          sub={
+            score?.createdAt
+              ? `as of ${new Date(score.createdAt).toLocaleDateString()}`
+              : "no score yet"
+          }
+          accent
+        />
+        <KpiTile
+          label="Keywords Tracked"
+          value={kw.all.toLocaleString()}
+          sub={`${kw.byStatus.approved ?? 0} approved`}
+        />
+        <KpiTile
+          label="Content Suggestions"
+          value={sugg.all.toLocaleString()}
+          sub={`${sugg.byStatus.pending ?? 0} pending`}
+        />
+        <KpiTile
+          label="Generated Content"
+          value={gen.all.toLocaleString()}
+          sub={`${gen.byStatus.published ?? gen.byStatus.completed ?? 0} published`}
+        />
+      </div>
+
+      {/* Status breakdowns + recent activities */}
+      <div className="grid grid-cols-3 gap-5 pt-4 border-t border-ops-border">
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+            Keyword Pipeline
+          </div>
+          {Object.keys(kw.byStatus).length === 0 ? (
+            <div className="text-xs text-ops-text-muted">No keywords yet.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {Object.entries(kw.byStatus)
+                .sort((a, b) => b[1] - a[1])
+                .map(([s, c]) => (
+                  <div key={s} className="flex items-center justify-between text-sm">
+                    <span className="text-ops-text-muted capitalize">{s}</span>
+                    <span className="text-ops-text font-medium">{c}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+            Content Status
+          </div>
+          {Object.keys(sugg.byStatus).length + Object.keys(gen.byStatus).length === 0 ? (
+            <div className="text-xs text-ops-text-muted">No content yet.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {Object.entries(gen.byStatus)
+                .sort((a, b) => b[1] - a[1])
+                .map(([s, c]) => (
+                  <div key={`g-${s}`} className="flex items-center justify-between text-sm">
+                    <span className="text-ops-text-muted capitalize">
+                      <span className="w-1.5 h-1.5 rounded-full bg-fitscript-green inline-block mr-2" />
+                      {s} (drafted)
+                    </span>
+                    <span className="text-ops-text font-medium">{c}</span>
+                  </div>
+                ))}
+              {Object.entries(sugg.byStatus)
+                .sort((a, b) => b[1] - a[1])
+                .map(([s, c]) => (
+                  <div key={`s-${s}`} className="flex items-center justify-between text-sm">
+                    <span className="text-ops-text-muted capitalize">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-300 inline-block mr-2" />
+                      {s} (suggested)
+                    </span>
+                    <span className="text-ops-text font-medium">{c}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+            Recent AI Activity
+          </div>
+          {activities.length === 0 ? (
+            <div className="text-xs text-ops-text-muted">No activity yet.</div>
+          ) : (
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {activities.slice(0, 6).map((a) => (
+                <div key={a.id} className="text-xs">
+                  <div className="text-ops-text truncate" title={a.description || a.activityType}>
+                    {a.description || a.activityType || "(activity)"}
+                  </div>
+                  <div className="text-[10px] text-ops-text-muted">
+                    {new Date(a.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

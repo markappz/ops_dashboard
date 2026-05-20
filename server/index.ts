@@ -15,6 +15,7 @@ import { registerSettingsRoutes } from "./settings";
 import { registerMetaAdsRoutes } from "./meta-ads";
 import { registerAdminActionsRoutes } from "./admin-actions";
 import { registerLeadsRoutes } from "./leads";
+import { registerClomarkRoutes } from "./clomark";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -53,6 +54,7 @@ registerSettingsRoutes(app);
 registerMetaAdsRoutes(app);
 registerAdminActionsRoutes(app);
 registerLeadsRoutes(app);
+registerClomarkRoutes(app);
 
 async function setupClient() {
   if (process.env.NODE_ENV === "production") {

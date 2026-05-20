@@ -37,6 +37,14 @@ interface SettingsData {
       apiVersion: string;
       label: string;
     };
+    clomark: {
+      configured: boolean;
+      businessIdConfigured: boolean;
+      baseUrl: string | null;
+      tokenTail: string;
+      businessIdTail: string;
+      label: string;
+    };
   };
   auth: {
     sessionSecretConfigured: boolean;
@@ -305,6 +313,29 @@ export default function Settings() {
                 : []
             }
             description={data.integrations.metaAds.label}
+          />
+          <IntegrationRow
+            name="Clomark"
+            configured={
+              data.integrations.clomark.configured &&
+              data.integrations.clomark.businessIdConfigured
+            }
+            badges={(() => {
+              if (!data.integrations.clomark.configured) return [];
+              const out: Array<{ label: string; tone?: "neutral" | "warn" | "info" }> = [
+                { label: data.integrations.clomark.tokenTail },
+              ];
+              if (data.integrations.clomark.businessIdConfigured) {
+                out.push({
+                  label: data.integrations.clomark.businessIdTail,
+                  tone: "info" as const,
+                });
+              } else {
+                out.push({ label: "Business ID pending", tone: "warn" as const });
+              }
+              return out;
+            })()}
+            description={data.integrations.clomark.label}
           />
         </div>
       </div>
