@@ -124,6 +124,9 @@ export default function Marketing() {
         <StatCard label="Overall Conv Rate" value={totalVisitors > 0 ? `${((totalPaying / totalVisitors) * 100).toFixed(1)}%` : "---"} />
       </div>
 
+      {/* Google Analytics 4 */}
+      <GA4Section />
+
       {/* Meta Ads */}
       <MetaAdsSection />
 
@@ -587,5 +590,246 @@ function MetaAdsSection() {
         </>
       )}
     </div>
+  );
+}
+
+// ─── GA4 Section ────────────────────────────────────────────────────
+
+interface GA4Daily {
+  date: string;
+  sessions: number;
+  users: number;
+  newUsers: number;
+  pageViews: number;
+  bounceRate: number;
+  avgDuration: number;
+}
+
+interface GA4Overview {
+  connected: boolean;
+  daily?: GA4Daily[];
+  totals?: { sessions: number; users: number; newUsers: number; pageViews: number };
+  sources?: { channel: string; sessions: number; users: number; pageViews: number }[];
+  topPages?: { page: string; views: number; avgDuration: number }[];
+  error?: string;
+}
+
+interface ConnectionsResp {
+  google?: { connected: boolean; ga4PropertyId?: string };
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}m ${s}s`;
+}
+
+function GA4Section() {
+  const { data: connections } = useQuery<ConnectionsResp>({
+    queryKey: ["ops-connections"],
+    queryFn: () => fetch("/api/ops/connections").then((r) => r.json()),
+  });
+  const ready =
+    !!connections?.google?.connected && !!connections.google.ga4PropertyId;
+
+  const { data, isLoading, error } = useQuery<GA4Overview>({
+    queryKey: ["ops-ga4-overview", 30],
+    queryFn: () => fetch("/api/ops/ga4/overview?range=30").then((r) => r.json()),
+    enabled: ready,
+    staleTime: 60_000 * 5,
+  });
+
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
+      <div className="flex items-baseline justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-ops-text">Google Analytics 4 (last 30d)</h3>
+          {ready && (
+            <p className="text-xs text-ops-text-muted mt-0.5">
+              Property {connections!.google!.ga4PropertyId} · cross-validates with first-party attribution above
+            </p>
+          )}
+        </div>
+        {!ready && (
+          <span className="text-xs text-ops-text-muted">Not configured</span>
+        )}
+      </div>
+
+      {!ready ? (
+        <div className="bg-ops-bg border border-ops-border rounded-lg p-4 text-xs text-ops-text-muted">
+          {connections?.google?.connected
+            ? "GA4 connected but no property selected."
+            : "Google account not connected."}{" "}
+          <a href="/integrations" className="text-fitscript-green hover:underline">
+            Configure →
+          </a>
+        </div>
+      ) : error ? (
+        <InlineError context="GA4" error={error as Error | null} />
+      ) : hasApiError(data) ? (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-xs text-red-300">
+          {(data as { error: string }).error}
+        </div>
+      ) : (() => {
+        const d = data as GA4Overview | undefined;
+        if (d?.error) {
+          return (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-xs text-red-300">
+              {d.error}
+            </div>
+          );
+        }
+        if (isLoading || !d?.totals) {
+          return <div className="text-sm text-ops-text-muted">Loading GA4 data…</div>;
+        }
+        return <GA4Body data={d} />;
+      })()}
+    </div>
+  );
+}
+
+function GA4Body({ data }: { data: GA4Overview }) {
+  const totals = data.totals!;
+  const sources = data.sources ?? [];
+  const topPages = data.topPages ?? [];
+  const daily = data.daily ?? [];
+  return (
+    <>
+      <div className="grid grid-cols-4 gap-4 mb-5">
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider">Sessions</div>
+          <div className="text-2xl font-bold text-ops-text">
+            {totals.sessions.toLocaleString()}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider">Users</div>
+          <div className="text-2xl font-bold text-fitscript-green">
+            {totals.users.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-ops-text-muted mt-1">
+            {totals.newUsers.toLocaleString()} new
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider">Page Views</div>
+          <div className="text-2xl font-bold text-ops-text">
+            {totals.pageViews.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-ops-text-muted mt-1">
+            {totals.sessions > 0
+              ? `${(totals.pageViews / totals.sessions).toFixed(1)} per session`
+              : "—"}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider">Avg Bounce</div>
+          <div className="text-2xl font-bold text-ops-text">
+            {daily.length > 0
+              ? `${((daily.reduce((s: number, d: GA4Daily) => s + d.bounceRate, 0) / daily.length) * 100).toFixed(1)}%`
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      {/* Daily traffic chart */}
+      {daily.length > 0 && (
+        <div className="mb-5">
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-2">
+            Daily Traffic
+          </div>
+          <div style={{ width: "100%", height: 220 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={daily.map((d) => ({
+                  ...d,
+                  label: `${d.date.slice(4, 6)}/${d.date.slice(6, 8)}`,
+                }))}
+              >
+                <defs>
+                  <linearGradient id="ga4Sessions" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4285F4" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#4285F4" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="label"
+                  stroke="rgba(255,255,255,0.4)"
+                  tick={{ fontSize: 10 }}
+                  interval={Math.max(0, Math.floor(daily.length / 12))}
+                />
+                <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#0f1115",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                  }}
+                />
+                <Area type="monotone" dataKey="sessions" name="Sessions" stroke="#4285F4" fill="url(#ga4Sessions)" strokeWidth={2} />
+                <Area type="monotone" dataKey="users" name="Users" stroke="#0EA57A" fill="#0EA57A" fillOpacity={0.1} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Sources + top pages side-by-side */}
+      <div className="grid grid-cols-2 gap-6 pt-4 border-t border-ops-border">
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+            Traffic by Channel (GA4)
+          </div>
+          {sources.length > 0 ? (
+            <div className="space-y-1.5">
+              {sources.slice(0, 8).map((s) => (
+                <div key={s.channel} className="flex items-center justify-between text-sm">
+                  <span className="text-ops-text">{s.channel}</span>
+                  <div className="flex gap-3">
+                    <span className="text-ops-text-muted text-xs">
+                      {s.users.toLocaleString()} users
+                    </span>
+                    <span className="text-ops-text font-medium w-20 text-right">
+                      {s.sessions.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-ops-text-muted">No channel data.</div>
+          )}
+        </div>
+        <div>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
+            Top Pages
+          </div>
+          {topPages.length > 0 ? (
+            <div className="space-y-1.5">
+              {topPages.slice(0, 8).map((p) => (
+                <div key={p.page} className="flex items-center justify-between text-sm">
+                  <span className="text-ops-text-muted truncate max-w-[70%]" title={p.page}>
+                    {p.page}
+                  </span>
+                  <div className="flex gap-3">
+                    <span className="text-ops-text-muted text-xs">
+                      {formatDuration(p.avgDuration)}
+                    </span>
+                    <span className="text-ops-text font-medium w-16 text-right">
+                      {p.views.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-xs text-ops-text-muted">No pages data.</div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

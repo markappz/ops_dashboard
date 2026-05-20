@@ -12,9 +12,11 @@ import Integrations from "./pages/integrations";
 import Email from "./pages/email";
 import EmailSend from "./pages/email-send";
 import EmailCompose from "./pages/email-compose";
-import ContentComingSoon, { CreativeComingSoon, ClinicalComingSoon } from "./pages/coming-soon";
+import { CreativeComingSoon, ClinicalComingSoon } from "./pages/coming-soon";
+import Content from "./pages/content";
 import Settings from "./pages/settings";
 import AdminActions from "./pages/admin-actions";
+import Leads from "./pages/leads";
 import Login from "./pages/login";
 
 interface Me {
@@ -86,12 +88,13 @@ export default function App() {
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
           <Route path="/email/compose" component={EmailCompose} />
-          <Route path="/content" component={ContentComingSoon} />
+          <Route path="/content" component={Content} />
           <Route path="/creative" component={CreativeComingSoon} />
           <Route path="/clinical" component={ClinicalComingSoon} />
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Settings} />
           <Route path="/admin-actions" component={AdminActions} />
+          <Route path="/leads" component={Leads} />
           <Route>
             <div className="flex items-center justify-center h-[60vh] text-ops-text-muted">
               Coming soon

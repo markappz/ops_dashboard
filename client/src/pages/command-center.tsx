@@ -116,6 +116,25 @@ export default function CommandCenter() {
     refetchInterval: 60_000,
   });
 
+  // Integration health strip — surfaces disconnects without forcing a trip to Settings.
+  const { data: connections } = useQuery<{
+    google: { connected: boolean; ga4PropertyId?: string; gscSiteUrl?: string };
+  }>({
+    queryKey: ["ops-connections"],
+    queryFn: () => fetch("/api/ops/connections").then((r) => r.json()),
+    refetchInterval: 60_000 * 5,
+  });
+  const { data: klaviyo } = useQuery<{ configured: boolean; connected: boolean }>({
+    queryKey: ["klaviyo-status"],
+    queryFn: () => fetch("/api/ops/klaviyo/status").then((r) => r.json()),
+    refetchInterval: 60_000 * 5,
+  });
+  const { data: metaStatus } = useQuery<{ configured: boolean; connected: boolean }>({
+    queryKey: ["meta-status"],
+    queryFn: () => fetch("/api/ops/meta/status").then((r) => r.json()),
+    refetchInterval: 60_000 * 5,
+  });
+
   if (isLoading || !snapshot) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -124,11 +143,54 @@ export default function CommandCenter() {
     );
   }
 
+  // Build integration health array — only render strip when something's red.
+  const integrations = [
+    {
+      name: "Google",
+      connected: !!connections?.google?.connected,
+      detail: connections?.google?.connected
+        ? connections.google.ga4PropertyId && connections.google.gscSiteUrl
+          ? "GA4 + GSC selected"
+          : "Property/site not selected"
+        : "Not connected",
+    },
+    {
+      name: "Klaviyo",
+      connected: !!klaviyo?.connected,
+      detail: klaviyo?.connected ? "Live" : klaviyo?.configured ? "Auth failed" : "Not configured",
+    },
+    {
+      name: "Meta Ads",
+      connected: !!metaStatus?.connected,
+      detail: metaStatus?.connected ? "Live" : metaStatus?.configured ? "Auth failed" : "Not configured",
+    },
+  ];
+  const anyDisconnected = integrations.some((i) => !i.connected);
+
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-ops-text">Command Center</h1>
-        <p className="text-sm text-ops-text-muted mt-1">FitScript business at a glance</p>
+      <div className="mb-8 flex items-start justify-between gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-ops-text">Command Center</h1>
+          <p className="text-sm text-ops-text-muted mt-1">FitScript business at a glance</p>
+        </div>
+        {anyDisconnected && (
+          <Link href="/settings">
+            <div className="flex items-center gap-4 px-4 py-2.5 bg-ops-surface border border-ops-border rounded-xl shadow-card cursor-pointer hover:bg-ops-surface-hover transition-colors">
+              {integrations.map((i) => (
+                <div key={i.name} className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      i.connected ? "bg-fitscript-green" : "bg-red-400"
+                    }`}
+                  />
+                  <span className="text-xs text-ops-text-muted">{i.name}</span>
+                </div>
+              ))}
+              <span className="text-xs text-ops-text-muted/70 ml-1">Fix →</span>
+            </div>
+          </Link>
+        )}
       </div>
 
       {/* Revenue Row */}

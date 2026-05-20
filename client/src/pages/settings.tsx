@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import type React from "react";
 
 interface SettingsData {
   session: { email: string | null; ttlDays: number };
@@ -62,7 +64,7 @@ function IntegrationRow({
   name: string;
   configured: boolean;
   badges?: Array<{ label: string; tone?: "neutral" | "warn" | "info" }>;
-  description: string;
+  description: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-4 py-4 border-b border-ops-border last:border-0">
@@ -105,6 +107,16 @@ export default function Settings() {
   const { data, isLoading, isError } = useQuery<SettingsData>({
     queryKey: ["ops-settings"],
     queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
+  });
+
+  // Google OAuth has a two-stage state: env vars present (configured) AND a
+  // completed OAuth flow with valid tokens (connected). Settings should
+  // show the latter so admins know whether to take action.
+  const { data: connections } = useQuery<{
+    google: { connected: boolean; email?: string; ga4PropertyId?: string; gscSiteUrl?: string };
+  }>({
+    queryKey: ["ops-connections"],
+    queryFn: () => fetch("/api/ops/connections").then((r) => r.json()),
   });
 
   if (isLoading) {
@@ -244,13 +256,39 @@ export default function Settings() {
           />
           <IntegrationRow
             name="Google OAuth"
-            configured={data.integrations.googleOAuth.configured}
-            badges={
-              data.integrations.googleOAuth.configured
-                ? [{ label: data.integrations.googleOAuth.clientIdTail }]
-                : []
+            configured={
+              data.integrations.googleOAuth.configured && !!connections?.google?.connected
             }
-            description={data.integrations.googleOAuth.label}
+            badges={(() => {
+              if (!data.integrations.googleOAuth.configured) return [];
+              const out: Array<{ label: string; tone?: "neutral" | "warn" | "info" }> = [
+                { label: data.integrations.googleOAuth.clientIdTail },
+              ];
+              if (connections?.google?.connected) {
+                if (connections.google.ga4PropertyId)
+                  out.push({ label: "GA4 selected", tone: "info" });
+                if (connections.google.gscSiteUrl)
+                  out.push({ label: "GSC selected", tone: "info" });
+                if (!connections.google.ga4PropertyId || !connections.google.gscSiteUrl)
+                  out.push({ label: "Property pending", tone: "warn" });
+              } else {
+                out.push({ label: "Not connected", tone: "warn" });
+              }
+              return out;
+            })()}
+            description={
+              <>
+                {data.integrations.googleOAuth.label}.{" "}
+                {data.integrations.googleOAuth.configured && !connections?.google?.connected && (
+                  <Link
+                    href="/integrations"
+                    className="text-fitscript-green hover:underline"
+                  >
+                    Connect now →
+                  </Link>
+                )}
+              </>
+            }
           />
           <IntegrationRow
             name="Meta Ads"

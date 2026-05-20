@@ -138,13 +138,28 @@ export function registerGoogleAuthRoutes(app: Express) {
   app.get("/api/ops/google/callback", async (req, res) => {
     try {
       const code = req.query.code as string;
-      if (!code) return res.redirect("/settings?google_error=no_code");
+      if (!code) return res.redirect("/integrations?google_error=no_code");
 
       const client = getOAuth2Client();
       const { tokens } = await client.getToken(code);
 
-      if (!tokens.access_token || !tokens.refresh_token) {
-        return res.redirect("/settings?google_error=no_tokens");
+      if (!tokens.access_token) {
+        return res.redirect("/integrations?google_error=no_tokens");
+      }
+
+      // refresh_token is only returned on the FIRST consent. When the user
+      // re-connects without revoking access (or hits `select_account consent`
+      // again), Google may omit it. Preserve any existing refresh_token in
+      // that case so the connection doesn't silently break later.
+      let refreshToken: string | null = tokens.refresh_token || null;
+      if (!refreshToken) {
+        const existing = await getConnection();
+        refreshToken = existing?.refresh_token || null;
+      }
+      if (!refreshToken) {
+        return res.redirect(
+          "/integrations?google_error=no_refresh_token",
+        );
       }
 
       // Get user email
@@ -155,18 +170,30 @@ export function registerGoogleAuthRoutes(app: Express) {
 
       const expiry = new Date(tokens.expiry_date || Date.now() + 3600000);
 
-      // Upsert connection (single connection for the ops dashboard)
-      await pool.query("DELETE FROM ops_google_connection"); // only one connection
+      // Upsert connection (single connection for the ops dashboard).
+      // Preserve property/site selections across re-connects so the operator
+      // doesn't have to re-pick them.
+      const existing = await getConnection();
+      await pool.query("DELETE FROM ops_google_connection");
       await pool.query(
-        "INSERT INTO ops_google_connection (access_token, refresh_token, token_expiry, email) VALUES ($1, $2, $3, $4)",
-        [tokens.access_token, tokens.refresh_token, expiry, email]
+        `INSERT INTO ops_google_connection
+         (access_token, refresh_token, token_expiry, email, ga4_property_id, gsc_site_url)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          tokens.access_token,
+          refreshToken,
+          expiry,
+          email,
+          existing?.ga4_property_id || null,
+          existing?.gsc_site_url || null,
+        ],
       );
 
       console.log(`[OPS] Google connected: ${email}`);
-      res.redirect("/settings?google_connected=true");
+      res.redirect("/integrations?google_connected=true");
     } catch (error: any) {
       console.error("[OPS] Google callback error:", error.message);
-      res.redirect("/settings?google_error=callback_failed");
+      res.redirect("/integrations?google_error=callback_failed");
     }
   });
 
