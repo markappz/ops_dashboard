@@ -247,3 +247,73 @@ Plus, in companion repos:
 - `[[reference_clomark_live_repo]]` — ClomarkNexus is live, markappz/clomark-platform is stale, schema diffs documented.
 - `[[feedback_env_append_trailing_newline]]` — Don't use `>>` on .env without trailing newline guarantee (caused the Klaviyo key concatenation bug May 18).
 - `[[project_fitscript_unit_economics]]` — `ai_costs` table architecture (May 15).
+
+---
+
+## 2026-05-20 (continued) — Clomark content control plane on /content
+
+After the 5-block day plan + Clomark bridge, Paul iterated `/content` from read-only into the **content control plane** for Clomark. Five sub-phases shipped this evening across both repos.
+
+### Commit ledger
+
+```
+ops-dashboard:
+  93c614b  Wire CLOMARK_* env vars into ECS task def (prod Clomark activation)
+  b8a6c52  Content control plane: blog/location add, drafts view, approve/deny + auto-refresh
+
+ClomarkNexus (mujtabams):
+  5bdd9264  Initial /api/ops/* read-only API
+  2a0b2aad  Write surface: content-suggestions + bulk + delete + location-page + zip-lookup + options + profile-items
+  bf91c2d6  Generated-content view + approval PATCH
+```
+
+### Prod activation gotcha
+
+Replit Autoscale deployment secrets are **separate** from Workspace secrets — adding `CLOMARK_OPS_TOKEN` to the Workspace doesn't propagate to the running deployment. Same for code commits: Autoscale doesn't auto-pull on git push; must hit Redeploy manually. Hit both today before figuring out the right path.
+
+Bonus: copy-paste of the bearer token from chat dropped the leading `4` character, which Klaviyo's lookalike "Incorrect credentials" 401 message hid. Diagnosed by length-checking the value Paul had saved (63 chars vs expected 64).
+
+### Build summary
+
+**Phase A — Queue management** *(content_suggestions writes)*
+- Clomark ops API: `POST/DELETE /api/ops/business/:id/content-suggestions` (single + bulk + delete)
+- ops-dashboard `/content`: `+ Add Blog` button → Single (title + keyword) or Bulk (paste up to 100 `title | keyword` lines) modal. Queue table below the breakdowns with Remove per row.
+
+**Phase A-3 — Location page modal (4 sections, mirrors Clomark's LocationPageDialog)**
+- Clomark ops API: `GET /api/ops/location/options` (industry types + market tiers), `GET /api/ops/location/zip-lookup` (Nominatim → zippopotam), `GET /api/ops/business/:id/profile-items` (business_settings products + services for Best Sellers), `POST /api/ops/business/:id/location-page` (creates content_suggestions row + enqueues QueueService immediately).
+- ops-dashboard `/content`: `+ Add Location Page` button → modal with:
+  1. Keyword & Tier — primary keyword, secondary keywords, market tier (1/2/3 from Clomark), industry type (11 options from Clomark)
+  2. Location Details — city / parent city + neighborhood (T3 only), state abbr, ZIP codes (auto-fill on blur)
+  3. Calls to Action — 1-3 CTAs (title + text + URL)
+  4. Local Data — Best Sellers (search + checkbox multi-select from FitScript's products/services, 3-5 picks max), Nearby Areas (name + slug rows), Local Statistic textarea, Regulation Note, License Number
+
+**Phase C — View generated content + approve/deny**
+- Clomark ops API: `GET /api/ops/business/:id/generated/:contentId` (full markdown + meta + faqs), `PATCH /api/ops/business/:id/generated/:contentId/approval` (status: approved/denied/pending, sets approvedAt timestamp).
+- ops-dashboard: DraftsSection below the queue. Each row → "View" link opens ContentViewerModal — SEO meta box + prose-styled markdown (react-markdown + remark-gfm) + collapsible FAQs + Approve/Deny/Reset footer.
+
+**Auto-refresh on /content**
+- Content list query refetches every 15s; bumps to 5s when anything `status=in_progress`. Plus `refetchOnWindowFocus`. Operator no longer has to manually refresh to see drafts flip from queued → drafted.
+
+### Live state
+
+- `ops.fitscript.me/content` Clomark section fully active in prod (all 3 env vars in ECS task def → AWS Secrets Manager `prod/ops-secrets-j5vKKG`)
+- ClomarkNexus deployed to `www.clomark.ai` via Replit Autoscale with `CLOMARK_OPS_TOKEN` in Deployment secrets
+- Drafts table populating: location page "Peptide Therapy in Austin" (2,409 words, 10 FAQs, pending review) verified through full View → Approve flow
+
+### Phase D — bulk publish (queued for next session)
+
+Inspected Clomark's existing machinery before scoping. Found:
+- `GET /api/publishing/platforms` lists connected integrations (WP / Shopify / Webflow / Wix)
+- `POST /api/check-duplicate-content-batch` is the duplicate guard
+- `POST /api/{wordpress,shopify,webflow,wix}/publish/:contentId` are per-platform single-publish endpoints
+- `client/src/components/publishing/BulkPublishDialog.tsx` orchestrates bulk publish CLIENT-SIDE — no server-side bulk endpoint exists
+
+Phase D in the ops dashboard = wrap those 4 GET/POST endpoints behind bearer-token `/api/ops/*` proxies + port the 3-step (platform pick → check duplicates → publish loop with progress) UI into a new BulkPublishDialog in ops-dashboard. Multi-select on DraftsSection rows. Estimated ~2h.
+
+Full notes saved in `[[reference_clomark_live_repo]]` so next session starts with the scope locked.
+
+### What I'll remember next session
+
+- `[[reference_clomark_live_repo]]` — also now contains the Phase D Clomark endpoints + UI port plan
+- Replit Autoscale ≠ Workspace secrets, and git push ≠ auto-deploy — manual Redeploy required
+- Drafts react-markdown rendering pattern (prose-styled tailwind arbitrary selectors) is good baseline for any future markdown previews

@@ -112,3 +112,33 @@ Record of every important decision so we don't revisit settled questions.
 **Why:** A disconnected integration is invisible if you only check Settings periodically. Yesterday's "Google OAuth ✓ Configured" green dot when actually no OAuth row existed was the canonical confusion to avoid — env presence alone shouldn't read as healthy. Strip is opt-in noise — disappears entirely when all green, so it's never UI clutter for a fully-configured deployment.
 
 **How to apply:** Future integrations (Google Ads, Webflow, anything else) should plug into the same strip. The pattern in `command-center.tsx` is: a `useQuery` per integration's status endpoint, then a row in the `integrations` array with `{name, connected: boolean, detail: string}`. The strip auto-includes new entries.
+
+---
+
+## 2026-05-20 — /content is the control plane, Clomark is the execution engine
+
+**Decision:** `ops.fitscript.me/content` owns the operator-facing surface for SEO/AEO work — adding topics to the queue, viewing drafted content, approving or denying. Clomark stays the execution engine — keyword research pipeline, AI generation, scheduling, publishing integrations. New content-related capabilities surface in `/content` first; Clomark's own admin UI becomes a fallback for power-user / deep-config tasks.
+
+**Why this and not alternatives:**
+- **vs. just deep-linking to Clomark from ops dashboard:** Operator context-switches are expensive — the ops dashboard already holds the cross-functional view (revenue, leads, attribution, AI economics). Keeping content adjacent means a reviewer can correlate "this blog draft" with "this acquisition channel" without losing tab state.
+- **vs. embedding Clomark UI via iframe:** Loses the unified design and prevents composition (e.g. showing GSC performance alongside the drafts that target those queries).
+- **vs. forking Clomark's logic:** Schema drift, queue divergence, double-maintenance. The ops API contract (bearer-token-authed `/api/ops/*` on Clomark) absorbs schema changes at the boundary so the dashboard doesn't break when Clomark adds columns.
+
+**How to apply:**
+- Any new content capability follows the pattern: 1) add proxy endpoint to ClomarkNexus's `server/ops-api.ts` (mirroring the existing session-authed handler's logic but with bearer-token auth), 2) add proxy in `ops-dashboard/server/clomark.ts`, 3) UI lands on `/content`.
+- **Single source of truth for content state lives in Clomark's DB.** Ops dashboard reads via the API; never writes directly. Approvals, publish status, queue state all roundtrip through the API.
+- **Clomark gets the same upgrades for free** — other clients running Clomark (Real Peptides, etc.) can adopt the same bearer-token approach to build their own dashboards if needed.
+- **Auto-refresh on /content** — 15s default polling, 5s when any item is `in_progress`. Don't drop below 5s without checking Clomark's rate limits; the AI generation is expensive and Clomark's queue endpoints aren't designed for high QPS.
+
+---
+
+## 2026-05-20 — Bearer-token ops API never duplicates business logic
+
+**Decision:** When adding endpoints to ClomarkNexus's `server/ops-api.ts`, prefer to **call the same internal services** (e.g. `QueueService.addToQueue`, `storage.getActiveBusinessProfile`) that the existing session-authed routes use. Don't reimplement queue logic, dedup logic, AI generation orchestration, or business-rule validation in the ops API surface — those are business invariants that should not drift.
+
+**Why:** Each duplication is a bug waiting to happen. When `add-location-page`'s session-authed handler adds support for a new field (e.g. `marketTier` defaults change, secondary keyword limits adjust), the bearer-token mirror won't pick it up automatically. Discovered this risk while building `POST /api/ops/business/:id/location-page` — first instinct was to duplicate the QueueService body shape; instead, the endpoint now imports and calls `QueueService.addToQueue` directly with the same params.
+
+**How to apply:**
+- New ops API endpoints that write or mutate: extract the existing handler's body into a shared helper if it's not already a service call. Then call the helper from both auth flavors.
+- New ops API endpoints that read: prefer direct DB queries (no business logic to duplicate, just SELECT with bearer-auth scope). Pattern already used for status / list endpoints.
+- **Exceptions:** When the session-auth handler does session-specific things (like setting `userId` from `req.user!.id`), the ops endpoint must derive equivalent context another way (typically from a business profile lookup via the URL param). Document the equivalence inline.
