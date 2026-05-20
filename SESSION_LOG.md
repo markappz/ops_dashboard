@@ -317,3 +317,69 @@ Full notes saved in `[[reference_clomark_live_repo]]` so next session starts wit
 - `[[reference_clomark_live_repo]]` — also now contains the Phase D Clomark endpoints + UI port plan
 - Replit Autoscale ≠ Workspace secrets, and git push ≠ auto-deploy — manual Redeploy required
 - Drafts react-markdown rendering pattern (prose-styled tailwind arbitrary selectors) is good baseline for any future markdown previews
+
+---
+
+## 2026-05-20 (late) — Phase D bulk publish shipped, closing the content arc
+
+Single-session sprint right after the Phase A→C save. Closes the full Phase A→D content control plane started earlier today.
+
+### Commit ledger
+
+```
+ops-dashboard:
+  c972fdb  Add bulk publish to /content Drafts (Phase D)
+
+ClomarkNexus:
+  d78c96b6  Add ops API bulk-publish surface (Phase D)
+```
+
+### Build
+
+**Approach choice:** Phase D could have been built three ways — internal HTTP fetch with manufactured session, full refactor of the four session-authed publish handlers into shared helpers, or call each platform's Service class directly from the ops API with config from storage. Went with option 3 (Service class direct). The session-authed handlers do ~600 lines of orchestration each (custom title/desc/slug overrides, ACF mapping, Yoast pre-check, schema CTA enrichment for SEO pages). For bulk publish from the ops dashboard, "publish as-is with sensible defaults" is the right product call — the existing Clomark UI stays as the power-user surface for per-item tweaks.
+
+**Clomark side (server/ops-api.ts):**
+- `GET  /api/ops/business/:id/publishing/platforms` — mirrors the connected-integrations query (4 storage.getXxxIntegrations calls + isConnected gate). Returns `{id, name, type, connected, url, connectedAt, lastTested}` per platform.
+- `POST /api/ops/business/:id/publishing/:platform/:contentId` — switch on `platform` (wordpress | shopify | webflow | wix), pull integration config from storage, instantiate Service class (createWordPressService / createShopifyService / `new WebflowService` / `new WixService`), call `publishPost` / `publishArticle` with `{publishStatus, options:{}}`.
+
+**Ops-dashboard side (server/clomark.ts + client/src/pages/content.tsx):**
+- 2 proxies: `GET /api/ops/clomark/publishing/platforms` and `POST /api/ops/clomark/publishing/:platform/:contentId`
+- DraftsSection rows gained a checkbox column + "select all" header checkbox. Selected rows highlight with green tint.
+- "Bulk Publish (N)" CTA appears in section header when ≥1 row selected.
+- New BulkPublishDialog with 3-step UX (mirrors Clomark's own BulkPublishDialog so operators don't have to re-learn):
+  1. **Platform pick + Draft/Live toggle** — grid of connected destinations from Clomark; amber empty state when none connected
+  2. **Sequential publishing** — one POST per content per platform, one at a time so we don't hammer the CMS. Per-row state machine: `pending` → `publishing` (spinner) → `success` (✓ + "Open ↗" link to live URL) OR `error` (× + truncated tooltip with error message). Modal close disabled while step="publishing" to prevent mid-loop cancel.
+  3. **Complete** — "N succeeded · M failed" summary + Done button (also triggers content list refresh)
+
+### Tested live
+
+Endpoint `GET /api/ops/business/.../publishing/platforms` returns `{platforms: []}` for FitScript (200 OK) — no destinations connected in Clomark yet. UI's amber empty state is the correct surface for that case. Once a destination is wired in Clomark, the bulk publish flow is end-to-end ready with no more code changes.
+
+### Live state (end of 2026-05-20)
+
+- ops.fitscript.me deploy of `c972fdb` rolling out via GitHub Actions
+- ClomarkNexus on `d78c96b6` via Replit Autoscale Redeploy
+- Bulk Publish dialog functional but **gated by destination connections in Clomark** — Paul to connect WordPress / Shopify / Webflow / Wix in Clomark's own UI when ready to publish for real
+
+### Phase A→D content control plane — DONE
+
+`/content` is now the end-to-end operator surface:
+- Add topics to the queue (single or bulk for blogs, rich 4-section modal for location pages)
+- Watch generation flip in real time (5s polling while in_progress)
+- View completed drafts inline (full markdown + SEO meta + FAQs)
+- Approve / Deny / Reset
+- Bulk Publish to any connected CMS
+
+No more deep-linking to Clomark for ops workflow. Clomark stays the execution engine + power-user surface.
+
+### Next session candidates
+
+- Connect WordPress (or Shopify) to Clomark for FitScript → first real publish via the dashboard
+- Phase B/C polish (the original Klaviyo Hub backlog — throttled send + post-send metrics + custom sender)
+- Meta Ads connector activation (still queued from May 19 — needs Paul to generate the System User token)
+- Or new direction entirely
+
+### What I'll remember
+
+- `[[reference_clomark_live_repo]]` updated — Phase D is done, no longer "next session"
+- Bulk operations: orchestrate client-side, one request per item — matches Clomark's pattern and avoids server-side complexity
