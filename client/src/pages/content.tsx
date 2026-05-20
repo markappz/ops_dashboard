@@ -1692,6 +1692,8 @@ function DraftsSection({
   onChanged: () => void;
 }) {
   const [viewingId, setViewingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkPublishOpen, setBulkPublishOpen] = useState(false);
 
   if (generated.length === 0) {
     return (
@@ -1712,6 +1714,24 @@ function DraftsSection({
     return a.createdAt < b.createdAt ? 1 : -1;
   });
 
+  const toggleAll = () => {
+    if (selected.size === sorted.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(sorted.map((g) => g.id)));
+    }
+  };
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedRows = sorted.filter((g) => selected.has(g.id));
+
   return (
     <div className="mt-6 pt-4 border-t border-ops-border">
       {viewingId && (
@@ -1724,19 +1744,53 @@ function DraftsSection({
           }}
         />
       )}
+      {bulkPublishOpen && (
+        <BulkPublishDialog
+          selected={selectedRows}
+          onClose={() => setBulkPublishOpen(false)}
+          onDone={() => {
+            setSelected(new Set());
+            setBulkPublishOpen(false);
+            onChanged();
+          }}
+        />
+      )}
 
       <div className="flex items-baseline justify-between mb-3">
         <div className="text-xs text-ops-text-muted uppercase tracking-wider">
           Generated Drafts ({generated.length})
+          {selected.size > 0 && (
+            <span className="ml-2 text-fitscript-green normal-case">
+              · {selected.size} selected
+            </span>
+          )}
         </div>
-        <div className="text-[10px] text-ops-text-muted">
-          Click View to read and approve / deny
+        <div className="flex items-center gap-3">
+          {selected.size > 0 && (
+            <button
+              onClick={() => setBulkPublishOpen(true)}
+              className="px-3 py-1 text-xs font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90"
+            >
+              Bulk Publish ({selected.size})
+            </button>
+          )}
+          <div className="text-[10px] text-ops-text-muted">
+            Check rows to enable bulk publish
+          </div>
         </div>
       </div>
       <div className="overflow-hidden rounded-lg border border-ops-border">
         <table className="w-full text-sm">
           <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
             <tr>
+              <th className="px-3 py-2 w-8">
+                <input
+                  type="checkbox"
+                  checked={selected.size === sorted.length && sorted.length > 0}
+                  onChange={toggleAll}
+                  className="accent-fitscript-green"
+                />
+              </th>
               <th className="text-left px-4 py-2 font-medium">Type</th>
               <th className="text-left px-4 py-2 font-medium">Title</th>
               <th className="text-left px-4 py-2 font-medium">Keyword</th>
@@ -1752,7 +1806,15 @@ function DraftsSection({
               const isLocation =
                 g.contentType === "location_page" || g.contentType === "seo_page";
               return (
-                <tr key={g.id}>
+                <tr key={g.id} className={selected.has(g.id) ? "bg-fitscript-green/5" : ""}>
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(g.id)}
+                      onChange={() => toggle(g.id)}
+                      className="accent-fitscript-green"
+                    />
+                  </td>
                   <td className="px-4 py-2">
                     <span
                       className={`text-[10px] font-medium uppercase px-1.5 py-0.5 rounded ${
@@ -2048,6 +2110,329 @@ function ContentViewerModal({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Bulk Publish Dialog (Phase D) ──────────────────────────────────
+
+interface PublishingPlatform {
+  id: "wordpress" | "shopify" | "webflow" | "wix";
+  name: string;
+  type: string;
+  connected: boolean;
+  url?: string;
+}
+
+type PublishItemStatus =
+  | "pending"
+  | "publishing"
+  | "success"
+  | "error";
+
+interface PublishItem {
+  id: string;
+  title: string;
+  keyword: string;
+  status: PublishItemStatus;
+  publishedUrl?: string;
+  error?: string;
+}
+
+function BulkPublishDialog({
+  selected,
+  onClose,
+  onDone,
+}: {
+  selected: GeneratedRow[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [step, setStep] = useState<"platform" | "publishing" | "complete">(
+    "platform",
+  );
+  const [selectedPlatform, setSelectedPlatform] =
+    useState<PublishingPlatform | null>(null);
+  const [publishStatus, setPublishStatus] = useState<"draft" | "publish">("draft");
+  const [items, setItems] = useState<PublishItem[]>(() =>
+    selected.map((g) => ({
+      id: g.id,
+      title: g.title,
+      keyword: g.keyword,
+      status: "pending" as const,
+    })),
+  );
+
+  const { data: platformsData, isLoading: platformsLoading } = useQuery<{
+    platforms: PublishingPlatform[];
+  }>({
+    queryKey: ["ops-clomark-publishing-platforms"],
+    queryFn: () =>
+      fetch("/api/ops/clomark/publishing/platforms").then((r) => r.json()),
+    staleTime: 60_000 * 5,
+  });
+
+  const platforms = platformsData?.platforms ?? [];
+
+  const startPublishing = async () => {
+    if (!selectedPlatform) return;
+    setStep("publishing");
+
+    // Sequential loop, mirroring Clomark's BulkPublishDialog client-side pattern.
+    // Avoids hammering the destination CMS in parallel.
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      setItems((prev) =>
+        prev.map((it, idx) =>
+          idx === i ? { ...it, status: "publishing" as const } : it,
+        ),
+      );
+      try {
+        const r = await fetch(
+          `/api/ops/clomark/publishing/${selectedPlatform.id}/${item.id}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ publishStatus }),
+          },
+        );
+        const body = await r.json();
+        if (!r.ok || body.success === false) {
+          throw new Error(body.error || body.message || `HTTP ${r.status}`);
+        }
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? {
+                  ...it,
+                  status: "success" as const,
+                  publishedUrl: body.url,
+                }
+              : it,
+          ),
+        );
+      } catch (e: any) {
+        setItems((prev) =>
+          prev.map((it, idx) =>
+            idx === i
+              ? { ...it, status: "error" as const, error: e?.message || "failed" }
+              : it,
+          ),
+        );
+      }
+    }
+    setStep("complete");
+  };
+
+  const successCount = items.filter((it) => it.status === "success").length;
+  const errorCount = items.filter((it) => it.status === "error").length;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      onClick={step === "publishing" ? undefined : onClose}
+    >
+      <div
+        className="bg-ops-surface border border-ops-border rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b border-ops-border">
+          <div>
+            <h3 className="text-base font-bold text-ops-text">
+              {step === "platform"
+                ? "Bulk Publish"
+                : step === "publishing"
+                  ? "Publishing…"
+                  : "Publish Complete"}
+            </h3>
+            <p className="text-xs text-ops-text-muted mt-0.5">
+              {selected.length} draft{selected.length !== 1 ? "s" : ""} selected
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={step === "publishing"}
+            className="text-ops-text-muted hover:text-ops-text text-xl leading-none px-2 disabled:opacity-30"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {step === "platform" && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-ops-text-muted uppercase tracking-wider mb-2">
+                  Pick a destination
+                </div>
+                {platformsLoading ? (
+                  <div className="text-sm text-ops-text-muted">Loading platforms…</div>
+                ) : platforms.length === 0 ? (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-xs text-amber-300/90">
+                    No publishing destinations connected in Clomark. Open Clomark →
+                    Integrations to connect WordPress / Shopify / Webflow / Wix.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {platforms.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setSelectedPlatform(p)}
+                        className={`text-left px-4 py-3 rounded-lg border transition-colors ${
+                          selectedPlatform?.id === p.id
+                            ? "border-fitscript-green bg-fitscript-green/8"
+                            : "border-ops-border hover:border-ops-border/80"
+                        }`}
+                      >
+                        <div className="text-sm font-medium text-ops-text">
+                          {p.name}
+                        </div>
+                        {p.url && (
+                          <div className="text-[10px] text-ops-text-muted truncate mt-0.5">
+                            {p.url}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {selectedPlatform && (
+                <div>
+                  <div className="text-xs font-medium text-ops-text-muted uppercase tracking-wider mb-2">
+                    Publish Status
+                  </div>
+                  <div className="flex gap-2">
+                    {(["draft", "publish"] as const).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setPublishStatus(s)}
+                        className={`px-4 py-2 text-sm rounded-lg border transition-colors ${
+                          publishStatus === s
+                            ? "border-fitscript-green text-fitscript-green bg-fitscript-green/8"
+                            : "border-ops-border text-ops-text-muted hover:text-ops-text"
+                        }`}
+                      >
+                        {s === "draft" ? "Draft" : "Live (Publish)"}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-ops-text-muted mt-1">
+                    {publishStatus === "draft"
+                      ? "Creates as draft in the destination. Review before going live."
+                      : "Goes live immediately on the destination CMS."}
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <div className="text-xs font-medium text-ops-text-muted uppercase tracking-wider mb-2">
+                  Will publish ({selected.length})
+                </div>
+                <div className="max-h-40 overflow-y-auto bg-ops-bg/40 border border-ops-border/50 rounded-lg">
+                  {selected.map((g) => (
+                    <div
+                      key={g.id}
+                      className="px-3 py-1.5 text-xs text-ops-text border-b border-ops-border/30 last:border-0"
+                    >
+                      {g.title}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(step === "publishing" || step === "complete") && (
+            <div className="space-y-1">
+              {items.map((it) => (
+                <div
+                  key={it.id}
+                  className="flex items-center gap-3 px-3 py-2 bg-ops-bg/40 border border-ops-border/40 rounded text-sm"
+                >
+                  <span className="w-5 shrink-0 text-center">
+                    {it.status === "pending" && (
+                      <span className="text-ops-text-muted">·</span>
+                    )}
+                    {it.status === "publishing" && (
+                      <span className="inline-block w-3 h-3 border-2 border-fitscript-green border-t-transparent rounded-full animate-spin" />
+                    )}
+                    {it.status === "success" && (
+                      <span className="text-fitscript-green">✓</span>
+                    )}
+                    {it.status === "error" && (
+                      <span className="text-red-400">×</span>
+                    )}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate text-ops-text">
+                    {it.title}
+                  </span>
+                  {it.status === "success" && it.publishedUrl && (
+                    <a
+                      href={it.publishedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[10px] text-fitscript-green hover:underline"
+                    >
+                      Open ↗
+                    </a>
+                  )}
+                  {it.status === "error" && (
+                    <span
+                      className="text-[10px] text-red-400/80 truncate max-w-[180px]"
+                      title={it.error}
+                    >
+                      {it.error}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 p-4 border-t border-ops-border bg-ops-bg/30">
+          {step === "platform" && (
+            <>
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 text-xs text-ops-text-muted hover:text-ops-text"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startPublishing}
+                disabled={!selectedPlatform}
+                className="px-4 py-2 text-sm rounded-lg bg-fitscript-green text-white font-medium hover:bg-fitscript-green/90 disabled:opacity-40"
+              >
+                Publish {selected.length} →
+              </button>
+            </>
+          )}
+          {step === "publishing" && (
+            <span className="text-xs text-ops-text-muted">
+              Publishing {items.filter((it) => it.status === "success" || it.status === "error").length} of {items.length}…
+            </span>
+          )}
+          {step === "complete" && (
+            <>
+              <span className="text-xs">
+                <span className="text-fitscript-green">{successCount} succeeded</span>
+                {errorCount > 0 && (
+                  <span className="text-red-400 ml-3">{errorCount} failed</span>
+                )}
+              </span>
+              <button
+                onClick={onDone}
+                className="px-4 py-2 text-sm rounded-lg bg-fitscript-green text-white font-medium hover:bg-fitscript-green/90"
+              >
+                Done
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

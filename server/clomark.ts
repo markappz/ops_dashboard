@@ -352,6 +352,44 @@ export function registerClomarkRoutes(app: Express) {
     }
   });
 
+  // ─── Bulk publish (Phase D) ────────────────────────────────────────
+
+  app.get("/api/ops/clomark/publishing/platforms", async (_req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/publishing/platforms`,
+        cfg,
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.post(
+    "/api/ops/clomark/publishing/:platform/:contentId",
+    async (req, res) => {
+      const cfg = getConfig();
+      if (!cfg?.businessId) {
+        return res.status(503).json({ error: "Clomark business ID not configured" });
+      }
+      try {
+        const body = await clomarkFetch(
+          `/api/ops/business/${cfg.businessId}/publishing/${req.params.platform}/${req.params.contentId}`,
+          cfg,
+          { method: "POST", body: JSON.stringify(req.body || {}) },
+        );
+        res.json(body);
+      } catch (e: any) {
+        res.status(e.status || 500).json({ error: e.message });
+      }
+    },
+  );
+
   app.delete(
     "/api/ops/clomark/content-suggestions/:suggestionId",
     async (req, res) => {
