@@ -45,12 +45,16 @@ interface ClomarkErr extends Error {
 async function clomarkFetch<T = any>(
   path: string,
   cfg: ClomarkConfig,
+  init: { method?: "GET" | "POST" | "PATCH" | "DELETE" | string; body?: string } = {},
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${cfg.baseUrl}${path}`;
   const res = await fetch(url, {
+    method: init.method || "GET",
+    body: init.body,
     headers: {
       Authorization: `Bearer ${cfg.token}`,
       Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
     },
     // Aggressive timeout — a slow Clomark shouldn't stall ops UI.
     signal: AbortSignal.timeout(8000),
@@ -216,6 +220,157 @@ export function registerClomarkRoutes(app: Express) {
       res.status(e.status || 500).json({ error: e.message });
     }
   });
+
+  // ─── Write operations (Phase A) ────────────────────────────────────
+
+  app.post("/api/ops/clomark/content-suggestions", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/content-suggestions`,
+        cfg,
+        { method: "POST", body: JSON.stringify(req.body || {}) },
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/clomark/content-suggestions/bulk", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/content-suggestions/bulk`,
+        cfg,
+        { method: "POST", body: JSON.stringify(req.body || {}) },
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // Location-page support
+  app.get("/api/ops/clomark/location/options", async (_req, res) => {
+    const cfg = getConfig();
+    if (!cfg) return res.status(503).json({ error: "Clomark not configured" });
+    try {
+      const body = await clomarkFetch(`/api/ops/location/options`, cfg);
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/ops/clomark/location/zip-lookup", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg) return res.status(503).json({ error: "Clomark not configured" });
+    try {
+      const qs = new URLSearchParams();
+      if (req.query.city) qs.set("city", String(req.query.city));
+      if (req.query.abbr) qs.set("abbr", String(req.query.abbr));
+      if (req.query.state) qs.set("state", String(req.query.state));
+      const body = await clomarkFetch(`/api/ops/location/zip-lookup?${qs}`, cfg);
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/ops/clomark/profile-items", async (_req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/profile-items`,
+        cfg,
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/clomark/location-page", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/location-page`,
+        cfg,
+        { method: "POST", body: JSON.stringify(req.body || {}) },
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // ─── Generated content view + approval (Phase C) ──────────────────
+
+  app.get("/api/ops/clomark/generated/:contentId", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/generated/${req.params.contentId}`,
+        cfg,
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/ops/clomark/generated/:contentId/approval", async (req, res) => {
+    const cfg = getConfig();
+    if (!cfg?.businessId) {
+      return res.status(503).json({ error: "Clomark business ID not configured" });
+    }
+    try {
+      const body = await clomarkFetch(
+        `/api/ops/business/${cfg.businessId}/generated/${req.params.contentId}/approval`,
+        cfg,
+        { method: "PATCH", body: JSON.stringify(req.body || {}) },
+      );
+      res.json(body);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  app.delete(
+    "/api/ops/clomark/content-suggestions/:suggestionId",
+    async (req, res) => {
+      const cfg = getConfig();
+      if (!cfg?.businessId) {
+        return res.status(503).json({ error: "Clomark business ID not configured" });
+      }
+      try {
+        const body = await clomarkFetch(
+          `/api/ops/business/${cfg.businessId}/content-suggestions/${req.params.suggestionId}`,
+          cfg,
+          { method: "DELETE" },
+        );
+        res.json(body);
+      } catch (e: any) {
+        res.status(e.status || 500).json({ error: e.message });
+      }
+    },
+  );
 
   app.get("/api/ops/clomark/activities", async (req, res) => {
     const cfg = getConfig();
