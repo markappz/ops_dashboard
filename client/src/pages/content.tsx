@@ -16,6 +16,7 @@ import {
   ComposedChart,
 } from "recharts";
 import { InlineError, hasApiError } from "../components/query-error";
+import { ModalPortal } from "../components/modal-portal";
 
 interface GSCQuery {
   query: string;
@@ -835,12 +836,9 @@ function AddContentModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <ModalPortal onClose={onClose}>
       <div
-        className="bg-ops-surface border border-ops-border rounded-xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl"
+        className="bg-ops-surface border border-ops-border rounded-xl p-4 sm:p-6 w-full max-w-2xl max-h-[calc(100vh-2rem)] overflow-y-auto shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-baseline justify-between mb-1">
@@ -956,7 +954,7 @@ function AddContentModal({
           </div>
         )}
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 
@@ -1262,12 +1260,9 @@ function LocationPageModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <ModalPortal onClose={onClose}>
       <div
-        className="bg-ops-surface border border-ops-border rounded-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl"
+        className="bg-ops-surface border border-ops-border rounded-xl p-4 sm:p-6 w-full max-w-3xl max-h-[calc(100vh-2rem)] overflow-y-auto shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-baseline justify-between mb-1">
@@ -1652,7 +1647,7 @@ function LocationPageModal({
           </div>
         )}
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 
@@ -1932,15 +1927,12 @@ function ContentViewerModal({
   const content = data?.content;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <ModalPortal onClose={onClose} dim="opaque">
       <div
-        className="bg-ops-surface border border-ops-border rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-xl"
+        className="bg-ops-surface border border-ops-border rounded-xl w-full max-w-4xl max-h-[calc(100vh-1.5rem)] sm:max-h-[90vh] flex flex-col shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-5 border-b border-ops-border">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-ops-border">
           <div className="min-w-0">
             <h3 className="text-base font-bold text-ops-text truncate">
               {content?.title || "Loading…"}
@@ -2111,7 +2103,7 @@ function ContentViewerModal({
           </div>
         )}
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 
@@ -2229,15 +2221,12 @@ function BulkPublishDialog({
   const errorCount = items.filter((it) => it.status === "error").length;
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
-      onClick={step === "publishing" ? undefined : onClose}
-    >
+    <ModalPortal onClose={step === "publishing" ? () => {} : onClose} dim="opaque">
       <div
-        className="bg-ops-surface border border-ops-border rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl"
+        className="bg-ops-surface border border-ops-border rounded-xl w-full max-w-2xl max-h-[calc(100vh-1.5rem)] sm:max-h-[90vh] flex flex-col shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-5 border-b border-ops-border">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-ops-border">
           <div>
             <h3 className="text-base font-bold text-ops-text">
               {step === "platform"
@@ -2434,6 +2423,6 @@ function BulkPublishDialog({
           )}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

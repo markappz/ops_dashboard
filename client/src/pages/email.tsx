@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { InlineError, hasApiError } from "../components/query-error";
 import { PageHero } from "../components/page-hero";
+import { ModalPortal } from "../components/modal-portal";
 
 interface KlaviyoStatus {
   configured: boolean;
@@ -761,12 +762,9 @@ function FlowsTable({
       )}
 
       {confirm && (
-        <div
-          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-          onClick={() => setConfirm(null)}
-        >
+        <ModalPortal onClose={() => setConfirm(null)}>
           <div
-            className="bg-ops-surface border border-ops-border rounded-xl p-6 max-w-md w-full shadow-xl"
+            className="bg-ops-surface border border-ops-border rounded-xl p-5 sm:p-6 max-w-md w-full shadow-2xl my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-base font-bold text-ops-text mb-2">
@@ -800,7 +798,7 @@ function FlowsTable({
               </button>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">

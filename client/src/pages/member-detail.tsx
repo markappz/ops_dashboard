@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useState } from "react";
+import { ModalPortal } from "../components/modal-portal";
 
 interface MemberDetailData {
   member: {
@@ -58,8 +59,8 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }: {
   title: string; message: string; onConfirm: () => void; onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onCancel}>
-      <div className="bg-ops-surface border border-ops-border rounded-xl p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <ModalPortal onClose={onCancel}>
+      <div className="bg-ops-surface border border-ops-border rounded-xl p-5 sm:p-6 max-w-md w-full shadow-2xl my-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-bold text-ops-text mb-2">{title}</h3>
         <p className="text-sm text-ops-text-muted mb-6">{message}</p>
         <div className="flex justify-end gap-3">
@@ -67,7 +68,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }: {
           <button onClick={onConfirm} className="px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600">Confirm</button>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 
