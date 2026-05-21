@@ -145,6 +145,63 @@ Record of every important decision so we don't revisit settled questions.
 
 ---
 
+## 2026-05-20 — Concierge architecture: single tool-use endpoint, registry pattern
+
+**Decision:** The Ops Concierge runs on a single endpoint `POST /api/ops/concierge/chat` that executes a Claude tool-use loop. Tools are defined as `{name, description, input_schema, handler}` objects in a single `TOOLS` array. Adding a new tool = append one entry. No per-tool endpoint, no separate tool dispatch service.
+
+**Why this and not alternatives:**
+- **vs. per-tool REST endpoints the model calls via HTTP:** Adds latency (extra HTTP roundtrip per tool), forces every tool to re-cross the admin gate, complicates testing. The in-process handler is faster and simpler — same security model since the entire concierge endpoint is admin-gated.
+- **vs. function-calling abstraction libraries (langchain etc.):** Anthropic's native tool-use API is already perfect for this. Adding a framework is dead weight + version churn risk + obscures what's actually happening in the loop.
+- **vs. tool definitions colocated with each business module:** Tempting (e.g. `server/klaviyo.ts` exports its own tools), but you lose the registry overview — operators can't see what the concierge can do without grepping. Centralized registry in `server/concierge.ts` is the single source of truth for capability.
+- **vs. streaming the response:** SSE adds complexity for marginal UX gain on a question-answer use case (most responses arrive in <5s). If users start asking longer multi-tool questions where wait feels long, add streaming then. Not now.
+
+**How to apply:**
+- New read tool: append `{name, description, input_schema, handler}` to `TOOLS` in `server/concierge.ts`. Handler must be `async (input) => unknown` returning JSON-serializable data. Schema is JSON Schema (Anthropic's spec).
+- New write tool (Phase 2): same shape, but MUST also write an audit row to `admin_actions` table within the handler. Pattern: `{admin_email, action_type, target_kind, target_id, status, error}`. The handler should derive admin_email from a closure capture or by passing it through (the endpoint has `req.adminEmail`).
+- Don't grow handlers past 30 lines. If a tool needs more, extract a helper. Keep the registry scannable.
+- Cost: every concierge turn logs to `ai_costs` with `surface=ops_concierge` + metadata `{admin, tool_count, iterations}`. Do NOT log per-tool — turn-level rollup is the right granularity.
+
+---
+
+## 2026-05-20 — Concierge UX: floating launcher + ⌘K + slide-out panel (no full-page chat)
+
+**Decision:** Ops Concierge surfaces as (1) a floating brand-gradient pill bottom-right on every page, (2) a ⌘K / Ctrl+K keyboard shortcut, and (3) a right-side slide-out panel (480px wide) that both surfaces open. NO full-page chat route. NO embedded chat on dashboard pages.
+
+**Why this and not alternatives:**
+- **vs. dedicated /concierge page:** Forces context switch away from the data you're staring at. The point of the concierge is to ANSWER QUESTIONS ABOUT WHAT'S ON SCREEN — moving away from it defeats the use case.
+- **vs. embedded panel always-on next to page content:** Steals real estate from data tables that need full width. Side-by-side works only for narrow content (one-column dashboards), and ours are wide.
+- **vs. command palette only (⌘K, no floating button):** Discoverability problem for first-time users. The floating pill says "AI is here" without any reading. Once operators learn ⌘K they use it; the pill becomes vestigial but harmless (it's bottom-right).
+- **vs. floating chat bubble (Intercom style) without ⌘K:** Power-user friction. Operators who use the concierge constantly want to summon it without leaving the keyboard.
+
+**How to apply:**
+- All concierge UI lives under `client/src/components/concierge/`. Don't sprinkle concierge widgets elsewhere on pages.
+- The launcher is mounted ONCE in `OpsLayout` so it's always available without per-page wiring.
+- New shortcuts should be documented in the panel header subtext (currently shows "Ask anything · ⌘K to toggle"). Add `?` or `/` shortcuts in Phase 2 if useful, but never reach for new modal patterns — this one panel is the home for all concierge interaction.
+- Empty state lists 5 example prompts. When adding tools, ADD a new example prompt that exercises that tool so operators discover the capability without reading the system prompt.
+
+---
+
+## 2026-05-20 — Concierge Phase 1 = read-only; writes are Phase 2 with audit + confirm
+
+**Decision:** Ship Phase 1 with read-only tools only (13 tools). Write tools (pause flow, refund, cancel subscription, approve content, publish) are Phase 2, gated on Paul's validation of Phase 1 UX. All write tools, when added, MUST write an `admin_actions` row before the side effect and require typed-confirmation for high-impact writes (refund >$50, subscription cancel, bulk publish).
+
+**Why this and not alternatives:**
+- **vs. ship reads + writes together:** Risk = wrong UX for execution (confirmation flow, error surfacing, dry-run mode) baked in before we know how operators actually use the concierge. Read-first lets us observe usage patterns and design the write UX informed.
+- **vs. read-only forever, force the existing per-page UIs for writes:** Defeats the "command center executor" use case Paul asked for. Phase 2 is real, just sequenced after Phase 1 lands.
+- **vs. unrestricted writes:** Concierge has the same admin gate as the rest of the dashboard, but the chat affordance can make destructive actions feel low-stakes. Typed confirmation for refunds and subscription cancellations is non-negotiable. Audit row is non-negotiable.
+
+**How to apply:**
+- Phase 2 write tools follow this template inside the handler:
+  1. Validate inputs.
+  2. If above threshold (refund >$50, etc.), require `confirmation: "CONFIRM"` field in input — Claude includes it after asking the user.
+  3. Write `admin_actions` row with `status='pending'` BEFORE executing.
+  4. Execute the side effect (Stripe API call, Klaviyo PATCH, etc.).
+  5. Update `admin_actions` row with `status='ok'` or `status='failed'` + error.
+- Confirmation pattern is the model's responsibility too: the tool's `description` tells Claude "if amount > $50, ask the user to confirm with the word CONFIRM, then pass it as the `confirmation` field". The model handles the conversational ask; the tool enforces the gate.
+- Reversible writes (pause flow, change tier) don't need typed confirm. Irreversible (refund, cancel, bulk publish) do.
+
+---
+
 ## 2026-05-20 — Empty data state rules (don't render zero KPI tiles)
 
 **Decision:** When a data source hasn't accumulated meaningful data yet (e.g. the tracking pixel was deployed but no visitors have hit it, or a connector isn't wired), DO NOT render zero-valued KPI tiles or stale "Not Connected" cards. Instead, hide the affected section entirely and surface a slim contextual notice explaining the state. The visible parts of the page must reflect actual capability.

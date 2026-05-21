@@ -473,3 +473,63 @@ Walk-through order recommended: `/` (Command Center hero) → sidebar grouping �
 - Brand system: `brand.navy.*` + `brand.blue.*` + `brand.sky.*` are the new authoritative tokens. `fitscript.green` is a legacy alias that points at `#2E5BFF` — new code uses brand tokens directly.
 - IA: Overview / Customers / Growth / System is the locked-in navigation grouping.
 - PageHero is the standard for every primary page header — eyebrow + display title.
+
+---
+
+## 2026-05-20 (overnight cont.) — Ops Concierge Phase 1 shipped
+
+Paul approved the rebrand → pushed. Then asked for the next thing: an AI bot that knows the dashboard data and can answer questions / execute actions. Built Phase 1 (read-only) end-to-end and pushed.
+
+### Commit ledger
+```
+4cc257c  Rebrand ops dashboard to FitScript navy/sky-blue + IA reorganization
+a700bda  Add Ops Concierge — Claude assistant with tool-use over every data source
+```
+
+### What Phase 1 ships
+
+**Server (`server/concierge.ts`)** — `POST /api/ops/concierge/chat`:
+- Claude (Bedrock Sonnet, fallback Haiku) tool-use loop, up to 8 iterations
+- 13 read tools: get_snapshot, search_members, get_member, get_revenue_trend, get_orders, get_marketing_overview, get_funnel, get_top_ai_cost_users, get_admin_log, get_integration_health, get_content_drafts, get_email_campaigns, get_unit_economics
+- Tools run in parallel when the model batches them in one assistant turn
+- Cost logged to `ai_costs` as `surface=ops_concierge`, admin email in metadata
+- System prompt grounds Claude as Paul's right-hand operator; explicit rules for number formatting, no fabrication, suggest follow-ups
+
+**Client (`client/src/components/concierge/Concierge.tsx`)** — always-on launcher:
+- Floating brand-gradient pill bottom-right (with blur halo + brand shadow)
+- ⌘K / Ctrl+K toggles from anywhere; Esc closes
+- Right-side slide-out panel (480px) with backdrop blur
+- 5 suggested cold-start prompts on empty state
+- User bubbles: gradient brand-blue. Assistant: sparkle avatar + markdown prose (react-markdown + remark-gfm) with tables, code blocks, etc.
+- Tool-use chips per assistant message: collapsed by default, click to expand and see input + result JSON + ms duration. Errored tools render red.
+- Animated 3-dot thinking indicator while waiting
+- Markdown prose CSS added to `index.css` as `.prose-concierge` — tight, brand-aligned (blue accent for code/links/blockquote rule)
+
+**Layout** — mounted at OpsLayout root so concierge is on every page, behind auth gate.
+
+**Pool error handler** — added `pool.on('error', ...)` in `server/index.ts` so idle RDS TCP timeouts log and don't crash the process (had been dying after long idle periods).
+
+### Verified
+- `tsc --noEmit` exit 0
+- `vite build` clean (39.94 KB CSS / 1.04 MB JS, was 32.74 KB CSS before)
+- `/api/health` → 200, `/api/ops/concierge/chat` (no cookie) → 401 (gate works)
+- Dev server stable on `localhost:5001`
+- GitHub Actions deploy queued for `a700bda`
+
+### Phase 2 (deferred — pending Paul's read of Phase 1)
+
+Write tools, each audit-logged via `admin_actions`:
+- pause/activate Klaviyo flow
+- send Klaviyo test email
+- approve/deny content draft
+- queue blog topic / location page
+- publish content to connected CMS
+- Stripe: cancel/pause/resume subscription, change tier, refund charge (typed-confirm above $50)
+
+Phase 2 trigger: Paul says "concierge feels right, add the write actions" OR specific tool requests. NOT auto-started — write actions need UX validation first.
+
+### What I'll remember
+- Concierge architecture: tool-use loop in one endpoint, tools as `{name, description, input_schema, handler}` objects, registered in `TOOLS` array. Adding new tools = append to array.
+- Cost analytics: every concierge turn writes to `ai_costs` with admin email + tool count + iterations in metadata, so we can answer "how much is the concierge itself costing us" via the existing economics dashboard.
+- ⌘K + floating launcher hits both keyboard and mouse users with one panel.
+
