@@ -270,8 +270,11 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Slack — DIRT alert routing */}
+      <SlackSection />
+
       {/* Coming Soon */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
           { name: "Meta Ads", desc: "Facebook + Instagram ad spend, ROAS" },
           { name: "Google Ads", desc: "Search ad spend, conversions, ROAS" },
@@ -282,6 +285,80 @@ export default function Settings() {
             <div className="mt-3 text-xs text-ops-text-muted/50">Coming soon</div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function SlackSection() {
+  const { data } = useQuery<{ integrations: { slack: { configured: boolean; webhookTail: string; label: string } } }>({
+    queryKey: ["ops-settings"],
+    queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
+  });
+  const slack = data?.integrations.slack;
+  const [status, setStatus] = useState<null | "ok" | "fail">(null);
+  const [busy, setBusy] = useState(false);
+
+  const test = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await fetch("/api/ops/dirt/slack-test", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      setStatus(r.ok && j.ok ? "ok" : "fail");
+    } catch {
+      setStatus("fail");
+    } finally {
+      setBusy(false);
+      setTimeout(() => setStatus(null), 4000);
+    }
+  };
+
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
+      <div className="px-6 py-4 border-b border-ops-border flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-ops-text">Slack alerts</h2>
+        {slack?.configured && (
+          <button
+            onClick={test}
+            disabled={busy}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+              status === "ok"
+                ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
+                : status === "fail"
+                  ? "bg-red-500/10 text-red-400 border border-red-500/30"
+                  : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
+            }`}
+          >
+            {busy ? "Sending…" : status === "ok" ? "✓ Sent" : status === "fail" ? "Failed" : "Send test alert"}
+          </button>
+        )}
+      </div>
+      <div className="px-6 py-5">
+        {!slack?.configured ? (
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-3 h-3 rounded-full bg-ops-text-muted/40" />
+              <div className="text-sm font-medium text-ops-text">Not configured</div>
+            </div>
+            <p className="text-sm text-ops-text-muted mb-3">
+              Add a Slack incoming webhook URL to receive DIRT proactive scan findings outside the dashboard. 15-min cadence by default.
+            </p>
+            <code className="block bg-ops-bg px-3 py-2 rounded text-xs font-mono text-ops-text-muted break-all">
+              SLACK_OPS_WEBHOOK_URL=https://hooks.slack.com/services/...
+            </code>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="w-3 h-3 rounded-full bg-brand-blue-500" />
+            <div>
+              <div className="text-sm font-medium text-ops-text">Connected</div>
+              <div className="text-xs text-ops-text-muted">
+                Webhook <code className="bg-ops-bg px-1.5 py-0.5 rounded">{slack.webhookTail}</code> · DIRT auto-posts new alerts on every 15-min scan
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

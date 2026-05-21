@@ -40,50 +40,11 @@ interface ActionsResp {
   byKind: Array<{ target_kind: string; count: number }>;
 }
 
-type Tab = "general" | "integrations" | "audit";
+type Tab = "general" | "audit";
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
     <span className={`inline-block w-2 h-2 rounded-full ${ok ? "bg-brand-blue-500" : "bg-red-400"}`} />
-  );
-}
-
-function IntegrationRow({
-  name,
-  configured,
-  badges,
-  description,
-}: {
-  name: string;
-  configured: boolean;
-  badges?: Array<{ label: string; tone?: "neutral" | "warn" | "info" }>;
-  description: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-4 py-4 border-b border-ops-border last:border-0">
-      <div className="pt-1"><StatusDot ok={configured} /></div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-ops-text">{name}</span>
-          {badges?.map((b, i) => (
-            <span
-              key={i}
-              className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                b.tone === "warn"
-                  ? "bg-amber-500/10 text-amber-500 border border-amber-500/30"
-                  : b.tone === "info"
-                    ? "bg-brand-blue-50 text-brand-blue-500 border border-brand-blue-200/60 dark:bg-brand-blue-500/10 dark:border-brand-blue-400/30"
-                    : "bg-ops-bg text-ops-text-muted border border-ops-border"
-              }`}
-            >
-              {b.label}
-            </span>
-          ))}
-        </div>
-        <div className="text-xs text-ops-text-muted mt-1">{description}</div>
-      </div>
-      <div className="text-xs text-ops-text-muted">{configured ? "Configured" : "Not configured"}</div>
-    </div>
   );
 }
 
@@ -114,13 +75,6 @@ export default function Settings() {
     queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
   });
 
-  const { data: connections } = useQuery<{
-    google: { connected: boolean; email?: string; ga4PropertyId?: string; gscSiteUrl?: string };
-  }>({
-    queryKey: ["ops-connections"],
-    queryFn: () => fetch("/api/ops/connections").then((r) => r.json()),
-  });
-
   if (isLoading) return <div className="text-sm text-ops-text-muted">Loading settings…</div>;
   if (isError || !data) {
     return (
@@ -132,7 +86,6 @@ export default function Settings() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "general", label: "General" },
-    { key: "integrations", label: "Integrations" },
     { key: "audit", label: "Admin Log" },
   ];
 
@@ -141,7 +94,7 @@ export default function Settings() {
       <PageHero
         eyebrow="System"
         title="Settings"
-        subtitle="Session, integrations, environment, and the audit trail of every admin action."
+        subtitle="Session, admin allowlist, environment, and the audit trail of every admin action."
       />
 
       {/* Tabs */}
@@ -162,7 +115,6 @@ export default function Settings() {
       </div>
 
       {tab === "general" && <GeneralTab data={data} />}
-      {tab === "integrations" && <IntegrationsTab data={data} connections={connections} />}
       {tab === "audit" && <AuditTab />}
     </div>
   );
@@ -256,168 +208,6 @@ function GeneralTab({ data }: { data: SettingsData }) {
         </div>
       </div>
     </>
-  );
-}
-
-function IntegrationsTab({
-  data,
-  connections,
-}: {
-  data: SettingsData;
-  connections: { google: { connected: boolean; email?: string; ga4PropertyId?: string; gscSiteUrl?: string } } | undefined;
-}) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <h3 className="text-sm font-semibold text-ops-text mb-1">Integration status</h3>
-      <p className="text-xs text-ops-text-muted mb-1">
-        Status derived from env vars at process start. Full connect/disconnect controls live in{" "}
-        <Link href="/integrations" className="text-brand-blue-500 hover:underline">Integrations →</Link>
-      </p>
-      <div>
-        <IntegrationRow name="RDS PostgreSQL" configured={data.integrations.database.configured} description={data.integrations.database.label} />
-        <IntegrationRow
-          name="AI"
-          configured={data.integrations.ai.configured}
-          badges={[
-            { label: data.integrations.ai.provider },
-            ...(data.integrations.ai.region ? [{ label: data.integrations.ai.region, tone: "info" as const }] : []),
-          ]}
-          description={data.integrations.ai.label}
-        />
-        <IntegrationRow
-          name="Stripe"
-          configured={data.integrations.stripe.configured}
-          badges={data.integrations.stripe.configured ? [
-            { label: data.integrations.stripe.keyMode, tone: data.integrations.stripe.keyMode === "live" ? ("warn" as const) : ("info" as const) },
-            { label: data.integrations.stripe.keyTail },
-          ] : []}
-          description={data.integrations.stripe.label}
-        />
-        <IntegrationRow
-          name="Klaviyo"
-          configured={data.integrations.klaviyo.configured}
-          badges={data.integrations.klaviyo.configured ? [
-            { label: data.integrations.klaviyo.keyTail },
-            ...(data.integrations.klaviyo.conversionMetricOverride
-              ? [{ label: `Conv: ${data.integrations.klaviyo.conversionMetricOverride}`, tone: "info" as const }]
-              : []),
-          ] : []}
-          description={data.integrations.klaviyo.label}
-        />
-        <IntegrationRow
-          name="Google OAuth"
-          configured={data.integrations.googleOAuth.configured && !!connections?.google?.connected}
-          badges={(() => {
-            if (!data.integrations.googleOAuth.configured) return [];
-            const out: Array<{ label: string; tone?: "neutral" | "warn" | "info" }> = [{ label: data.integrations.googleOAuth.clientIdTail }];
-            if (connections?.google?.connected) {
-              if (connections.google.ga4PropertyId) out.push({ label: "GA4 selected", tone: "info" });
-              if (connections.google.gscSiteUrl) out.push({ label: "GSC selected", tone: "info" });
-              if (!connections.google.ga4PropertyId || !connections.google.gscSiteUrl)
-                out.push({ label: "Property pending", tone: "warn" });
-            } else {
-              out.push({ label: "Not connected", tone: "warn" });
-            }
-            return out;
-          })()}
-          description={
-            <>
-              {data.integrations.googleOAuth.label}.{" "}
-              {data.integrations.googleOAuth.configured && !connections?.google?.connected && (
-                <Link href="/integrations" className="text-brand-blue-500 hover:underline">Connect now →</Link>
-              )}
-            </>
-          }
-        />
-        <IntegrationRow
-          name="Meta Ads"
-          configured={data.integrations.metaAds.configured}
-          badges={data.integrations.metaAds.configured ? [
-            { label: data.integrations.metaAds.apiVersion, tone: "info" as const },
-            { label: `act_${data.integrations.metaAds.adAccountId}` },
-            { label: data.integrations.metaAds.tokenTail },
-          ] : []}
-          description={data.integrations.metaAds.label}
-        />
-        <IntegrationRow
-          name="Clomark"
-          configured={data.integrations.clomark.configured && data.integrations.clomark.businessIdConfigured}
-          badges={(() => {
-            if (!data.integrations.clomark.configured) return [];
-            const out: Array<{ label: string; tone?: "neutral" | "warn" | "info" }> = [{ label: data.integrations.clomark.tokenTail }];
-            if (data.integrations.clomark.businessIdConfigured) {
-              out.push({ label: data.integrations.clomark.businessIdTail, tone: "info" as const });
-            } else {
-              out.push({ label: "Business ID pending", tone: "warn" as const });
-            }
-            return out;
-          })()}
-          description={data.integrations.clomark.label}
-        />
-        <SlackIntegrationRow data={data.integrations.slack} />
-      </div>
-    </div>
-  );
-}
-
-function SlackIntegrationRow({
-  data,
-}: {
-  data: { configured: boolean; webhookTail: string; label: string };
-}) {
-  const [status, setStatus] = useState<null | "ok" | "fail">(null);
-  const [busy, setBusy] = useState(false);
-
-  const test = async () => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const r = await fetch("/api/ops/dirt/slack-test", { method: "POST" });
-      const j = await r.json().catch(() => ({}));
-      setStatus(r.ok && j.ok ? "ok" : "fail");
-    } catch {
-      setStatus("fail");
-    } finally {
-      setBusy(false);
-      setTimeout(() => setStatus(null), 4000);
-    }
-  };
-
-  return (
-    <div className="flex items-start gap-4 py-4 border-b border-ops-border last:border-0">
-      <div className="pt-1">
-        <span className={`inline-block w-2 h-2 rounded-full ${data.configured ? "bg-brand-blue-500" : "bg-red-400"}`} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-ops-text">Slack alerts</span>
-          {data.configured && (
-            <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-ops-bg text-ops-text-muted border border-ops-border">
-              {data.webhookTail}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-ops-text-muted mt-1">{data.label}</div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {data.configured && (
-          <button
-            onClick={test}
-            disabled={busy}
-            className={`text-[11px] font-medium px-2.5 py-1 rounded-lg transition-colors ${
-              status === "ok"
-                ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
-                : status === "fail"
-                  ? "bg-red-500/10 text-red-400 border border-red-500/30"
-                  : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
-            }`}
-          >
-            {busy ? "Sending…" : status === "ok" ? "✓ Sent" : status === "fail" ? "Failed" : "Test"}
-          </button>
-        )}
-        <div className="text-xs text-ops-text-muted">{data.configured ? "Configured" : "Not configured"}</div>
-      </div>
-    </div>
   );
 }
 
