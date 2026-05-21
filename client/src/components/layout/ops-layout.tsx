@@ -63,11 +63,25 @@ export function OpsLayout({
 }) {
   const [location] = useLocation();
   const { theme, toggle } = useTheme();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Auto-close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location]);
 
   return (
     <div className="flex h-screen brand-wash">
-      {/* Sidebar */}
-      <aside className="w-64 bg-ops-surface border-r border-ops-border flex flex-col shrink-0">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — fixed slide-out on mobile, static column on lg+ */}
+      <aside className={`fixed lg:static lg:translate-x-0 inset-y-0 left-0 z-40 w-64 bg-ops-surface border-r border-ops-border flex flex-col shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
         {/* Logo */}
         <div className="h-16 flex items-center px-6 border-b border-ops-border gap-2.5">
           <img
@@ -124,11 +138,18 @@ export function OpsLayout({
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
         {/* Top Bar */}
-        <header className="h-16 border-b border-ops-border flex items-center justify-between gap-6 px-8 bg-ops-surface/80 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="text-sm font-medium text-ops-text-muted">
-              {currentSectionLabel(location)}
-              <span className="mx-2 text-ops-text-subtle">/</span>
+        <header className="h-16 border-b border-ops-border flex items-center justify-between gap-3 sm:gap-6 px-4 sm:px-8 bg-ops-surface/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-ops-surface-hover text-ops-text-muted hover:text-ops-text"
+              aria-label="Open menu"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <div className="text-sm font-medium text-ops-text-muted truncate">
+              <span className="hidden sm:inline">{currentSectionLabel(location)}</span>
+              <span className="hidden sm:inline mx-2 text-ops-text-subtle">/</span>
               <span className="text-ops-text">{currentPageLabel(location)}</span>
             </div>
           </div>
@@ -138,14 +159,14 @@ export function OpsLayout({
 
           <div className="flex items-center gap-3 shrink-0">
             <DirtNotifications />
-            <div className="flex items-center gap-2 text-xs text-ops-text-muted px-2.5 py-1 rounded-full bg-ops-accent-soft">
+            <div className="hidden sm:flex items-center gap-2 text-xs text-ops-text-muted px-2.5 py-1 rounded-full bg-ops-accent-soft">
               <div className="w-1.5 h-1.5 rounded-full bg-brand-blue-400 animate-pulse" />
               Live
             </div>
-            <div className="w-px h-5 bg-ops-border" />
+            <div className="w-px h-5 bg-ops-border hidden sm:block" />
             <button
               onClick={toggle}
-              className="p-2 rounded-lg hover:bg-ops-surface-hover transition-colors text-ops-text-muted hover:text-ops-text"
+              className="hidden sm:block p-2 rounded-lg hover:bg-ops-surface-hover transition-colors text-ops-text-muted hover:text-ops-text"
               title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
             >
               {theme === "dark" ? (
@@ -156,12 +177,12 @@ export function OpsLayout({
             </button>
             {adminEmail && (
               <>
-                <div className="w-px h-5 bg-ops-border" />
+                <div className="w-px h-5 bg-ops-border hidden sm:block" />
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-blue-500 to-brand-blue-600 flex items-center justify-center text-white text-xs font-semibold">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-blue-500 to-brand-blue-600 flex items-center justify-center text-white text-xs font-semibold" title={adminEmail}>
                     {adminEmail[0]?.toUpperCase() || "?"}
                   </div>
-                  <span className="text-xs text-ops-text-muted truncate max-w-[160px]" title={adminEmail}>
+                  <span className="hidden md:inline text-xs text-ops-text-muted truncate max-w-[160px]" title={adminEmail}>
                     {adminEmail}
                   </span>
                 </div>
@@ -178,7 +199,7 @@ export function OpsLayout({
         </header>
 
         {/* Page content */}
-        <div className="p-8">{children}</div>
+        <div className="p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
 
       {/* DIRT — floating launcher + ⌘K + slide-out panel */}
