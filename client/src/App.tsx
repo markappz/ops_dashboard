@@ -1,4 +1,4 @@
-import { Route, Switch } from "wouter";
+import { Route, Switch, Redirect } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { OpsLayout } from "./components/layout/ops-layout";
 import { Component, type ReactNode } from "react";
@@ -6,16 +6,13 @@ import CommandCenter from "./pages/command-center";
 import Members from "./pages/members";
 import MemberDetail from "./pages/member-detail";
 import Orders from "./pages/orders";
-import Tracking from "./pages/tracking";
 import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
 import Email from "./pages/email";
 import EmailSend from "./pages/email-send";
 import EmailCompose from "./pages/email-compose";
-import { CreativeComingSoon, ClinicalComingSoon } from "./pages/coming-soon";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
-import AdminActions from "./pages/admin-actions";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
 
@@ -50,7 +47,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
             {this.state.error.message}{"\n"}{this.state.error.stack}
           </pre>
           <button onClick={() => { this.setState({ error: null }); window.location.href = "/"; }}
-            className="mt-4 px-4 py-2 bg-fitscript-green text-white rounded-lg text-sm">
+            className="mt-4 px-4 py-2 bg-brand-blue-500 text-white rounded-lg text-sm">
             Go Home
           </button>
         </div>
@@ -80,24 +77,33 @@ export default function App() {
       <ErrorBoundary>
         <Switch>
           <Route path="/" component={CommandCenter} />
+
+          {/* Customers */}
+          <Route path="/leads" component={Leads} />
           <Route path="/members" component={Members} />
           <Route path="/members/:id">{(params) => <MemberDetail id={params.id} />}</Route>
           <Route path="/orders" component={Orders} />
-          <Route path="/tracking" component={Tracking} />
+
+          {/* Growth */}
           <Route path="/marketing" component={Marketing} />
+          <Route path="/content" component={Content} />
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
           <Route path="/email/compose" component={EmailCompose} />
-          <Route path="/content" component={Content} />
-          <Route path="/creative" component={CreativeComingSoon} />
-          <Route path="/clinical" component={ClinicalComingSoon} />
+
+          {/* System */}
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Settings} />
-          <Route path="/admin-actions" component={AdminActions} />
-          <Route path="/leads" component={Leads} />
+
+          {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
+          <Route path="/tracking"><Redirect to="/marketing" /></Route>
+          <Route path="/admin-actions"><Redirect to="/settings" /></Route>
+          <Route path="/creative"><Redirect to="/" /></Route>
+          <Route path="/clinical"><Redirect to="/" /></Route>
+
           <Route>
             <div className="flex items-center justify-center h-[60vh] text-ops-text-muted">
-              Coming soon
+              Not found
             </div>
           </Route>
         </Switch>

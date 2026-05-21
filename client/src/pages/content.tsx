@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { PageHero } from "./../components/page-hero";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -77,29 +78,28 @@ export default function Content() {
 
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-ops-text">Content &amp; SEO</h1>
-          <p className="text-sm text-ops-text-muted mt-1">
-            Search Console performance + Clomark content pipeline · last {range} days
-          </p>
-        </div>
-        <div className="flex gap-1 bg-ops-bg rounded-lg p-1">
-          {[7, 30, 90].map((d) => (
-            <button
-              key={d}
-              onClick={() => setRange(d as 7 | 30 | 90)}
-              className={`px-3 py-1 text-xs rounded ${
-                range === d
-                  ? "bg-ops-surface text-ops-text"
-                  : "text-ops-text-muted hover:text-ops-text"
-              }`}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHero
+        eyebrow="Growth"
+        title="Content & SEO"
+        subtitle={`Search Console performance + Clomark content pipeline — last ${range} days.`}
+        actions={
+          <div className="flex gap-1 bg-ops-bg rounded-lg p-1">
+            {[7, 30, 90].map((d) => (
+              <button
+                key={d}
+                onClick={() => setRange(d as 7 | 30 | 90)}
+                className={`px-3 py-1 text-xs rounded ${
+                  range === d
+                    ? "bg-ops-surface text-ops-text shadow-card"
+                    : "text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {/* Clomark content pipeline */}
       <ClomarkSection />
@@ -220,7 +220,7 @@ function ContentBody({
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  stroke="#0EA57A"
+                  stroke="#2E5BFF"
                   tick={{ fontSize: 10 }}
                 />
                 <Tooltip
@@ -245,7 +245,7 @@ function ContentBody({
                   type="monotone"
                   dataKey="clicks"
                   name="Clicks"
-                  stroke="#0EA57A"
+                  stroke="#2E5BFF"
                   strokeWidth={2}
                   dot={false}
                 />

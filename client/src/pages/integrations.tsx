@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
+import { PageHero } from "../components/page-hero";
 
 interface ConnectionsData {
   googleConfigured: boolean;
@@ -103,10 +104,11 @@ export default function Settings() {
         </div>
       )}
 
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-ops-text">Integrations</h1>
-        <p className="text-sm text-ops-text-muted mt-1">Connect external services to fuel your dashboard with live data</p>
-      </div>
+      <PageHero
+        eyebrow="System"
+        title="Integrations"
+        subtitle="Connect external services to fuel your dashboard with live data."
+      />
 
       {/* Google Account */}
       <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">

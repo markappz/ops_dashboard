@@ -1,14 +1,23 @@
 export default function Login({ error }: { error?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-ops-bg px-4">
-      <div className="w-full max-w-sm bg-ops-surface border border-ops-border rounded-2xl shadow-card p-8">
+    <div className="min-h-screen flex items-center justify-center bg-ops-bg px-4 relative overflow-hidden">
+      {/* Branded gradient backdrop — mirrors FitScript marketing hero */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage:
+            "radial-gradient(900px 600px at 30% 20%, rgb(46,91,255,0.12), transparent 60%), radial-gradient(700px 500px at 80% 70%, rgb(159,182,255,0.10), transparent 60%)",
+        }}
+      />
+      <div className="relative w-full max-w-sm bg-ops-surface border border-ops-border rounded-2xl shadow-card-lg p-8">
         <div className="mb-6">
-          <div className="text-xs font-semibold text-fitscript-green uppercase tracking-wider mb-2">
-            FitScript Ops
+          <div className="text-[10px] font-semibold text-brand-blue-500 uppercase tracking-[0.18em] mb-2">
+            FitScript · Ops
           </div>
-          <h1 className="text-xl font-bold text-ops-text">Admin sign in</h1>
-          <p className="text-sm text-ops-text-muted mt-1">
-            Authorized admins only.
+          <h1 className="text-2xl font-bold text-ops-text tracking-tight">Welcome back</h1>
+          <p className="text-sm text-ops-text-muted mt-1.5">
+            Authorized admins only — sign in with your Google account.
           </p>
         </div>
 
@@ -20,7 +29,7 @@ export default function Login({ error }: { error?: string }) {
 
         <a
           href="/api/ops/auth/login"
-          className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-fitscript-green hover:bg-fitscript-green/90 text-white text-sm font-medium transition-colors"
+          className="flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 hover:opacity-95 text-white text-sm font-medium transition-all shadow-[0_8px_24px_-8px_rgba(46,91,255,0.5)]"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden>
             <path

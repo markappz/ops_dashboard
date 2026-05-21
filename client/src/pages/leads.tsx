@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
 import { InlineError, hasApiError } from "../components/query-error";
+import { PageHero } from "../components/page-hero";
 
 type LeadStatus = "Cold" | "Engaged" | "Hot" | "Paid";
 
@@ -125,29 +126,28 @@ export default function Leads() {
 
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="text-2xl font-bold text-ops-text">Leads</h1>
-          <p className="text-sm text-ops-text-muted mt-1">
-            Tracked visitors and signups · classified by intent · last {days} days
-          </p>
-        </div>
-        <div className="flex gap-2 bg-ops-bg rounded-lg p-1">
-          {[7, 30, 90, 365].map((d) => (
-            <button
-              key={d}
-              onClick={() => setDays(d)}
-              className={`px-3 py-1 text-xs rounded ${
-                days === d
-                  ? "bg-ops-surface text-ops-text"
-                  : "text-ops-text-muted hover:text-ops-text"
-              }`}
-            >
-              {d === 365 ? "1y" : `${d}d`}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHero
+        eyebrow="Customers"
+        title="Leads"
+        subtitle={`Tracked visitors and signups, classified by intent — last ${days} days.`}
+        actions={
+          <div className="flex gap-2 bg-ops-bg rounded-lg p-1">
+            {[7, 30, 90, 365].map((d) => (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                className={`px-3 py-1 text-xs rounded ${
+                  days === d
+                    ? "bg-ops-surface text-ops-text shadow-card"
+                    : "text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {d === 365 ? "1y" : `${d}d`}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {(hasApiError(data) || error) && (
         <div className="mb-4">

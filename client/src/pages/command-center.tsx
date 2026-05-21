@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
+import { PageHero } from "../components/page-hero";
 
 interface Snapshot {
   totalUsers: number;
@@ -169,29 +170,26 @@ export default function CommandCenter() {
 
   return (
     <div>
-      <div className="mb-8 flex items-start justify-between gap-6">
-        <div>
-          <h1 className="text-2xl font-bold text-ops-text">Command Center</h1>
-          <p className="text-sm text-ops-text-muted mt-1">FitScript business at a glance</p>
-        </div>
-        {anyDisconnected && (
-          <Link href="/settings">
-            <div className="flex items-center gap-4 px-4 py-2.5 bg-ops-surface border border-ops-border rounded-xl shadow-card cursor-pointer hover:bg-ops-surface-hover transition-colors">
-              {integrations.map((i) => (
-                <div key={i.name} className="flex items-center gap-2">
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      i.connected ? "bg-fitscript-green" : "bg-red-400"
-                    }`}
-                  />
-                  <span className="text-xs text-ops-text-muted">{i.name}</span>
-                </div>
-              ))}
-              <span className="text-xs text-ops-text-muted/70 ml-1">Fix →</span>
-            </div>
-          </Link>
-        )}
-      </div>
+      <PageHero
+        eyebrow="Overview"
+        title="Command Center"
+        subtitle="FitScript business at a glance — revenue, subscribers, unit economics, and integration health."
+        actions={
+          anyDisconnected ? (
+            <Link href="/settings">
+              <div className="flex items-center gap-3 px-3 py-2 bg-ops-surface border border-ops-border rounded-xl shadow-card cursor-pointer hover:bg-ops-surface-hover transition-colors">
+                {integrations.map((i) => (
+                  <div key={i.name} className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${i.connected ? "bg-brand-blue-500" : "bg-red-400"}`} />
+                    <span className="text-xs text-ops-text-muted">{i.name}</span>
+                  </div>
+                ))}
+                <span className="text-xs text-brand-blue-500 ml-1">Fix →</span>
+              </div>
+            </Link>
+          ) : undefined
+        }
+      />
 
       {/* Revenue Row */}
       <div className="grid grid-cols-4 gap-4 mb-6">

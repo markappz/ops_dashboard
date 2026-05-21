@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { QueryError, hasApiError } from "../components/query-error";
+import { PageHero } from "../components/page-hero";
 
 interface Member {
   id: string;
@@ -87,12 +88,11 @@ export default function Members() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-ops-text">Members</h1>
-        <p className="text-sm text-ops-text-muted mt-1">
-          {apiFailed ? "—" : data?.pagination.total.toLocaleString() || "—"} total members
-        </p>
-      </div>
+      <PageHero
+        eyebrow="Customers"
+        title="Members"
+        subtitle={`${apiFailed ? "—" : (data?.pagination.total.toLocaleString() || "—")} total paying subscribers and free accounts.`}
+      />
 
       {apiFailed && (
         <div className="mb-6">

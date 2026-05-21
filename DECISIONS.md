@@ -164,3 +164,58 @@ The fix: only render the top KPI grid when `totalVisitors > 0`. Only render chan
 - **No empty-state placeholder tables** — render `null` or hide the surrounding section; don't draw a card with "No data" inside it. Operators infer broken-ness from rendered-but-empty UI.
 - **Lead with what works** — surfaces with real data go above surfaces with empty state. Reorder when a new working section ships so the visual hierarchy stays honest.
 - **Connection state lives in one place** — Command Center integration-health strip + `/settings` Integrations table + `/integrations` per-service detail. Other pages reference; they don't redeclare.
+
+---
+
+## 2026-05-20 — Brand system: navy / sky-blue / white, green retired from ops
+
+**Decision:** Ops dashboard mirrors the new FitScript marketing brand. Primary palette is **brand-navy (`#0A1628` core)** + **brand-blue (`#2E5BFF` interactive accent)** + **brand-sky (`#E8F0FA` page wash)**. Green is **retired** — the legacy `fitscript.green` Tailwind token is kept as an alias that points at `#2E5BFF` so the 200 historical references rebrand automatically.
+
+**Why this and not alternatives:**
+- **vs. keeping green selectively (success indicators, "OK" badges):** Mixed palettes weaken the brand. The FitScript marketing screenshots have one tiny green callout ("Save 17%" in pricing); everything else is navy/blue/white. Ops dashboard should read the same. Status indicators that need "good" use brand-blue; "bad" uses red; warnings use amber. The semantics are intact without the color drift.
+- **vs. rewriting every `fitscript-green` reference individually:** 200 references across 20 files. Remapping the token is one-line and accomplishes the same visual outcome with near-zero risk. New code uses `brand.*` tokens directly.
+- **vs. a separate dark vs. light "brand mode":** Both modes share the same brand. Dark mode is navy surfaces with brand-blue accent (`#5C7FFF` lifted for contrast); light mode is white surfaces with brand-blue accent (`#2E5BFF`) on sky-50 wash. Same gradient logic across both.
+
+**How to apply:**
+- New code uses `brand.navy.*` / `brand.blue.*` / `brand.sky.*` directly. Don't reach for `fitscript.green` — it's a compatibility shim, not a brand color.
+- Hero treatments use the `PageHero` component (eyebrow + title + subtitle + actions). Don't hand-roll page headers.
+- Active-state CTAs use `bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white` with a soft brand shadow (`shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]`).
+- Status semantics: brand-blue = OK/success/active. Red = failure. Amber = warning/throttle. Don't reintroduce green even for "healthy" — brand-blue is the success color.
+- Chart fills/strokes use brand colors (`#2E5BFF`, `#5C7FFF`, `#9FB6FF`). Per-platform brand colors (Google `#4285F4`, Meta `#1877F2`, etc.) stay accurate in channel-specific views.
+
+---
+
+## 2026-05-20 — Sidebar IA: 4 grouped sections, 9 active items
+
+**Decision:** Sidebar is organized into 4 labeled sections — **Overview** (Command Center), **Customers** (Leads / Members / Orders), **Growth** (Marketing / Content & SEO / Email), **System** (Integrations / Settings) — with section headers in muted uppercase tracking. Flat 14-item nav from v1 is retired.
+
+**Why this and not alternatives:**
+- **vs. flat list:** 14 unsectioned items overwhelms the eye and makes scanning slow. Operators don't think "where's the email page?" — they think "I'm doing growth stuff, where's email?" Grouping mirrors that mental model.
+- **vs. collapsible sections:** Adds interaction for no real estate savings on a ~700px tall sidebar. 4 labels + 9 links comfortably fit without scrolling. Keep it static, keep it scannable.
+- **vs. customer-routes-first:** Top-of-funnel→bottom-of-funnel order (Leads → Members → Orders) within Customers matches the customer journey. Within Growth, Marketing (the broadest channel page) leads, then Content (SEO), then Email (1:1). Same logic.
+
+**Customer journey order is locked:**
+- Customers: Leads → Members → Orders (acquisition → conversion → fulfillment)
+- Growth: Marketing → Content → Email (broadest channel → SEO → 1:1)
+- System: Integrations → Settings (connect → configure)
+
+**How to apply:**
+- New top-level pages must slot into an existing section. If a candidate doesn't fit Overview/Customers/Growth/System, that's a signal the scope is unclear or a new section needs an explicit decision (don't drop it as a placeholder in nav).
+- Sub-pages (e.g. `/members/:id`, `/email/send`, `/email/compose`) inherit their parent's section in the breadcrumb but don't get their own sidebar entry.
+- Placeholder/coming-soon pages are NOT visible in nav. Routes can exist for deep-linking but never appear as sidebar items — half-built nav makes the dashboard read as half-built.
+
+---
+
+## 2026-05-20 — Tracking absorbed into Marketing, Admin Log into Settings (no duplication)
+
+**Decision:** Funnel + cost/revenue + first-party channel attribution + campaign performance + pixel setup ALL live on `/marketing` as a single channel performance surface. `/tracking` is a redirect. Admin Log lives as a tab under `/settings`. `/admin-actions` is a redirect.
+
+**Why this and not alternatives:**
+- **vs. keeping /tracking distinct:** Both pages were already showing overlapping funnel + channel attribution data. Two doors to the same room confuses operators (which one is authoritative?). Merging makes Marketing the unambiguous home for channel performance.
+- **vs. keeping /admin-actions in top-level nav:** It's an audit/security artifact, not a daily operator surface. Top-level placement implied parity with Marketing or Email. Tab under Settings is the correct affordance level.
+- **vs. deleting /tracking + /admin-actions outright (404 on deep links):** Bookmarks + memory references would break. Redirects preserve link integrity for free.
+
+**How to apply:**
+- New attribution / funnel / campaign / pixel work goes on `/marketing`. Don't create a sibling page for "advanced tracking."
+- New audit / admin-action surfaces go as tabs on `/settings` (alongside General, Integrations, Admin Log). Don't add a new top-level "Audit" page.
+- Redirects in `App.tsx` are the standard pattern for "page moved" — never delete a route without adding the redirect.

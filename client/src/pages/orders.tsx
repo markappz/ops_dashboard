@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { PageHero } from "../components/page-hero";
 
 interface Order {
   id: string;
@@ -218,19 +219,20 @@ export default function Orders() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-ops-text">Orders</h1>
-        <p className="text-sm text-ops-text-muted mt-1">Rx prescriptions and lab panel orders</p>
-      </div>
+      <PageHero
+        eyebrow="Customers"
+        title="Orders"
+        subtitle="Rx prescriptions and lab panel orders — fulfillment + status."
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-ops-surface border border-ops-border rounded-lg p-1 w-fit">
         <button onClick={() => setTab("rx")}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "rx" ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "rx" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)]" : "text-ops-text-muted hover:text-ops-text"}`}>
           Rx Orders
         </button>
         <button onClick={() => setTab("labs")}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "labs" ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "labs" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)]" : "text-ops-text-muted hover:text-ops-text"}`}>
           Lab Orders
         </button>
       </div>

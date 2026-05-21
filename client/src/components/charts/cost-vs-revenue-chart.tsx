@@ -91,7 +91,7 @@ export function CostVsRevenueChart() {
             />
             <YAxis
               yAxisId="left"
-              stroke="#0EA57A"
+              stroke="#2E5BFF"
               tick={{ fontSize: 11 }}
               tickFormatter={(v) => `$${v}`}
             />
@@ -121,8 +121,8 @@ export function CostVsRevenueChart() {
               type="monotone"
               dataKey="revenue_usd"
               name="Revenue"
-              stroke="#0EA57A"
-              fill="#0EA57A"
+              stroke="#2E5BFF"
+              fill="#2E5BFF"
               fillOpacity={0.15}
               strokeWidth={2}
             />

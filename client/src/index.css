@@ -2,30 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+/* FitScript brand — navy / sky-blue / white system.
+   Dark mode  = deep navy surfaces (operator default).
+   Light mode = white surfaces on a sky-blue page wash.
+   Accent     = brand blue (#2E5BFF), replaces the legacy green. */
+
 @layer base {
   :root,
   [data-theme="dark"] {
-    --ops-bg: 15 17 23;
-    --ops-surface: 26 29 39;
-    --ops-surface-hover: 34 37 47;
-    --ops-border: 42 45 55;
-    --ops-border-strong: 58 61 71;
-    --ops-text: 228 228 231;
-    --ops-text-muted: 113 113 122;
-    --ops-accent: 14 165 122;
-    --ops-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --ops-bg: 5 13 26;            /* brand-navy-950 */
+    --ops-surface: 10 22 40;      /* brand-navy-900 */
+    --ops-surface-hover: 14 27 46;/* brand-navy-800 */
+    --ops-surface-raised: 22 38 62; /* brand-navy-700 */
+    --ops-border: 31 53 84;       /* brand-navy-600 */
+    --ops-border-strong: 50 75 110;
+    --ops-text: 240 245 255;
+    --ops-text-muted: 156 170 196;
+    --ops-text-subtle: 110 124 150;
+    --ops-accent: 92 127 255;     /* brand-blue-400 — lighter for dark surfaces */
+    --ops-accent-hover: 159 182 255;
+    --ops-accent-soft: 22 38 62;  /* navy-700 used as soft accent surface */
+    --ops-card-shadow: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(159,182,255,0.04);
+    --ops-card-shadow-lg: 0 12px 32px -8px rgba(5,13,26,0.6), 0 0 0 1px rgba(159,182,255,0.06);
   }
 
   [data-theme="light"] {
-    --ops-bg: 248 249 251;
+    --ops-bg: 242 246 252;        /* brand-sky-50 wash */
     --ops-surface: 255 255 255;
-    --ops-surface-hover: 243 244 246;
-    --ops-border: 229 231 235;
-    --ops-border-strong: 209 213 219;
-    --ops-text: 17 24 39;
-    --ops-text-muted: 107 114 128;
-    --ops-accent: 14 165 122;
-    --ops-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --ops-surface-hover: 248 250 253;
+    --ops-surface-raised: 255 255 255;
+    --ops-border: 224 232 245;
+    --ops-border-strong: 196 211 232;
+    --ops-text: 10 22 40;         /* brand-navy-900 */
+    --ops-text-muted: 80 96 122;
+    --ops-text-subtle: 130 144 168;
+    --ops-accent: 46 91 255;      /* brand-blue-500 */
+    --ops-accent-hover: 30 79 224;/* brand-blue-600 */
+    --ops-accent-soft: 232 240 250;/* brand-blue-50 */
+    --ops-card-shadow: 0 1px 2px rgba(10,22,40,0.04), 0 1px 3px rgba(10,22,40,0.06);
+    --ops-card-shadow-lg: 0 16px 40px -12px rgba(10,22,40,0.14), 0 2px 6px rgba(10,22,40,0.05);
   }
 }
 
@@ -34,20 +49,30 @@ body {
   min-height: 100vh;
   background-color: rgb(var(--ops-bg));
   color: rgb(var(--ops-text));
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
 }
 
-/* Scrollbar styling */
+/* Soft brand wash behind the app shell — visible on light mode, subtle radial on dark */
+.brand-wash {
+  background-image:
+    radial-gradient(1200px 600px at 0% -10%, rgb(var(--ops-accent) / 0.06), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgb(var(--ops-accent) / 0.04), transparent 60%);
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: rgb(var(--ops-surface));
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: rgb(var(--ops-border-strong));
-  border-radius: 3px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--ops-text-muted));
+  background: rgb(var(--ops-text-subtle));
 }

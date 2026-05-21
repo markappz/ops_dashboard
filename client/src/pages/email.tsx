@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "wouter";
 import { InlineError, hasApiError } from "../components/query-error";
+import { PageHero } from "../components/page-hero";
 
 interface KlaviyoStatus {
   configured: boolean;
@@ -507,28 +508,27 @@ function DashboardSendsTable({
 
 function Header({ canSend = false }: { canSend?: boolean }) {
   return (
-    <div className="mb-8 flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-ops-text">Email</h1>
-        <p className="text-sm text-ops-text-muted mt-1">
-          Klaviyo campaigns, flows, and audiences
-        </p>
-      </div>
-      {canSend && (
-        <div className="flex gap-2">
-          <Link href="/email/compose">
-            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ops-surface border border-ops-border text-ops-text hover:bg-ops-surface-hover">
-              Compose with Claude
-            </button>
-          </Link>
-          <Link href="/email/send">
-            <button className="px-4 py-2 text-sm font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90">
-              Send campaign
-            </button>
-          </Link>
-        </div>
-      )}
-    </div>
+    <PageHero
+      eyebrow="Growth"
+      title="Email"
+      subtitle="Klaviyo campaigns, flows, and audiences — send and audit from one place."
+      actions={
+        canSend ? (
+          <div className="flex gap-2">
+            <Link href="/email/send">
+              <button className="px-4 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-90 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]">
+                Send campaign
+              </button>
+            </Link>
+            <Link href="/email/compose">
+              <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ops-surface border border-ops-border text-ops-text-muted hover:text-ops-text">
+                Compose with Claude
+              </button>
+            </Link>
+          </div>
+        ) : undefined
+      }
+    />
   );
 }
 

@@ -424,3 +424,52 @@ Either:
 4. New direction
 
 Paul wrapping the terminal here for a fresh start.
+
+---
+
+## 2026-05-20 (overnight) — Full UX audit + brand rebrand to navy/sky-blue
+
+Paul handed me the full UX audit punch list AND the new FitScript brand (navy + sky-blue + gradient, no green). Single sprint, executed front-to-back. Live at localhost:5001, push gated on Paul's approval.
+
+### What shipped
+
+**1. Brand system — new tokens, theme-aware**
+- `tailwind.config.ts` — `brand.navy.{950–600}`, `brand.blue.{600–50}`, `brand.sky.{100,50}` + `bg-brand-hero`, `bg-brand-cloud` gradient utilities.
+- Legacy `fitscript.green` token kept and **remapped to `#2E5BFF`** so all 200 existing references auto-rebrand without per-file churn.
+- `index.css` — light + dark mode CSS variables rebuilt around navy. `--ops-bg` (dark) = navy-950. `--ops-bg` (light) = sky-50 wash. Accent = brand blue. Card shadows softened. `.brand-wash` utility for the page-shell radial cloud.
+
+**2. Layout shell — grouped sidebar**
+- `ops-layout.tsx` — sidebar reorganized from flat 14-item nav into 4 labeled sections: **Overview / Customers / Growth / System** with 9 active items. Section headers in uppercase muted tracking. Active item = gradient pill (`from-brand-blue-600 to-brand-blue-500`) with blue shadow. Top bar gains breadcrumb (Section / Page) + avatar gradient bubble + softer "Live" pill in accent-soft.
+
+**3. IA cleanup — Tracking merged into Marketing, Admin Log merged into Settings**
+- `marketing.tsx` rewritten to absorb the old `/tracking` content: Conversion Funnel + Cost-vs-Revenue chart + Campaign Performance table + first-party Pixel Setup. GA4 + Meta Ads + first-party channel breakdowns stay. Single unified channel performance page.
+- `settings.tsx` rebuilt with **tabbed UI**: General / Integrations / Admin Log. AuditTab carries the full `/admin-actions` functionality (filters + auto-refresh + status colors). General tab gets Session + Admin allowlist + Auth + Env cards.
+- `App.tsx` — `/tracking` → `/marketing` redirect, `/admin-actions` → `/settings` redirect, `/creative` + `/clinical` → `/` redirects. Routes preserved for deep links, removed from sidebar.
+- Deleted: `pages/tracking.tsx`, `pages/admin-actions.tsx`, `pages/coming-soon.tsx`.
+
+**4. Per-page brand pass**
+- New shared `components/page-hero.tsx` — eyebrow + display title + subtitle + optional actions, with radial brand wash background. Applied to: Command Center, Members, Leads, Orders, Marketing, Content, Email, Integrations, Settings.
+- Login page rebuilt: gradient backdrop, brand-blue gradient sign-in button, "Welcome back" copy.
+- Email page actions reordered: "Send campaign" promoted to gradient primary, "Compose with Claude" demoted to secondary outline (per audit punch list).
+- Orders tab buttons: green pills → gradient brand-blue pills.
+- Chart hardcoded greens (`#0EA57A`) globally swapped to brand blue (`#2E5BFF`) — revenue-chart, cost-vs-revenue-chart, content GSC charts.
+
+### Verification
+
+- `npx tsc --noEmit` → exit 0
+- `npx vite build` → success, 1160 modules, 32.74 kB CSS / 1.03 MB JS (gzip 273kb)
+- Dev server restarted, serving 200 at localhost:5001
+- Routes all alive; legacy redirects working
+
+### Pending — pushing gated on Paul's manual approval
+
+Code is committed locally? **No — nothing committed yet.** Per `[[feedback_dont_push_without_approval]]` + `[[feedback_test_before_push]]` Paul must walk the dashboard in a browser first, confirm visuals match the new FitScript brand, then say push.
+
+Walk-through order recommended: `/` (Command Center hero) → sidebar grouping → `/marketing` (verify Tracking content lives here now) → `/settings` (verify 3 tabs, Admin Log functional) → `/email` (verify Send is primary) → `/login` (sign out + back in to see new gradient backdrop).
+
+### What I'll remember next session
+
+- `[[reference_clomark_live_repo]]` unchanged.
+- Brand system: `brand.navy.*` + `brand.blue.*` + `brand.sky.*` are the new authoritative tokens. `fitscript.green` is a legacy alias that points at `#2E5BFF` — new code uses brand tokens directly.
+- IA: Overview / Customers / Growth / System is the locked-in navigation grouping.
+- PageHero is the standard for every primary page header — eyebrow + display title.
