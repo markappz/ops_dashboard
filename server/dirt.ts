@@ -1179,6 +1179,45 @@ export function registerDirtRoutes(app: Express) {
     }
   });
 
+  // ─── Proactive DIRT — notifications inbox ──────────────────────────
+
+  app.get("/api/ops/dirt/notifications", async (_req: AdminReq, res) => {
+    try {
+      await ensureNotificationsTable();
+      const r = await pool.query(
+        `SELECT id, kind, severity, title, body, metadata, dismissed_at, created_at
+         FROM ops_dirt_notifications
+         ORDER BY (dismissed_at IS NULL) DESC, created_at DESC
+         LIMIT 50`,
+      );
+      const unread = r.rows.filter((n: any) => !n.dismissed_at).length;
+      res.json({ notifications: r.rows, unread });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, notifications: [], unread: 0 });
+    }
+  });
+
+  app.patch("/api/ops/dirt/notifications/:id/dismiss", async (req, res) => {
+    try {
+      await pool.query(
+        `UPDATE ops_dirt_notifications SET dismissed_at = NOW() WHERE id = $1`,
+        [req.params.id],
+      );
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/dirt/scan", async (req: AdminReq, res) => {
+    try {
+      const result = await runScan(req.adminEmail || "manual");
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Legacy non-streaming alias for back-compat
   app.post("/api/ops/concierge/chat", async (req: AdminReq, res) => {
     if (!isAIConfigured()) return res.status(503).json({ error: "AI not configured" });
@@ -1228,4 +1267,142 @@ export function registerDirtRoutes(app: Express) {
       res.status(500).json({ error: e.message, toolUses });
     }
   });
+}
+
+// ─── Proactive DIRT scan ───────────────────────────────────────────
+
+let notifTableEnsured = false;
+async function ensureNotificationsTable() {
+  if (notifTableEnsured) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ops_dirt_notifications (
+      id UUID PRIMARY KEY,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      metadata JSONB,
+      dismissed_at TIMESTAMP,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_dirt_notif_created
+      ON ops_dirt_notifications (created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_dirt_notif_unread
+      ON ops_dirt_notifications (dismissed_at) WHERE dismissed_at IS NULL;
+  `);
+  notifTableEnsured = true;
+}
+
+const SCAN_PROMPT = `You are DIRT in scan mode. Your job: silently inspect every data source via tools, then surface ONLY items an operator needs to know about right now.
+
+Look for:
+- Integrations disconnected or erroring
+- Runaway AI costs (any user > $5 MTD, or platform cost spike vs. last week)
+- Stuck orders (PENDING for > 48h)
+- Failed admin actions in the last 24h
+- Churn spikes (more cancellations this week than last)
+- Content drafts pending review > 24h
+- Klaviyo flow status anomalies
+- Anything else unusual
+
+Use multiple tools in parallel. After investigation, output ONLY a JSON array (no preamble, no explanation):
+
+[
+  {"kind": "integration|cost|order|admin|churn|content|email|other",
+   "severity": "info|warn|critical",
+   "title": "Short headline under 80 chars",
+   "body": "1-2 sentence detail with specifics (numbers, ids)",
+   "metadata": { ...any structured context, optional... } }
+]
+
+If nothing is unusual, output exactly: []
+
+Be conservative. Only surface things the operator should act on or be aware of. Don't pad with noise.`;
+
+async function runScan(trigger: string): Promise<{ inserted: number; notifications: any[]; findings: number }> {
+  if (!isAIConfigured()) return { inserted: 0, notifications: [], findings: 0 };
+  await ensureNotificationsTable();
+
+  const messages: any[] = [{ role: "user", content: "Run a full scan now." }];
+  let finalText = "";
+  for (let iter = 0; iter < 6; iter++) {
+    const resp: any = await (anthropic as any).messages.create({
+      model: BEDROCK_MODELS.HIGH_IQ,
+      max_tokens: 4096,
+      system: SCAN_PROMPT,
+      tools: READ_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      messages,
+    });
+    const toolBlocks = (resp.content || []).filter((b: any) => b.type === "tool_use");
+    const textBlocks = (resp.content || []).filter((b: any) => b.type === "text");
+    finalText = textBlocks.map((b: any) => b.text).join("\n").trim();
+    messages.push({ role: "assistant", content: resp.content });
+    if (resp.stop_reason !== "tool_use" || !toolBlocks.length) break;
+    const toolResults = await Promise.all(toolBlocks.map(async (block: any) => {
+      const tool = TOOL_MAP.get(block.name);
+      if (!tool) return { type: "tool_result", tool_use_id: block.id, content: `Unknown: ${block.name}`, is_error: true };
+      try {
+        const result = await tool.handler(block.input || {}, { adminEmail: "system_scan" });
+        return { type: "tool_result", tool_use_id: block.id, content: JSON.stringify(result) };
+      } catch (e: any) {
+        return { type: "tool_result", tool_use_id: block.id, content: `error: ${e.message}`, is_error: true };
+      }
+    }));
+    messages.push({ role: "user", content: toolResults });
+  }
+
+  // Parse the JSON array out of the final text
+  let findings: any[] = [];
+  try {
+    const m = finalText.match(/\[\s*(?:\{[\s\S]*\}|\s*)\s*\]/);
+    if (m) findings = JSON.parse(m[0]);
+  } catch (e: any) {
+    console.warn("[DIRT scan] parse failed:", e.message, "raw head:", finalText.slice(0, 200));
+  }
+
+  // Dedupe: don't re-add a title that's currently unread or surfaced in the last 24h
+  const existing = await pool.query(
+    `SELECT title FROM ops_dirt_notifications WHERE dismissed_at IS NULL OR created_at >= NOW() - INTERVAL '24 hours'`,
+  );
+  const existingTitles = new Set((existing.rows as any[]).map((r) => r.title.toLowerCase()));
+
+  let inserted = 0;
+  const insertedRows: any[] = [];
+  for (const f of findings) {
+    if (!f?.title || existingTitles.has(String(f.title).toLowerCase())) continue;
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO ops_dirt_notifications (id, kind, severity, title, body, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+      [id, f.kind || "other", f.severity || "info", String(f.title).slice(0, 200), f.body || null, f.metadata ? JSON.stringify(f.metadata) : null],
+    );
+    insertedRows.push({ id, ...f });
+    inserted++;
+  }
+  console.log(`[DIRT scan] trigger=${trigger} findings=${findings.length} inserted=${inserted}`);
+  return { inserted, notifications: insertedRows, findings: findings.length };
+}
+
+/**
+ * Kick off the 15-minute scan loop. Called from server/index.ts at boot.
+ * Skipped in dev unless OPS_ENABLE_SCAN=1 since it costs Claude tokens.
+ */
+export function startDirtScanLoop() {
+  if (!isAIConfigured()) {
+    console.log("[DIRT scan] skipped — AI not configured");
+    return;
+  }
+  const enabled = process.env.NODE_ENV === "production" || process.env.OPS_ENABLE_SCAN === "1";
+  if (!enabled) {
+    console.log("[DIRT scan] disabled in dev (set OPS_ENABLE_SCAN=1 to test locally)");
+    return;
+  }
+  const intervalMs = 15 * 60 * 1000;
+  setTimeout(() => {
+    runScan("startup").catch((e) => console.warn("[DIRT scan] startup failed:", e.message));
+    setInterval(() => {
+      runScan("cron").catch((e) => console.warn("[DIRT scan] cron failed:", e.message));
+    }, intervalMs);
+  }, 60_000);
+  console.log("[DIRT scan] enabled — first run in 60s, then every 15min");
 }

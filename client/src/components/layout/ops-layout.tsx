@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { ReactNode, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../hooks/use-theme";
 import logoWhite from "../../assets/fitscript-logo-white.png";
 import { Dirt } from "../dirt/Dirt";
@@ -137,6 +137,7 @@ export function OpsLayout({
           <DirtCommandBar />
 
           <div className="flex items-center gap-3 shrink-0">
+            <DirtNotifications />
             <div className="flex items-center gap-2 text-xs text-ops-text-muted px-2.5 py-1 rounded-full bg-ops-accent-soft">
               <div className="w-1.5 h-1.5 rounded-full bg-brand-blue-400 animate-pulse" />
               Live
@@ -208,6 +209,155 @@ function currentPageLabel(path: string): string {
     }
   }
   return "—";
+}
+
+/**
+ * Bell icon + dropdown of proactive DIRT notifications. Polls every 60s.
+ * Badge shows unread count.
+ */
+interface NotifItem {
+  id: string;
+  kind: string;
+  severity: "info" | "warn" | "critical";
+  title: string;
+  body: string | null;
+  metadata: Record<string, unknown> | null;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
+function DirtNotifications() {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<NotifItem[]>([]);
+  const [unread, setUnread] = useState(0);
+  const [scanning, setScanning] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await fetch("/api/ops/dirt/notifications");
+      if (!r.ok) return;
+      const j = await r.json();
+      setItems(j.notifications || []);
+      setUnread(j.unread || 0);
+    } catch {}
+  };
+
+  useEffect(() => {
+    load();
+    const i = setInterval(load, 60_000);
+    return () => clearInterval(i);
+  }, []);
+
+  const dismiss = async (id: string) => {
+    await fetch(`/api/ops/dirt/notifications/${id}/dismiss`, { method: "PATCH" });
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, dismissed_at: new Date().toISOString() } : n)));
+    setUnread((u) => Math.max(0, u - 1));
+  };
+
+  const scanNow = async () => {
+    setScanning(true);
+    try {
+      await fetch("/api/ops/dirt/scan", { method: "POST" });
+      await load();
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const askDirt = (n: NotifItem) => {
+    window.dispatchEvent(new CustomEvent("dirt:open", { detail: { prompt: `Tell me more about: ${n.title}` } }));
+    setOpen(false);
+  };
+
+  const sevColor = (s: string) => ({
+    critical: "text-red-400 bg-red-500/10 border-red-500/30",
+    warn: "text-amber-500 bg-amber-500/10 border-amber-500/30",
+    info: "text-brand-blue-500 bg-brand-blue-500/10 border-brand-blue-500/30",
+  } as Record<string, string>)[s] || "text-ops-text-muted bg-ops-bg border-ops-border";
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="relative p-2 rounded-lg hover:bg-ops-surface-hover transition-colors text-ops-text-muted hover:text-ops-text"
+        title="Proactive DIRT alerts"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+        </svg>
+        {unread > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center animate-pulse">
+            {unread > 9 ? "9+" : unread}
+          </span>
+        )}
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute top-12 right-0 z-50 w-[400px] max-h-[520px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg animate-dirt-slide-down">
+            <div className="px-3 py-2.5 border-b border-ops-border flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-ops-text">Alerts</div>
+                <div className="text-[10.5px] text-ops-text-subtle">Auto-scan every 15min</div>
+              </div>
+              <button
+                onClick={scanNow}
+                disabled={scanning}
+                className="text-[11px] text-brand-blue-500 hover:text-brand-blue-600 disabled:opacity-50 font-medium px-2 py-1 rounded hover:bg-ops-surface-hover"
+              >
+                {scanning ? "Scanning…" : "Scan now"}
+              </button>
+            </div>
+            {items.length === 0 ? (
+              <div className="px-3 py-8 text-center text-xs text-ops-text-muted">
+                No alerts. DIRT will surface anomalies here as they happen.
+              </div>
+            ) : (
+              items.map((n) => (
+                <div
+                  key={n.id}
+                  className={`px-3 py-2.5 border-b border-ops-border last:border-0 transition-opacity ${n.dismissed_at ? "opacity-50" : ""}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className={`text-[9px] tracking-wider uppercase font-bold px-1.5 py-0.5 rounded border ${sevColor(n.severity)}`}>
+                      {n.severity}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-semibold text-ops-text leading-tight">{n.title}</div>
+                      {n.body && <div className="text-[11.5px] text-ops-text-muted mt-1">{n.body}</div>}
+                      <div className="flex items-center gap-3 mt-1.5 text-[10.5px]">
+                        <span className="text-ops-text-subtle">{relativeTime(n.created_at)} · {n.kind}</span>
+                        {!n.dismissed_at && (
+                          <>
+                            <button onClick={() => askDirt(n)} className="text-brand-blue-500 hover:text-brand-blue-600 font-medium">
+                              Ask DIRT
+                            </button>
+                            <button onClick={() => dismiss(n.id)} className="text-ops-text-muted hover:text-ops-text">
+                              Dismiss
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 /**
