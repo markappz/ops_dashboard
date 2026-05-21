@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useEffect, useState } from "react";
 import { PageHero } from "../components/page-hero";
+import { IntegrationEditModal } from "../components/integration-edit-modal";
 
 interface ConnectionsData {
   googleConfigured: boolean;
@@ -224,60 +225,36 @@ export default function Settings() {
       </div>
 
       {/* Klaviyo */}
-      <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
-        <div className="px-6 py-4 border-b border-ops-border">
-          <h2 className="text-lg font-semibold text-ops-text">Klaviyo</h2>
-        </div>
-        <div className="px-6 py-5">
-          {!klaviyo?.configured ? (
-            <div>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-3 h-3 rounded-full bg-ops-text-muted/40" />
-                <div className="text-sm font-medium text-ops-text">Not connected</div>
-              </div>
-              <p className="text-sm text-ops-text-muted mb-3">
-                Add a Klaviyo private API key to surface campaigns, flows, and lists.
-              </p>
-              <code className="block bg-ops-bg px-3 py-2 rounded text-xs font-mono text-ops-text-muted">
-                KLAVIYO_API_KEY=pk_...
-              </code>
-            </div>
-          ) : klaviyo.connected ? (
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-green-400" />
-              <div>
-                <div className="text-sm font-medium text-ops-text">
-                  {klaviyo.organization ? `Connected — ${klaviyo.organization}` : "Connected"}
-                </div>
-                <div className="text-xs text-ops-text-muted">
-                  {klaviyo.defaultSenderEmail
-                    ? `Default sender: ${klaviyo.defaultSenderEmail}`
-                    : "Campaigns, flows, lists, segments"}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-3 h-3 rounded-full bg-red-400" />
-                <div className="text-sm font-medium text-ops-text">Connection error</div>
-              </div>
-              <p className="text-xs text-ops-text-muted break-all">
-                {klaviyo.error || "Klaviyo API key was rejected"}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+      <ManagedIntegrationCard
+        title="Klaviyo"
+        integration="klaviyo"
+        status={
+          !klaviyo?.configured
+            ? { kind: "off", text: "Not connected", detail: "Add a private API key to surface campaigns, flows, and lists." }
+            : klaviyo.connected
+              ? { kind: "ok", text: klaviyo.organization ? `Connected — ${klaviyo.organization}` : "Connected", detail: klaviyo.defaultSenderEmail ? `Default sender: ${klaviyo.defaultSenderEmail}` : "Campaigns, flows, lists, segments" }
+              : { kind: "error", text: "Connection error", detail: klaviyo.error || "API key was rejected" }
+        }
+        onUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ["klaviyo-status"] });
+          queryClient.invalidateQueries({ queryKey: ["ops-settings"] });
+        }}
+      />
 
       {/* Slack — DIRT alert routing */}
-      <SlackSection />
+      <SlackManagedCard />
+
+      {/* Meta Ads */}
+      <MetaAdsManagedCard />
+
+      {/* Clomark */}
+      <ClomarkManagedCard />
 
       {/* Coming Soon */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { name: "Meta Ads", desc: "Facebook + Instagram ad spend, ROAS" },
           { name: "Google Ads", desc: "Search ad spend, conversions, ROAS" },
+          { name: "TikTok Ads", desc: "TikTok ad spend, conversions" },
         ].map((s) => (
           <div key={s.name} className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
             <h3 className="text-sm font-semibold text-ops-text mb-1">{s.name}</h3>
@@ -290,76 +267,165 @@ export default function Settings() {
   );
 }
 
-function SlackSection() {
+// ─── Self-serve managed integration card ────────────────────────────
+
+interface ManagedStatus {
+  kind: "ok" | "off" | "error";
+  text: string;
+  detail?: string;
+}
+
+function ManagedIntegrationCard({
+  title,
+  integration,
+  status,
+  onUpdated,
+}: {
+  title: string;
+  integration: "klaviyo" | "slack" | "meta-ads" | "clomark";
+  status: ManagedStatus;
+  onUpdated: () => void;
+}) {
+  const [editOpen, setEditOpen] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testRes, setTestRes] = useState<{ ok: boolean; detail?: string; error?: string } | null>(null);
+
+  const test = async () => {
+    setTesting(true);
+    setTestRes(null);
+    try {
+      const r = await fetch(`/api/ops/integrations/${integration}/test`, { method: "POST" });
+      const j = await r.json().catch(() => ({ ok: false, error: "bad response" }));
+      setTestRes(j);
+    } catch (e: any) {
+      setTestRes({ ok: false, error: e.message });
+    } finally {
+      setTesting(false);
+      setTimeout(() => setTestRes(null), 6000);
+    }
+  };
+
+  const dotColor =
+    status.kind === "ok" ? "bg-brand-blue-500" : status.kind === "error" ? "bg-red-400" : "bg-ops-text-muted/40";
+
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
+      <div className="px-6 py-4 border-b border-ops-border flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-lg font-semibold text-ops-text">{title}</h2>
+        <div className="flex gap-2">
+          <button
+            onClick={test}
+            disabled={testing}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+              testRes?.ok
+                ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
+                : testRes && !testRes.ok
+                  ? "bg-red-500/10 text-red-400 border border-red-500/30"
+                  : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
+            }`}
+          >
+            {testing ? "Testing…" : testRes?.ok ? "✓ OK" : testRes && !testRes.ok ? "Failed" : "Test connection"}
+          </button>
+          <button
+            onClick={() => setEditOpen(true)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)]"
+          >
+            Edit
+          </button>
+        </div>
+      </div>
+      <div className="px-6 py-5 space-y-2">
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${dotColor}`} />
+          <div>
+            <div className="text-sm font-medium text-ops-text">{status.text}</div>
+            {status.detail && <div className="text-xs text-ops-text-muted break-words">{status.detail}</div>}
+          </div>
+        </div>
+        {testRes && (
+          <div
+            className={`text-[11px] rounded-lg border px-2.5 py-1.5 ${
+              testRes.ok
+                ? "bg-brand-blue-500/5 border-brand-blue-400/20 text-brand-blue-500"
+                : "bg-red-500/5 border-red-500/20 text-red-400"
+            }`}
+          >
+            {testRes.ok ? testRes.detail : testRes.error}
+          </div>
+        )}
+      </div>
+      {editOpen && (
+        <IntegrationEditModal
+          integration={integration}
+          title={title}
+          onClose={() => setEditOpen(false)}
+          onSaved={onUpdated}
+        />
+      )}
+    </div>
+  );
+}
+
+function SlackManagedCard() {
+  const queryClient = useQueryClient();
   const { data } = useQuery<{ integrations: { slack: { configured: boolean; webhookTail: string; label: string } } }>({
     queryKey: ["ops-settings"],
     queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
   });
   const slack = data?.integrations.slack;
-  const [status, setStatus] = useState<null | "ok" | "fail">(null);
-  const [busy, setBusy] = useState(false);
-
-  const test = async () => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const r = await fetch("/api/ops/dirt/slack-test", { method: "POST" });
-      const j = await r.json().catch(() => ({}));
-      setStatus(r.ok && j.ok ? "ok" : "fail");
-    } catch {
-      setStatus("fail");
-    } finally {
-      setBusy(false);
-      setTimeout(() => setStatus(null), 4000);
-    }
-  };
-
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
-      <div className="px-6 py-4 border-b border-ops-border flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-ops-text">Slack alerts</h2>
-        {slack?.configured && (
-          <button
-            onClick={test}
-            disabled={busy}
-            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-              status === "ok"
-                ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
-                : status === "fail"
-                  ? "bg-red-500/10 text-red-400 border border-red-500/30"
-                  : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
-            }`}
-          >
-            {busy ? "Sending…" : status === "ok" ? "✓ Sent" : status === "fail" ? "Failed" : "Send test alert"}
-          </button>
-        )}
-      </div>
-      <div className="px-6 py-5">
-        {!slack?.configured ? (
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-3 h-3 rounded-full bg-ops-text-muted/40" />
-              <div className="text-sm font-medium text-ops-text">Not configured</div>
-            </div>
-            <p className="text-sm text-ops-text-muted mb-3">
-              Add a Slack incoming webhook URL to receive DIRT proactive scan findings outside the dashboard. 15-min cadence by default.
-            </p>
-            <code className="block bg-ops-bg px-3 py-2 rounded text-xs font-mono text-ops-text-muted break-all">
-              SLACK_OPS_WEBHOOK_URL=https://hooks.slack.com/services/...
-            </code>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-brand-blue-500" />
-            <div>
-              <div className="text-sm font-medium text-ops-text">Connected</div>
-              <div className="text-xs text-ops-text-muted">
-                Webhook <code className="bg-ops-bg px-1.5 py-0.5 rounded">{slack.webhookTail}</code> · DIRT auto-posts new alerts on every 15-min scan
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    <ManagedIntegrationCard
+      title="Slack alerts"
+      integration="slack"
+      status={
+        slack?.configured
+          ? { kind: "ok", text: "Connected", detail: `Webhook ${slack.webhookTail} · DIRT auto-posts on every 15-min scan` }
+          : { kind: "off", text: "Not configured", detail: "Add an incoming webhook URL to receive DIRT alerts outside the dashboard." }
+      }
+      onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-settings"] })}
+    />
+  );
+}
+
+function MetaAdsManagedCard() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery<{ integrations: { metaAds: { configured: boolean; adAccountId: string | null; tokenTail: string; apiVersion: string } } }>({
+    queryKey: ["ops-settings"],
+    queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
+  });
+  const meta = data?.integrations.metaAds;
+  return (
+    <ManagedIntegrationCard
+      title="Meta Ads"
+      integration="meta-ads"
+      status={
+        meta?.configured
+          ? { kind: "ok", text: "Configured", detail: `act_${meta.adAccountId} · token ${meta.tokenTail} · ${meta.apiVersion}` }
+          : { kind: "off", text: "Not configured", detail: "Connect Facebook + Instagram ad spend, ROAS, conversions." }
+      }
+      onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-settings"] })}
+    />
+  );
+}
+
+function ClomarkManagedCard() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery<{ integrations: { clomark: { configured: boolean; businessIdConfigured: boolean; baseUrl: string | null; tokenTail: string; businessIdTail: string } } }>({
+    queryKey: ["ops-settings"],
+    queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
+  });
+  const c = data?.integrations.clomark;
+  const fullyConfigured = !!(c?.configured && c?.businessIdConfigured);
+  return (
+    <ManagedIntegrationCard
+      title="Clomark — Content pipeline"
+      integration="clomark"
+      status={
+        fullyConfigured
+          ? { kind: "ok", text: "Configured", detail: `${c!.baseUrl} · business ${c!.businessIdTail} · token ${c!.tokenTail}` }
+          : { kind: "off", text: c?.configured ? "Business ID pending" : "Not configured", detail: "Powers /content (keyword research, AI drafts, bulk publish)." }
+      }
+      onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-settings"] })}
+    />
   );
 }
