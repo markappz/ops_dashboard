@@ -1219,6 +1219,17 @@ export function registerDirtRoutes(app: Express) {
     }
   });
 
+  // Manually fire the daily digest right now. Useful for ad-hoc "send
+  // me today's brief" or for previewing the scheduled job.
+  app.post("/api/ops/dirt/daily-report", async (req: AdminReq, res) => {
+    try {
+      const result = await runDailyReport(`manual-${req.adminEmail || "unknown"}`);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ posted: false, error: e.message });
+    }
+  });
+
   // Send a synthetic test alert to the configured Slack webhook so admins
   // can verify it's working without waiting for the cron scan to fire.
   app.post("/api/ops/dirt/slack-test", async (req: AdminReq, res) => {
@@ -1490,4 +1501,160 @@ export function startDirtScanLoop() {
     }, intervalMs);
   }, 60_000);
   console.log("[DIRT scan] enabled — first run in 60s, then every 15min");
+}
+
+// ─── Daily digest — fires once per day, posts to Slack ─────────────
+
+const DAILY_REPORT_PROMPT = `You are DIRT writing Paul's morning ops digest for FitScript.
+
+Use tools to gather:
+- get_snapshot (MRR, ARR, subscribers, churn, signups)
+- get_revenue_trend (last 7 days)
+- get_top_ai_cost_users (top 5)
+- get_integration_health
+- get_content_drafts
+- get_admin_log (last 24h for context)
+
+Then write a punchy morning brief in MARKDOWN. Lead with the headline number. Note any anomalies, integration breaks, or content waiting on review. Wrap with one suggested action for the day.
+
+Format STRICTLY as Slack-flavored markdown:
+- *bold* (single asterisks, not **)
+- \`inline code\` for numbers like \`$1,238\`
+- Use bullet lists with -
+- Section headers with > Section name on its own line
+- No fenced code blocks
+- Max ~30 lines total
+
+Today is ${new Date().toISOString().slice(0, 10)}. Be specific, no fluff.`;
+
+async function runDailyReport(trigger: string): Promise<{ posted: boolean; text: string; tools: number }> {
+  if (!isAIConfigured()) return { posted: false, text: "AI not configured", tools: 0 };
+
+  const messages: any[] = [{ role: "user", content: "Write the morning ops digest now." }];
+  let finalText = "";
+  let toolCount = 0;
+  for (let iter = 0; iter < 8; iter++) {
+    const resp: any = await (anthropic as any).messages.create({
+      model: BEDROCK_MODELS.HIGH_IQ,
+      max_tokens: 2048,
+      system: DAILY_REPORT_PROMPT,
+      tools: READ_TOOLS.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+      messages,
+    });
+    const toolBlocks = (resp.content || []).filter((b: any) => b.type === "tool_use");
+    const textBlocks = (resp.content || []).filter((b: any) => b.type === "text");
+    finalText = textBlocks.map((b: any) => b.text).join("\n").trim();
+    messages.push({ role: "assistant", content: resp.content });
+    if (resp.stop_reason !== "tool_use" || !toolBlocks.length) break;
+    const results = await Promise.all(toolBlocks.map(async (block: any) => {
+      const tool = TOOL_MAP.get(block.name);
+      if (!tool) return { type: "tool_result", tool_use_id: block.id, content: `Unknown: ${block.name}`, is_error: true };
+      try {
+        const r = await tool.handler(block.input || {}, { adminEmail: "system_daily_report" });
+        toolCount++;
+        return { type: "tool_result", tool_use_id: block.id, content: JSON.stringify(r) };
+      } catch (e: any) {
+        return { type: "tool_result", tool_use_id: block.id, content: `error: ${e.message}`, is_error: true };
+      }
+    }));
+    messages.push({ role: "user", content: results });
+  }
+
+  if (!finalText) {
+    return { posted: false, text: "No report content generated", tools: toolCount };
+  }
+
+  // Post to Slack as a single mrkdwn section block
+  const url = process.env.SLACK_OPS_WEBHOOK_URL;
+  if (!url) {
+    return { posted: false, text: finalText, tools: toolCount };
+  }
+  try {
+    const today = new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    });
+    const payload = {
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: `☀️  DIRT daily digest — ${today}` },
+        },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: finalText },
+        },
+        {
+          type: "context",
+          elements: [
+            { type: "mrkdwn", text: `_FitScript ops · trigger: \`${trigger}\` · ${toolCount} tools_` },
+          ],
+        },
+      ],
+    };
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
+    console.log(`[DIRT daily] trigger=${trigger} tools=${toolCount} posted=ok`);
+    return { posted: true, text: finalText, tools: toolCount };
+  } catch (e: any) {
+    console.warn("[DIRT daily] slack post failed:", e.message);
+    return { posted: false, text: finalText, tools: toolCount };
+  }
+}
+
+/**
+ * Schedule the daily report. Fires once per day at OPS_DAILY_REPORT_HOUR
+ * (UTC hour, 0-23). Default 13 UTC = 8am Eastern (during DST).
+ *
+ * Implementation: setTimeout calculates ms until next target hour,
+ * fires runDailyReport, then setInterval 24h.
+ */
+export function startDirtDailyReportLoop() {
+  if (!isAIConfigured()) return;
+  const enabled = process.env.NODE_ENV === "production" || process.env.OPS_ENABLE_DAILY_REPORT === "1";
+  if (!enabled) {
+    console.log("[DIRT daily] disabled in dev (set OPS_ENABLE_DAILY_REPORT=1 to test)");
+    return;
+  }
+  if (!process.env.SLACK_OPS_WEBHOOK_URL) {
+    console.log("[DIRT daily] skipped — no SLACK_OPS_WEBHOOK_URL");
+    return;
+  }
+  const targetHour = parseInt(process.env.OPS_DAILY_REPORT_HOUR || "13", 10);
+  const targetMinute = parseInt(process.env.OPS_DAILY_REPORT_MINUTE || "0", 10);
+
+  function msUntilNextFire(): number {
+    const now = new Date();
+    const target = new Date(Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      targetHour,
+      targetMinute,
+      0, 0,
+    ));
+    if (target.getTime() <= now.getTime()) {
+      target.setUTCDate(target.getUTCDate() + 1);
+    }
+    return target.getTime() - now.getTime();
+  }
+
+  function scheduleNext() {
+    const ms = msUntilNextFire();
+    console.log(`[DIRT daily] next fire in ${Math.round(ms / 60_000)}min (~${new Date(Date.now() + ms).toISOString()})`);
+    setTimeout(async () => {
+      try {
+        await runDailyReport("cron");
+      } catch (e: any) {
+        console.warn("[DIRT daily] cron failed:", e.message);
+      }
+      scheduleNext();
+    }, ms);
+  }
+  scheduleNext();
 }

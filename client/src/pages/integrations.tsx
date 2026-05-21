@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import type React from "react";
 import { useEffect, useState } from "react";
 import { PageHero } from "../components/page-hero";
 import { IntegrationEditModal } from "../components/integration-edit-modal";
@@ -269,11 +270,15 @@ function ManagedIntegrationCard({
   integration,
   status,
   onUpdated,
+  extraActions,
+  extraStatus,
 }: {
   title: string;
   integration: "klaviyo" | "slack" | "meta-ads" | "clomark";
   status: ManagedStatus;
   onUpdated: () => void;
+  extraActions?: React.ReactNode;
+  extraStatus?: string | null;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -304,7 +309,8 @@ function ManagedIntegrationCard({
           <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
           <h2 className="text-sm font-semibold text-ops-text truncate">{title}</h2>
         </div>
-        <div className="flex gap-1.5 shrink-0">
+        <div className="flex gap-1.5 shrink-0 flex-wrap">
+          {extraActions}
           <button
             onClick={test}
             disabled={testing}
@@ -338,6 +344,11 @@ function ManagedIntegrationCard({
             }`}
           >
             {testRes.ok ? testRes.detail : testRes.error}
+          </div>
+        )}
+        {extraStatus && (
+          <div className="text-[11px] rounded-lg border px-2 py-1.5 mt-2 bg-ops-bg border-ops-border text-ops-text-muted">
+            {extraStatus}
           </div>
         )}
       </div>
@@ -384,16 +395,47 @@ function SlackManagedCard() {
     queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
   });
   const slack = data?.integrations.slack;
+  const [sending, setSending] = useState(false);
+  const [sentMsg, setSentMsg] = useState<string | null>(null);
+
+  const sendDigest = async () => {
+    setSending(true);
+    setSentMsg(null);
+    try {
+      const r = await fetch("/api/ops/dirt/daily-report", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      setSentMsg(j.posted ? "✓ Digest posted to Slack" : `Failed: ${j.error || "unknown"}`);
+    } catch (e: any) {
+      setSentMsg(`Failed: ${e.message}`);
+    } finally {
+      setSending(false);
+      setTimeout(() => setSentMsg(null), 6000);
+    }
+  };
+
   return (
     <ManagedIntegrationCard
       title="Slack alerts"
       integration="slack"
       status={
         slack?.configured
-          ? { kind: "ok", text: "Connected", detail: `Webhook ${slack.webhookTail} · DIRT auto-posts on every 15-min scan` }
+          ? { kind: "ok", text: "Connected", detail: `Webhook ${slack.webhookTail} · 15-min scan alerts + daily 8am digest` }
           : { kind: "off", text: "Not configured", detail: "Add an incoming webhook URL to receive DIRT alerts outside the dashboard." }
       }
       onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-settings"] })}
+      extraActions={
+        slack?.configured ? (
+          <button
+            onClick={sendDigest}
+            disabled={sending}
+            className="text-[11px] font-medium px-2.5 py-1 rounded-md bg-ops-bg border border-ops-border text-ops-text-muted hover:text-ops-text hover:border-brand-blue-400/40 transition-colors disabled:opacity-50"
+            title="Fire today's digest now"
+          >
+            {sending ? "…" : "Send digest"}
+          </button>
+        ) : null
+      }
+      extraStatus={sentMsg}
     />
   );
 }

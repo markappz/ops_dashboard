@@ -16,7 +16,7 @@ import { registerMetaAdsRoutes } from "./meta-ads";
 import { registerAdminActionsRoutes } from "./admin-actions";
 import { registerLeadsRoutes } from "./leads";
 import { registerClomarkRoutes } from "./clomark";
-import { registerDirtRoutes, startDirtScanLoop } from "./dirt";
+import { registerDirtRoutes, startDirtScanLoop, startDirtDailyReportLoop } from "./dirt";
 import { registerIntegrationsRoutes } from "./integrations";
 
 const app = express();
@@ -113,6 +113,7 @@ async function start() {
   app.listen(PORT, () => {
     console.log(`[OPS] FitScript Ops Dashboard running on http://localhost:${PORT}`);
     startDirtScanLoop();
+    startDirtDailyReportLoop();
   });
 }
 
