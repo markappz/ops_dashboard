@@ -217,36 +217,38 @@ function GeneralTab({ data }: { data: SettingsData }) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
         <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
           <h3 className="text-sm font-semibold text-ops-text mb-3">Auth</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-ops-text-muted">Session secret</span>
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-ops-text-muted shrink-0">Session secret</span>
               <span className="flex items-center gap-2">
                 <StatusDot ok={data.auth.sessionSecretConfigured} />
                 <span className="text-ops-text">{data.auth.sessionSecretConfigured ? "set" : "missing"}</span>
               </span>
             </div>
-            <div className="flex items-start justify-between gap-3">
-              <span className="text-ops-text-muted shrink-0">Redirect URI</span>
-              <span className="text-ops-text text-xs font-mono text-right break-all">{data.auth.adminRedirectUri || "—"}</span>
+            <div>
+              <div className="text-ops-text-muted mb-1">Redirect URI</div>
+              <div className="text-ops-text text-[11px] font-mono break-all bg-ops-bg border border-ops-border rounded-lg px-2.5 py-1.5">
+                {data.auth.adminRedirectUri || "—"}
+              </div>
             </div>
           </div>
         </div>
         <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
           <h3 className="text-sm font-semibold text-ops-text mb-3">Environment</h3>
           <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-ops-text-muted">NODE_ENV</span>
-              <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-ops-text-muted shrink-0">NODE_ENV</span>
+              <span className={`text-xs font-mono px-2 py-0.5 rounded shrink-0 ${
                 data.env.nodeEnv === "production"
                   ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
                   : "bg-amber-500/10 text-amber-500 border border-amber-500/30"
               }`}>{data.env.nodeEnv}</span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-ops-text-muted">Port</span>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-ops-text-muted shrink-0">Port</span>
               <span className="text-ops-text font-mono">{data.env.port}</span>
             </div>
           </div>
