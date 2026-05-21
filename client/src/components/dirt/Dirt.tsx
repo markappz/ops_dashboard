@@ -228,8 +228,8 @@ export function Dirt() {
       {/* Floating launcher */}
       <button
         onClick={() => setOpen(true)}
-        title="Ask DIRT — ⌘K"
-        aria-label="Open DIRT"
+        title="Talk Dirt — ⌘K"
+        aria-label="Open DIRT — Talk Dirt"
         className={`fixed bottom-6 right-6 z-40 group transition-all duration-300 ${
           open ? "scale-0 opacity-0 pointer-events-none" : "scale-100 opacity-100 animate-dirt-float"
         }`}
@@ -237,7 +237,7 @@ export function Dirt() {
         <div className="absolute -inset-1.5 bg-gradient-to-r from-brand-blue-600 via-brand-blue-500 to-brand-blue-400 rounded-full opacity-60 blur-lg group-hover:opacity-90 group-hover:blur-xl transition-all duration-300" />
         <div className="relative flex items-center gap-2.5 px-5 h-12 rounded-full bg-gradient-to-r from-brand-navy-900 via-brand-blue-600 to-brand-blue-500 text-white shadow-[0_10px_30px_-6px_rgba(46,91,255,0.6)] hover:shadow-[0_18px_40px_-8px_rgba(46,91,255,0.8)] transition-all duration-300 hover:-translate-y-0.5">
           <SparkleIcon className="w-4 h-4 animate-dirt-spin-slow" />
-          <span className="text-sm font-bold tracking-tight">Ask DIRT</span>
+          <span className="text-sm font-bold tracking-tight">Talk Dirt</span>
           <span className="hidden md:inline text-[10px] font-semibold opacity-80 px-1.5 py-0.5 rounded bg-white/15 ml-0.5">⌘K</span>
         </div>
       </button>
@@ -343,7 +343,7 @@ export function Dirt() {
                     }
                   }}
                   rows={1}
-                  placeholder={streaming ? "DIRT is working…" : "Ask DIRT anything · / for commands"}
+                  placeholder={streaming ? "DIRT is digging…" : "Talk dirt · / for commands"}
                   disabled={streaming}
                   className="w-full resize-none bg-ops-bg border border-ops-border rounded-xl px-3.5 py-2.5 pr-10 text-sm text-ops-text placeholder-ops-text-subtle focus:outline-none focus:border-brand-blue-500 focus:ring-2 focus:ring-brand-blue-500/20 max-h-40 transition-all"
                   style={{ minHeight: "44px" }}

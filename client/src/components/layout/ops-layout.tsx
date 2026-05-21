@@ -133,7 +133,7 @@ export function OpsLayout({
             </div>
           </div>
 
-          {/* Center: Ask DIRT command bar */}
+          {/* Center: Talk Dirt command bar */}
           <DirtCommandBar />
 
           <div className="flex items-center gap-3 shrink-0">
@@ -247,7 +247,7 @@ function DirtCommandBar() {
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             type="text"
-            placeholder="Ask DIRT… (or press ⌘K)"
+            placeholder="Talk dirt… (or press ⌘K)"
             className="flex-1 bg-transparent border-0 outline-none text-sm text-ops-text placeholder-ops-text-subtle"
           />
           {value ? (
