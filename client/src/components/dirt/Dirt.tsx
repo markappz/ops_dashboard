@@ -349,7 +349,10 @@ export function Dirt() {
                   style={{ minHeight: "44px" }}
                 />
                 {input.startsWith("/") && (
-                  <SlashHint input={input} />
+                  <SlashHint
+                    input={input}
+                    onPick={(cmd) => send(cmd)}
+                  />
                 )}
               </div>
               {streaming ? (
@@ -559,7 +562,7 @@ function CaretBlink() {
   return <span className="inline-block w-[2px] h-[1em] bg-brand-blue-500 align-text-bottom ml-0.5 animate-dirt-blink" />;
 }
 
-function SlashHint({ input }: { input: string }) {
+function SlashHint({ input, onPick }: { input: string; onPick: (cmd: string) => void }) {
   const all = [
     { cmd: "/clear", desc: "Wipe the conversation" },
     { cmd: "/tools", desc: "List available tools" },
@@ -569,12 +572,24 @@ function SlashHint({ input }: { input: string }) {
   if (matching.length === 0) return null;
   return (
     <div className="absolute bottom-full left-0 right-0 mb-2 bg-ops-surface border border-ops-border rounded-xl shadow-card-lg p-1.5 z-10">
-      {matching.map((c) => (
-        <div key={c.cmd} className="flex items-center justify-between px-2 py-1 rounded text-[12px]">
+      {matching.map((c, i) => (
+        <button
+          key={c.cmd}
+          type="button"
+          onMouseDown={(e) => {
+            // mousedown beats blur so the textarea doesn't lose focus first
+            e.preventDefault();
+            onPick(c.cmd);
+          }}
+          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[12px] text-left transition-colors hover:bg-ops-surface-hover focus:bg-ops-surface-hover focus:outline-none ${i === 0 ? "bg-ops-accent-soft/40" : ""}`}
+        >
           <code className="text-brand-blue-500 font-semibold">{c.cmd}</code>
           <span className="text-ops-text-muted text-[11px]">{c.desc}</span>
-        </div>
+        </button>
       ))}
+      <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] text-ops-text-subtle border-t border-ops-border mt-1">
+        Click or press <kbd className="font-mono px-1 py-px rounded bg-ops-bg border border-ops-border">↵</kbd> to run
+      </div>
     </div>
   );
 }
