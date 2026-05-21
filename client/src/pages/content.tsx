@@ -1288,7 +1288,7 @@ function LocationPageModal({
           <h4 className="text-xs font-semibold text-ops-text uppercase tracking-wider">
             1. Keyword & Tier
           </h4>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1">
                 Primary Keyword *
@@ -1312,7 +1312,7 @@ function LocationPageModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1">
                 Market Tier *
@@ -1379,7 +1379,7 @@ function LocationPageModal({
               </div>
             )}
           </div>
-          <div className="grid grid-cols-[100px_1fr] gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-[100px_1fr] gap-3">
             <div>
               <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1">
                 State Abbr
@@ -1394,17 +1394,17 @@ function LocationPageModal({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1 flex items-center justify-between">
+              <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1 flex flex-wrap items-center justify-between gap-x-2">
                 <span>
                   ZIP Codes
                   {zipLookupStatus === "loading" && (
-                    <span className="ml-2 text-fitscript-green">loading…</span>
+                    <span className="ml-2 text-brand-blue-500">loading…</span>
                   )}
                   {zipLookupStatus === "error" && (
-                    <span className="ml-2 text-amber-400">lookup failed</span>
+                    <span className="ml-2 text-amber-500">lookup failed</span>
                   )}
                 </span>
-                <span className="opacity-60 normal-case">auto-fills on blur · 3-5 zips</span>
+                <span className="opacity-60 normal-case text-[9px]">auto-fills on blur · 3-5 zips</span>
               </label>
               <input
                 value={zipCodes}
@@ -1611,7 +1611,7 @@ function LocationPageModal({
                 className="w-full bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-sm text-ops-text focus:outline-none focus:border-fitscript-green"
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[10px] font-medium text-ops-text-muted uppercase tracking-wider mb-1">
                   Regulation Note <span className="opacity-60">(optional)</span>
