@@ -964,18 +964,21 @@ async function persistConversation(args: {
   try {
     await ensureConvoTable();
     const title = deriveTitle(args.messages);
-    await pool.query(
+    const r = await pool.query(
       `INSERT INTO ops_dirt_conversations (id, admin_email, title, messages, message_count, last_message_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, NOW())
        ON CONFLICT (id) DO UPDATE SET
          messages = EXCLUDED.messages,
          message_count = EXCLUDED.message_count,
          last_message_at = NOW(),
-         title = COALESCE(ops_dirt_conversations.title, EXCLUDED.title)`,
+         title = COALESCE(ops_dirt_conversations.title, EXCLUDED.title)
+       RETURNING (xmax = 0) AS inserted`,
       [args.id, args.adminEmail, title, JSON.stringify(args.messages), args.messages.length],
     );
+    const inserted = r.rows[0]?.inserted;
+    console.log(`[DIRT] persisted ${inserted ? "NEW" : "updated"} conv ${args.id} admin=${args.adminEmail} msgs=${args.messages.length}`);
   } catch (e) {
-    console.warn("[DIRT] persist failed:", (e as Error).message);
+    console.error("[DIRT] persist FAILED:", (e as Error).message, "id=", args.id, "admin=", args.adminEmail);
   }
 }
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
@@ -1091,16 +1094,18 @@ export function registerDirtRoutes(app: Express) {
       sseSend(res, { type: "usage", inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
       sseSend(res, { type: "done", conversationId });
       res.end();
-
-      // Persist the conversation. Store the rendered text version of the
-      // user turn(s) + assistant turn (not the raw tool_use/tool_result
-      // blocks, which are noisy and unnecessary to restore for replay).
+    } catch (e: any) {
+      console.error("[DIRT]", e);
+      try { sseSend(res, { type: "error", message: e.message }); } catch {}
+      try { res.end(); } catch {}
+    } finally {
+      // ALWAYS persist + log cost, even when the loop errored or the
+      // client cancelled — partial conversations are still useful.
       const persistMessages = [
         ...body.messages.map((m) => ({ role: m.role, content: m.content })),
         { role: "assistant" as const, content: assistantTextForPersist || "(no response)" },
       ];
-      persistConversation({ id: conversationId, adminEmail: userEmail, messages: persistMessages }).catch(() => {});
-
+      persistConversation({ id: conversationId, adminEmail: userEmail, messages: persistMessages });
       logAiCost({
         userId: null,
         surface: "ops_dirt",
@@ -1109,10 +1114,6 @@ export function registerDirtRoutes(app: Express) {
         outputTokens: totalOutputTokens,
         metadata: { admin: userEmail, tool_count: toolCount, conversation_id: conversationId },
       }).catch((e) => console.warn("[DIRT] cost log failed:", e.message));
-    } catch (e: any) {
-      console.error("[DIRT]", e);
-      sseSend(res, { type: "error", message: e.message });
-      res.end();
     }
   });
 
