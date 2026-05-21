@@ -144,8 +144,8 @@ export default function Members() {
       )}
 
       {/* Table */}
-      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full">
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[800px]">
           <thead>
             <tr className="border-b border-ops-border">
               <th className="px-4 py-3 w-10">

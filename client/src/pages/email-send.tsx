@@ -318,11 +318,13 @@ export default function EmailSend() {
 
         <div className="flex items-center justify-between mt-8 pt-6 border-t border-ops-border">
           <button
-            onClick={() => setStep((s) => (s > 1 ? ((s - 1) as Step) : s))}
-            disabled={step === 1}
-            className="px-4 py-2 text-sm rounded-lg border border-ops-border text-ops-text hover:bg-ops-surface-hover disabled:opacity-30 disabled:cursor-not-allowed"
+            onClick={() => {
+              if (step === 1) navigate("/email");
+              else setStep((s) => ((s - 1) as Step));
+            }}
+            className="px-4 py-2 text-sm rounded-lg border border-ops-border text-ops-text hover:bg-ops-surface-hover"
           >
-            Back
+            {step === 1 ? "← Back to Email" : "Back"}
           </button>
           {step < 4 ? (
             <button

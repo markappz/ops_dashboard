@@ -33,11 +33,11 @@ interface ActivityItem {
 
 function MetricCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5">
-      <div className="text-xs text-ops-text-muted font-medium uppercase tracking-wider mb-2">
+    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
+      <div className="text-[10.5px] text-ops-text-muted font-medium uppercase tracking-[0.1em] mb-2">
         {label}
       </div>
-      <div className={`text-2xl font-bold ${accent ? "text-fitscript-green" : "text-ops-text"}`}>
+      <div className={`text-2xl font-bold tracking-tight ${accent ? "text-brand-blue-500" : "text-ops-text"}`}>
         {value}
       </div>
       {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
@@ -192,7 +192,7 @@ export default function CommandCenter() {
       />
 
       {/* Revenue Row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <MetricCard label="MRR" value={formatCurrency(snapshot.mrr)} accent />
         <MetricCard label="ARR" value={formatCurrency(snapshot.arr)} />
         <MetricCard label="Revenue (30d)" value={formatCurrency(snapshot.revenueMonth)} />
@@ -204,29 +204,20 @@ export default function CommandCenter() {
       </div>
 
       {/* Subscribers Row */}
-      <div className="grid grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
         <MetricCard label="Total Users" value={snapshot.totalUsers.toLocaleString()} />
         <MetricCard
           label="Active Subscribers"
           value={snapshot.activeSubscribers}
           accent
         />
-        <MetricCard
-          label="Free"
-          value={snapshot.tiers.free || 0}
-        />
-        <MetricCard
-          label="Essentials"
-          value={snapshot.tiers.essentials || 0}
-        />
-        <MetricCard
-          label="Complete"
-          value={snapshot.tiers.complete || 0}
-        />
+        <MetricCard label="Free" value={snapshot.tiers.free || 0} />
+        <MetricCard label="Essentials" value={snapshot.tiers.essentials || 0} />
+        <MetricCard label="Complete" value={snapshot.tiers.complete || 0} />
       </div>
 
       {/* Signups + Engagement Row */}
-      <div className="grid grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
         <MetricCard label="Signups Today" value={snapshot.signupsToday} />
         <MetricCard label="Signups (7d)" value={snapshot.signupsWeek} />
         <MetricCard label="Signups (30d)" value={snapshot.signupsMonth} />

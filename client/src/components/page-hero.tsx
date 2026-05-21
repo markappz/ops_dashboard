@@ -16,7 +16,7 @@ export function PageHero({
   actions?: ReactNode;
 }) {
   return (
-    <div className="relative mb-8 -mt-2 px-6 py-7 rounded-2xl border border-ops-border bg-ops-surface shadow-card overflow-hidden animate-page-fade-in">
+    <div className="relative mb-6 sm:mb-8 -mt-1 sm:-mt-2 px-4 sm:px-6 py-5 sm:py-7 rounded-2xl border border-ops-border bg-ops-surface shadow-card overflow-hidden animate-page-fade-in">
       {/* Subtle brand cloud wash */}
       <div
         aria-hidden
@@ -26,19 +26,19 @@ export function PageHero({
             "radial-gradient(900px 320px at 0% 0%, rgb(var(--ops-accent) / 0.10), transparent 60%), radial-gradient(700px 280px at 100% 0%, rgb(var(--ops-accent) / 0.06), transparent 60%)",
         }}
       />
-      <div className="relative flex items-end justify-between gap-6">
+      <div className="relative flex flex-col md:flex-row md:items-end md:justify-between gap-4 md:gap-6">
         <div className="min-w-0">
           {eyebrow && (
             <div className="text-[11px] font-semibold tracking-[0.18em] uppercase text-brand-blue-500 mb-1.5">
               {eyebrow}
             </div>
           )}
-          <h1 className="text-[28px] leading-none font-bold tracking-tight text-ops-text">{title}</h1>
+          <h1 className="text-2xl sm:text-[28px] leading-tight md:leading-none font-bold tracking-tight text-ops-text">{title}</h1>
           {subtitle && (
             <p className="text-sm text-ops-text-muted mt-2 max-w-2xl">{subtitle}</p>
           )}
         </div>
-        {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:shrink-0">{actions}</div>}
       </div>
     </div>
   );
