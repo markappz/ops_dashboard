@@ -436,8 +436,8 @@ function DashboardSendsTable({
     failed: "text-red-400",
   };
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
+      <table className="w-full min-w-[720px] text-sm">
         <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
           <tr>
             <th className="text-left px-5 py-3 font-medium">Subject</th>
@@ -614,8 +614,8 @@ function CampaignsTable({
         </div>
       )}
 
-      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
             <tr>
               <th className="text-left px-5 py-3 font-medium">Name</th>
@@ -803,8 +803,8 @@ function FlowsTable({
         </div>
       )}
 
-      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
             <tr>
               <th className="text-left px-5 py-3 font-medium">Name</th>

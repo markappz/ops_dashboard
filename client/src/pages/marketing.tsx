@@ -549,7 +549,7 @@ function MetaAdsSection() {
             <div className="text-sm text-ops-text-muted">Loading campaigns…</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[720px] text-sm">
                 <thead className="text-xs uppercase tracking-wider text-ops-text-muted">
                   <tr className="border-b border-ops-border">
                     <th className="text-left px-3 py-2 font-medium">Campaign</th>

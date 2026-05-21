@@ -261,8 +261,8 @@ export default function Orders() {
             </select>
           </div>
 
-          <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden shadow-card">
-            <table className="w-full">
+          <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto shadow-card">
+            <table className="w-full min-w-[900px]">
               <thead>
                 <tr className="border-b border-ops-border">
                   <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Order</th>
@@ -347,8 +347,8 @@ export default function Orders() {
             </div>
           )}
 
-          <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden shadow-card">
-            <table className="w-full">
+          <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto shadow-card">
+            <table className="w-full min-w-[900px]">
               <thead>
                 <tr className="border-b border-ops-border">
                   <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Customer</th>

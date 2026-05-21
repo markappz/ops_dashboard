@@ -431,7 +431,7 @@ function AuditTab() {
         )}
       </div>
 
-      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
         {isLoading ? (
           <div className="p-8 text-center">
             <div className="w-6 h-6 border-2 border-brand-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -442,7 +442,7 @@ function AuditTab() {
             <Link href="/email" className="text-brand-blue-500 hover:underline">Email</Link>{" "}to write the first row.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
               <tr>
                 <th className="text-left px-5 py-3 font-medium">When</th>

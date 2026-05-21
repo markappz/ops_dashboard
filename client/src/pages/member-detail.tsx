@@ -512,7 +512,8 @@ export default function MemberDetail({ id }: { id: string }) {
                   <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
                     Campaigns &amp; Flows
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px] text-sm">
                     <thead>
                       <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
                         <th className="text-left pb-2 font-medium">Name</th>
@@ -547,6 +548,7 @@ export default function MemberDetail({ id }: { id: string }) {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
 

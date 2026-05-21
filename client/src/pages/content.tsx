@@ -670,8 +670,8 @@ function QueueTable({ suggestions }: { suggestions: ContentSuggestion[] }) {
           Generation triggers next session — for now items wait at status=draft
         </div>
       </div>
-      <div className="overflow-hidden rounded-lg border border-ops-border">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-ops-border">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Type</th>
@@ -1779,8 +1779,8 @@ function DraftsSection({
           </div>
         </div>
       </div>
-      <div className="overflow-hidden rounded-lg border border-ops-border">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-ops-border">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
             <tr>
               <th className="px-3 py-2 w-8">
