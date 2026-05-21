@@ -116,30 +116,28 @@ export default function Marketing() {
         </div>
       )}
 
-      {/* Top metrics */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total Tracked Visitors" value={totalVisitors.toLocaleString()} accent />
-        <StatCard label="Paying Customers" value={totalPaying} />
-        <StatCard label="Total Revenue (Tracked)" value={`$${totalRevenue.toLocaleString()}`} />
-        <StatCard label="Overall Conv Rate" value={totalVisitors > 0 ? `${((totalPaying / totalVisitors) * 100).toFixed(1)}%` : "---"} />
-      </div>
+      {/* Top metrics — only render when the tracking pixel has accumulated
+          data. Until then, four big zero tiles read as "the dashboard is
+          broken" rather than "the pixel is new." */}
+      {totalVisitors > 0 && (
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <StatCard label="Tracked Visitors" value={totalVisitors.toLocaleString()} accent />
+          <StatCard label="Paying Customers" value={totalPaying} />
+          <StatCard label="Tracked Revenue" value={`$${totalRevenue.toLocaleString()}`} sub="(via tracking pixel)" />
+          <StatCard label="Overall Conv Rate" value={`${((totalPaying / totalVisitors) * 100).toFixed(1)}%`} />
+        </div>
+      )}
+      {totalVisitors === 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3 mb-6 text-xs text-amber-200/90">
+          <span className="font-medium">First-party tracking pixel:</span> waiting for visitors to accumulate on fitscript.me. Pixel is wired; the cards below pull from Google Analytics 4 in the meantime.
+        </div>
+      )}
 
-      {/* Google Analytics 4 */}
+      {/* Google Analytics 4 — leads with the actual connected data */}
       <GA4Section />
 
       {/* Meta Ads */}
       <MetaAdsSection />
-
-
-      {!hasData && (
-        <div className="bg-ops-surface border border-ops-border rounded-xl p-8 text-center mb-6 shadow-card">
-          <h3 className="text-lg font-semibold text-ops-text mb-2">No tracking data yet</h3>
-          <p className="text-sm text-ops-text-muted max-w-lg mx-auto">
-            Install the tracking pixel on fitscript.me and data will flow here automatically.
-            Visitors are grouped by source — Google, Meta, TikTok, organic, AI engines, etc.
-          </p>
-        </div>
-      )}
 
       {hasData && (
         <>
@@ -211,77 +209,54 @@ export default function Marketing() {
         </>
       )}
 
-      {/* Channel breakdown table */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Organic / Search */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-ops-border">
-            <h3 className="text-sm font-semibold text-ops-text">Search & Organic</h3>
-            <p className="text-xs text-ops-text-muted mt-0.5">Google, Bing, DuckDuckGo + organic referrals</p>
+      {/* First-party channel breakdown — only render when the tracking pixel
+          has accumulated data. Otherwise four empty cards look broken; the
+          GA4 section above already shows traffic by channel. */}
+      {(organic.length + social.length + ai.length + paid.length > 0) && (
+        <>
+          <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3 mt-2">
+            First-party Attribution (tracking pixel)
           </div>
-          <ChannelTable channels={organic} />
-        </div>
-
-        {/* Social */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-ops-border">
-            <h3 className="text-sm font-semibold text-ops-text">Social Media</h3>
-            <p className="text-xs text-ops-text-muted mt-0.5">Instagram, TikTok, YouTube, Facebook, Twitter, LinkedIn</p>
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            {organic.length > 0 && (
+              <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-ops-border">
+                  <h3 className="text-sm font-semibold text-ops-text">Search & Organic</h3>
+                  <p className="text-xs text-ops-text-muted mt-0.5">Google, Bing, DuckDuckGo + organic referrals</p>
+                </div>
+                <ChannelTable channels={organic} />
+              </div>
+            )}
+            {social.length > 0 && (
+              <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-ops-border">
+                  <h3 className="text-sm font-semibold text-ops-text">Social Media</h3>
+                  <p className="text-xs text-ops-text-muted mt-0.5">Instagram, TikTok, YouTube, Facebook, Twitter, LinkedIn</p>
+                </div>
+                <ChannelTable channels={social} />
+              </div>
+            )}
+            {ai.length > 0 && (
+              <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-ops-border">
+                  <h3 className="text-sm font-semibold text-ops-text">AI Engines</h3>
+                  <p className="text-xs text-ops-text-muted mt-0.5">ChatGPT, Perplexity, Claude, Gemini, Copilot</p>
+                </div>
+                <ChannelTable channels={ai} />
+              </div>
+            )}
+            {paid.length > 0 && (
+              <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
+                <div className="px-5 py-4 border-b border-ops-border">
+                  <h3 className="text-sm font-semibold text-ops-text">Paid Advertising</h3>
+                  <p className="text-xs text-ops-text-muted mt-0.5">Google Ads, Meta Ads, TikTok Ads</p>
+                </div>
+                <ChannelTable channels={paid} />
+              </div>
+            )}
           </div>
-          <ChannelTable channels={social} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* AI Engines */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-ops-border">
-            <h3 className="text-sm font-semibold text-ops-text">AI Engines</h3>
-            <p className="text-xs text-ops-text-muted mt-0.5">ChatGPT, Perplexity, Claude, Gemini, Copilot</p>
-          </div>
-          <ChannelTable channels={ai} />
-        </div>
-
-        {/* Paid */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
-          <div className="px-5 py-4 border-b border-ops-border">
-            <h3 className="text-sm font-semibold text-ops-text">Paid Advertising</h3>
-            <p className="text-xs text-ops-text-muted mt-0.5">Google Ads, Meta Ads, TikTok Ads</p>
-          </div>
-          <ChannelTable channels={paid} />
-        </div>
-      </div>
-
-      {/* GA4 + GSC Integration Status */}
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-ops-text">Google Analytics 4</h3>
-            <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/15 text-yellow-400">Not Connected</span>
-          </div>
-          <p className="text-sm text-ops-text-muted mb-3">Connect GA4 to see real-time traffic, sessions, pageviews, bounce rate, and user behavior data.</p>
-          <div className="text-xs text-ops-text-muted space-y-1">
-            <p>1. Create a Google Cloud project</p>
-            <p>2. Enable Analytics Data API</p>
-            <p>3. Create OAuth 2.0 credentials</p>
-            <p>4. Add credentials in Settings</p>
-          </div>
-        </div>
-
-        <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-ops-text">Google Search Console</h3>
-            <span className="px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/15 text-yellow-400">Not Connected</span>
-          </div>
-          <p className="text-sm text-ops-text-muted mb-3">Connect GSC to see search queries, impressions, clicks, average position, and keyword rankings.</p>
-          <div className="text-xs text-ops-text-muted space-y-1">
-            <p>1. Verify site ownership in GSC</p>
-            <p>2. Use same Google Cloud project</p>
-            <p>3. Enable Search Console API</p>
-            <p>4. Add credentials in Settings</p>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

@@ -383,3 +383,44 @@ No more deep-linking to Clomark for ops workflow. Clomark stays the execution en
 
 - `[[reference_clomark_live_repo]]` updated — Phase D is done, no longer "next session"
 - Bulk operations: orchestrate client-side, one request per item — matches Clomark's pattern and avoids server-side complexity
+
+---
+
+## 2026-05-20 (very late) — Marketing UX cleanup + broader dashboard UX audit punch list
+
+Paul flagged the Marketing page as "all over the place" — 4 huge zero-valued KPI tiles + 4 empty channel-group tables + 2 hardcoded "Not Connected" cards for GA4/GSC that lied about the actual connection state. Working GA4 section got buried in the middle of all that noise. Surgical fix shipped this round; broader UX audit punch list saved for next session.
+
+### Marketing page fixes (this commit)
+
+- **Removed the hardcoded "Not Connected" cards for GA4 and GSC.** They were fictional — both connections work and the GA4 section above was already showing real data (49 sessions / 472K impressions). Connection state lives in Command Center's integration-health strip + /settings + /integrations; no page redeclares it.
+- **Hid the top KPI grid when `totalVisitors === 0`.** Replaced with a slim amber notice explaining the tracking pixel is wired but visitors haven't accumulated yet.
+- **Hid each channel-group table (Search / Social / AI / Paid) when its `channels.length === 0`.** A wrapper section heading "First-party Attribution (tracking pixel)" only renders when AT LEAST ONE channel group has data.
+- **Reorder confirmed:** GA4 section now leads the page (working real data first); Meta Ads section follows (correctly shows the "Not configured" empty state with setup instructions); pixel-based sections at the bottom hidden until data exists.
+
+### New decision documented (DECISIONS.md)
+
+**"Empty data state rules"** — no zero KPI tiles, no hardcoded connection cards, no empty-state placeholder tables. Lead with what works, surface state via a single source of truth. See DECISIONS.md.
+
+### Broader UX audit punch list (saved for next session)
+
+Other pages with similar issues to clean up:
+
+| Page | Issue | Suggested fix |
+|---|---|---|
+| `/tracking` | Heavy overlap with `/marketing` (both show funnel + channel attribution). Two paths into the same data hurts comprehension. | Merge OR differentiate cleanly: `/tracking` = pixel raw / Hyros-style attribution view; `/marketing` = unified channel performance (GA4 + Meta Ads + first-party blend). |
+| `/email` | AI Compose CTA + Send Campaign CTA visually compete in the header. Two flows look equally weighted but one is much more common. | Demote Compose to a secondary button or move into the send flow itself. |
+| Sidebar | 13 items including 3 placeholder pages (Creative, Clinical, Coming Soon variants). Visual weight makes the dashboard feel half-built. | Hide placeholder nav items until their pages have substance, OR group them under a "Future" expandable nav section. |
+| `/integrations` vs `/settings` | Overlapping purpose (settings integrations table also shows integration status). | Settle on one — recommend keeping integrations as the *connect / disconnect* surface, settings as the *configured env / session / admin allowlist* surface. |
+| `/command-center` | Integration-health strip works but the page itself is dense. Lots of KPIs without obvious visual hierarchy. | One round of visual hierarchy pass — group MRR/ARR/Revenue (revenue cluster), then subscribers + tiers (audience), then unit economics. |
+| `/leads` | Funnel viz is good but the lead table is wide (8 columns). Probably fine for now. | Watch when real data accumulates. |
+| `/content` | Currently the cleanest page after today's work. | Reference implementation — apply its single-section-per-concern pattern elsewhere. |
+
+### Recommended next-session opening
+
+Either:
+1. **Continue the UX audit** — start with /marketing's twin /tracking, decide merge-or-differentiate
+2. **Connect a destination in Clomark** (WordPress / Shopify / Webflow / Wix) → first real publish via the bulk publish dialog
+3. **Generate a Meta Ads system user token** → activate the Marketing page's Meta section
+4. New direction
+
+Paul wrapping the terminal here for a fresh start.

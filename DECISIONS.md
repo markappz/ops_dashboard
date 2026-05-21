@@ -142,3 +142,25 @@ Record of every important decision so we don't revisit settled questions.
 - New ops API endpoints that write or mutate: extract the existing handler's body into a shared helper if it's not already a service call. Then call the helper from both auth flavors.
 - New ops API endpoints that read: prefer direct DB queries (no business logic to duplicate, just SELECT with bearer-auth scope). Pattern already used for status / list endpoints.
 - **Exceptions:** When the session-auth handler does session-specific things (like setting `userId` from `req.user!.id`), the ops endpoint must derive equivalent context another way (typically from a business profile lookup via the URL param). Document the equivalence inline.
+
+---
+
+## 2026-05-20 — Empty data state rules (don't render zero KPI tiles)
+
+**Decision:** When a data source hasn't accumulated meaningful data yet (e.g. the tracking pixel was deployed but no visitors have hit it, or a connector isn't wired), DO NOT render zero-valued KPI tiles or stale "Not Connected" cards. Instead, hide the affected section entirely and surface a slim contextual notice explaining the state. The visible parts of the page must reflect actual capability.
+
+**Why:** Caught this on `/marketing` on 2026-05-20. Page had:
+- 4 large "$0 / 0 / 0%" KPI tiles at the top (pixel-based attribution)
+- Two giant "Not Connected" cards for GA4 and GSC at the bottom — hardcoded fictional status, ignoring the actual real connection
+- Four empty channel-group tables (Search / Social / AI / Paid) showing "No data for this channel group yet"
+
+All of that visually read as "the dashboard is broken" even though GA4 was returning real data (49 sessions / 472K impressions) in the middle of the page. The zero tiles framed every working surface as also-broken-looking.
+
+The fix: only render the top KPI grid when `totalVisitors > 0`. Only render channel-group tables when their channels array is non-empty. Replace the "Not Connected" hardcoded cards with the source of truth (the integration-health strip on Command Center + the /integrations page). When pixel data is empty, surface a one-line amber notice that explains the state without taking up real estate.
+
+**How to apply:**
+- **No zero-KPI tiles** — gate every metric grid on `if (sourceHasData) render(...)`. Show a one-line state notice as the alternative, not 4 zeros.
+- **No hardcoded "Not Connected" cards** — connection state must come from the live `/api/ops/connections` (or equivalent) endpoint, never hardcoded inline. If you find a hardcoded one, treat it as a bug.
+- **No empty-state placeholder tables** — render `null` or hide the surrounding section; don't draw a card with "No data" inside it. Operators infer broken-ness from rendered-but-empty UI.
+- **Lead with what works** — surfaces with real data go above surfaces with empty state. Reorder when a new working section ships so the visual hierarchy stays honest.
+- **Connection state lives in one place** — Command Center integration-health strip + `/settings` Integrations table + `/integrations` per-service detail. Other pages reference; they don't redeclare.
