@@ -167,7 +167,7 @@ function ContentBody({
   return (
     <>
       {/* Top KPI tiles */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <KpiTile label="Total Clicks" value={totals.clicks.toLocaleString()} accent />
         <KpiTile
           label="Total Impressions"
@@ -266,7 +266,7 @@ function ContentBody({
       )}
 
       {/* Top queries + top pages */}
-      <div className="grid grid-cols-2 gap-5 mb-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 mb-6">
         <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
           <div className="px-5 py-3 border-b border-ops-border">
             <h3 className="text-sm font-semibold text-ops-text">Top Queries</h3>
@@ -970,7 +970,7 @@ function ClomarkBody({ data }: { data: ClomarkOverview }) {
   return (
     <>
       {/* 4 KPI tiles */}
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-5">
         <KpiTile
           label="SEO Score"
           value={
@@ -1003,7 +1003,7 @@ function ClomarkBody({ data }: { data: ClomarkOverview }) {
       </div>
 
       {/* Status breakdowns + recent activities */}
-      <div className="grid grid-cols-3 gap-5 pt-4 border-t border-ops-border">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5 pt-4 border-t border-ops-border">
         <div>
           <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
             Keyword Pipeline

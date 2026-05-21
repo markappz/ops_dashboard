@@ -279,7 +279,7 @@ export default function MemberDetail({ id }: { id: string }) {
       </div>
 
       {/* Info cards */}
-      <div className="grid grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
           <h3 className="text-sm font-semibold text-ops-text mb-4">Profile</h3>
           <InfoRow label="Email" value={member.email} />
@@ -319,7 +319,7 @@ export default function MemberDetail({ id }: { id: string }) {
                 : "All AI surfaces"}
             </div>
           </div>
-          <div className="grid grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
             <div>
               <div className="text-xs text-ops-text-muted uppercase tracking-wider">Cost MTD</div>
               <div className="text-lg font-bold text-amber-300">
@@ -462,7 +462,7 @@ export default function MemberDetail({ id }: { id: string }) {
 
           {engagement.profile_id ? (
             <>
-              <div className="grid grid-cols-4 gap-6 mb-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-5">
                 <div>
                   <div className="text-xs text-ops-text-muted uppercase tracking-wider">Received</div>
                   <div className="text-lg font-bold text-ops-text">{engagement.summary.received}</div>

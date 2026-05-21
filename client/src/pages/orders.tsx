@@ -239,7 +239,7 @@ export default function Orders() {
 
       {tab === "rx" && (
         <>
-          <div className="grid grid-cols-6 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             <StatCard label="Total" value={totalRx} />
             <StatCard label="Pending Review" value={rxStatuses.PENDING_PROVIDER_REVIEW || 0} />
             <StatCard label="Approved" value={rxStatuses.APPROVED || 0} />
@@ -339,7 +339,7 @@ export default function Orders() {
       {tab === "labs" && (
         <>
           {labData && (
-            <div className="grid grid-cols-5 gap-3 mb-6">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
               <StatCard label="Total" value={labData.orders.length} />
               {Object.entries(labData.statuses).map(([status, cnt]) => (
                 <StatCard key={status} label={status.replace(/_/g, " ")} value={cnt} />

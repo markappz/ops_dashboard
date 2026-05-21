@@ -139,7 +139,7 @@ export function CostVsRevenueChart() {
         </ResponsiveContainer>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-ops-border">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-ops-border">
         <div>
           <div className="text-xs text-ops-text-muted">Revenue MTD</div>
           <div className="text-base font-bold text-fitscript-green">

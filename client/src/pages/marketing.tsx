@@ -148,7 +148,7 @@ export default function Marketing() {
 
       {/* Top KPI strip — only when pixel has data */}
       {totalVisitors > 0 && (
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <StatCard label="Tracked Visitors" value={totalVisitors.toLocaleString()} accent />
           <StatCard label="Paying Customers" value={totalPaying} />
           <StatCard label="Tracked Revenue" value={`$${totalRevenue.toLocaleString()}`} sub="via tracking pixel" />
@@ -507,7 +507,7 @@ function MetaAdsSection() {
       {enabled && (
         <>
           {data?.totals && (
-            <div className="grid grid-cols-6 gap-4 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-5">
               <div>
                 <div className="text-[10px] text-ops-text-muted uppercase tracking-wider">Spend</div>
                 <div className="text-lg font-bold text-amber-500">{fmtMoney(data.totals.spend, status.currency)}</div>
@@ -697,7 +697,7 @@ function GA4Body({ data }: { data: GA4Overview }) {
   const daily = data.daily ?? [];
   return (
     <>
-      <div className="grid grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
         <div>
           <div className="text-[10px] text-ops-text-muted uppercase tracking-wider">Sessions</div>
           <div className="text-2xl font-bold text-ops-text">{totals.sessions.toLocaleString()}</div>

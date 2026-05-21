@@ -172,7 +172,7 @@ function GeneralTab({ data }: { data: SettingsData }) {
     <>
       <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-5">
         <h3 className="text-sm font-semibold text-ops-text mb-4">Session</h3>
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <div className="text-[10px] text-ops-text-muted uppercase tracking-wider">Signed in as</div>
             <div className="text-sm text-ops-text font-medium mt-1">{data.session.email || "—"}</div>
@@ -377,7 +377,7 @@ function AuditTab() {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
         <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
           <div className="text-[10px] text-ops-text-muted uppercase tracking-wider mb-2">Total</div>
           <div className="text-2xl font-bold text-ops-text">{actions.length.toLocaleString()}</div>

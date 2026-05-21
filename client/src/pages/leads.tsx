@@ -171,7 +171,7 @@ export default function Leads() {
       )}
 
       {/* Status totals */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {(["Paid", "Hot", "Engaged", "Cold"] as LeadStatus[]).map((s) => {
           const count = totals?.byStatus[s] ?? 0;
           const style = STATUS_STYLES[s];
