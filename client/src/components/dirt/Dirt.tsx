@@ -376,7 +376,7 @@ export function Dirt() {
               )}
             </form>
             <div className="text-[10px] text-ops-text-subtle mt-2 px-1 flex items-center justify-between">
-              <span>13 read tools · 4 write tools · audit-logged</span>
+              <span>13 read tools · 9 write tools · audit-logged</span>
               <span className="opacity-70">cost: <code>ops_dirt</code></span>
             </div>
           </div>

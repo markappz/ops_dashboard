@@ -22,10 +22,29 @@
  * Skips greetings entirely. Sometimes cheeky. Acts on requests.
  */
 import type { Express, Request, Response } from "express";
+import Stripe from "stripe";
 import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
 import { logAiCost } from "./aiCostLogger";
 import { logAdminAction } from "./lib/auditLog";
 import { pool } from "./db";
+
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+
+/** Resolve a member by userId UUID OR email. Returns null if not found. */
+async function resolveMember(idOrEmail: string) {
+  const isEmail = idOrEmail.includes("@");
+  const r = await pool.query(
+    isEmail
+      ? `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
+                stripe_customer_id, stripe_subscription_id
+         FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
+      : `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
+                stripe_customer_id, stripe_subscription_id
+         FROM users WHERE id = $1 LIMIT 1`,
+    [idOrEmail],
+  );
+  return r.rows[0] || null;
+}
 
 interface AdminReq extends Request {
   adminEmail?: string;
@@ -50,9 +69,9 @@ How you work:
 - After write actions, briefly state what changed AND that an audit row was logged.
 
 Safety rails on writes:
-- For \`refund_charge\` over $50, you MUST ask the user to type CONFIRM, and pass it as the \`confirmation\` field. Refuse to call the tool until they do.
-- For \`bulk_publish_content\`, surface the count and ask for confirmation.
-- All other writes (pause/activate flow, approve/deny content, queue topic) execute immediately — they're reversible.
+- \`cancel_subscription\` is IRREVERSIBLE for immediate cancels. ALWAYS require the operator to type CONFIRM. Pass it as the \`confirmation\` field. Prefer cancel-at-period-end (immediate=false) unless they explicitly asked to revoke access NOW.
+- \`refund_charge\` over $50 (or full-refund where amount is unknown) requires CONFIRM in the \`confirmation\` field. Ask the operator, then call again.
+- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\` are reversible — execute immediately.
 - If a write tool errors, surface the error verbatim. Don't retry silently.
 
 Today is ${new Date().toISOString().slice(0, 10)}. Be useful, be fast.`;
@@ -670,7 +689,242 @@ const WRITE_TOOLS: ToolDef[] = [
   },
 ];
 
-const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS];
+// ─── Stripe write tools (Phase 3) ──────────────────────────────────
+
+const STRIPE_TOOLS: ToolDef[] = [
+  {
+    name: "cancel_subscription",
+    description:
+      "Cancel a user's Stripe subscription. Default cancels at period end (user keeps access until billing cycle ends). Pass immediate=true to revoke access NOW. IRREVERSIBLE — requires confirmation=\"CONFIRM\" in input.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        userIdOrEmail: { type: "string", description: "User UUID or email" },
+        immediate: { type: "boolean", description: "If true, cancel immediately. Otherwise at period end." },
+        confirmation: { type: "string", description: "Must equal 'CONFIRM' to execute" },
+      },
+      required: ["userIdOrEmail", "confirmation"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      if (!stripe) return { ok: false, error: "Stripe not configured" };
+      if (args.confirmation !== "CONFIRM") return { ok: false, error: "Confirmation required: pass confirmation=\"CONFIRM\"" };
+      const member = await resolveMember(args.userIdOrEmail);
+      if (!member) return { ok: false, error: "Member not found" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "User has no active subscription" };
+      const immediate = !!args.immediate;
+      try {
+        if (immediate) {
+          await stripe.subscriptions.cancel(member.stripe_subscription_id);
+          await pool.query("UPDATE users SET subscription_status = 'canceled' WHERE id = $1", [member.id]);
+          await pool.query("UPDATE subscriptions SET status = 'canceled' WHERE user_id = $1", [member.id]).catch(() => {});
+        } else {
+          await stripe.subscriptions.update(member.stripe_subscription_id, { cancel_at_period_end: true });
+        }
+        await logAdminAction({
+          adminEmail,
+          actionType: immediate ? "subscription.cancel_immediate" : "subscription.cancel_at_period_end",
+          targetKind: "subscription",
+          targetId: member.stripe_subscription_id,
+          targetLabel: member.email,
+          status: "ok",
+          metadata: { via: "dirt", userId: member.id, immediate },
+        });
+        return {
+          ok: true,
+          userId: member.id,
+          email: member.email,
+          subscription_id: member.stripe_subscription_id,
+          mode: immediate ? "immediate" : "period_end",
+        };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail,
+          actionType: immediate ? "subscription.cancel_immediate" : "subscription.cancel_at_period_end",
+          targetKind: "subscription",
+          targetId: member.stripe_subscription_id,
+          targetLabel: member.email,
+          status: "failed",
+          error: e.message,
+          metadata: { via: "dirt", userId: member.id },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "pause_subscription",
+    description: "Pause a user's Stripe subscription (no charges, no access at the next billing cycle). Reversible via resume_subscription.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        userIdOrEmail: { type: "string" },
+      },
+      required: ["userIdOrEmail"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      if (!stripe) return { ok: false, error: "Stripe not configured" };
+      const member = await resolveMember(args.userIdOrEmail);
+      if (!member) return { ok: false, error: "Member not found" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "User has no active subscription" };
+      try {
+        await stripe.subscriptions.update(member.stripe_subscription_id, { pause_collection: { behavior: "void" } });
+        await pool.query("UPDATE users SET subscription_status = 'paused' WHERE id = $1", [member.id]);
+        await logAdminAction({
+          adminEmail, actionType: "subscription.pause", targetKind: "subscription",
+          targetId: member.stripe_subscription_id, targetLabel: member.email,
+          status: "ok", metadata: { via: "dirt", userId: member.id },
+        });
+        return { ok: true, userId: member.id, email: member.email };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "subscription.pause", targetKind: "subscription",
+          targetId: member.stripe_subscription_id, targetLabel: member.email,
+          status: "failed", error: e.message, metadata: { via: "dirt", userId: member.id },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "resume_subscription",
+    description: "Resume a previously-paused subscription. Charges resume on the next billing cycle.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: { userIdOrEmail: { type: "string" } },
+      required: ["userIdOrEmail"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      if (!stripe) return { ok: false, error: "Stripe not configured" };
+      const member = await resolveMember(args.userIdOrEmail);
+      if (!member) return { ok: false, error: "Member not found" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "User has no subscription" };
+      try {
+        await stripe.subscriptions.update(member.stripe_subscription_id, { pause_collection: "" } as any);
+        await pool.query("UPDATE users SET subscription_status = 'active' WHERE id = $1", [member.id]);
+        await logAdminAction({
+          adminEmail, actionType: "subscription.resume", targetKind: "subscription",
+          targetId: member.stripe_subscription_id, targetLabel: member.email,
+          status: "ok", metadata: { via: "dirt", userId: member.id },
+        });
+        return { ok: true, userId: member.id, email: member.email };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "subscription.resume", targetKind: "subscription",
+          targetId: member.stripe_subscription_id, targetLabel: member.email,
+          status: "failed", error: e.message, metadata: { via: "dirt", userId: member.id },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "change_tier",
+    description: "Change a user's subscription tier (free, essentials, complete). Updates the local DB tier flag — does NOT swap the Stripe price (that requires a separate prorated swap operation). Use when the operator wants the tier flag to reflect comped or grandfathered access.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        userIdOrEmail: { type: "string" },
+        tier: { type: "string", enum: ["free", "essentials", "complete"] },
+      },
+      required: ["userIdOrEmail", "tier"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      const member = await resolveMember(args.userIdOrEmail);
+      if (!member) return { ok: false, error: "Member not found" };
+      try {
+        await pool.query("UPDATE users SET subscription_tier = $1 WHERE id = $2", [args.tier, member.id]);
+        await pool.query("UPDATE subscriptions SET tier = $1 WHERE user_id = $2", [args.tier, member.id]).catch(() => {});
+        await logAdminAction({
+          adminEmail, actionType: "subscription.change_tier", targetKind: "user",
+          targetId: member.id, targetLabel: member.email,
+          status: "ok", metadata: { via: "dirt", from: member.subscription_tier, to: args.tier },
+        });
+        return { ok: true, userId: member.id, email: member.email, from: member.subscription_tier, to: args.tier };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "subscription.change_tier", targetKind: "user",
+          targetId: member.id, targetLabel: member.email,
+          status: "failed", error: e.message, metadata: { via: "dirt", attempted: args.tier },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "refund_charge",
+    description:
+      "Refund a Stripe charge. If chargeId is omitted, refunds the user's most recent charge. If amount is omitted, full refund. " +
+      "IRREVERSIBLE — for any refund over $50 you MUST pass confirmation=\"CONFIRM\" (ask the operator to type it first).",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        userIdOrEmail: { type: "string" },
+        amount: { type: "number", description: "Refund amount in USD. Omit for full refund." },
+        chargeId: { type: "string", description: "Optional Stripe charge ID. If omitted, uses most recent." },
+        reason: { type: "string", enum: ["duplicate", "fraudulent", "requested_by_customer"] },
+        confirmation: { type: "string", description: "Required if amount > 50 (or unknown full refund): must be 'CONFIRM'" },
+      },
+      required: ["userIdOrEmail"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      if (!stripe) return { ok: false, error: "Stripe not configured" };
+      const member = await resolveMember(args.userIdOrEmail);
+      if (!member) return { ok: false, error: "Member not found" };
+      if (!member.stripe_customer_id) return { ok: false, error: "User has no Stripe customer record" };
+      let chargeId = args.chargeId as string | undefined;
+      let resolvedAmount: number | undefined;
+      try {
+        if (!chargeId) {
+          const charges = await stripe.charges.list({ customer: member.stripe_customer_id, limit: 1 });
+          if (charges.data.length === 0) return { ok: false, error: "No charges found for this user" };
+          chargeId = charges.data[0].id;
+          resolvedAmount = charges.data[0].amount / 100;
+        }
+        const refundAmount = (args.amount ?? resolvedAmount ?? 0) as number;
+        // Safety rail: typed confirm for big or unknown-size refunds
+        if ((refundAmount > 50 || refundAmount === 0) && args.confirmation !== "CONFIRM") {
+          return {
+            ok: false,
+            error: `Refund of $${refundAmount > 0 ? refundAmount.toFixed(2) : "(full)"} requires confirmation. Ask the operator to type CONFIRM, then call again with confirmation="CONFIRM".`,
+            requires_confirmation: true,
+            amount_usd: refundAmount > 0 ? refundAmount : null,
+          };
+        }
+        const refundParams: any = { charge: chargeId };
+        if (args.amount) refundParams.amount = Math.round(args.amount * 100);
+        if (args.reason) refundParams.reason = args.reason;
+        const refund = await stripe.refunds.create(refundParams);
+        await logAdminAction({
+          adminEmail, actionType: "charge.refund", targetKind: "stripe_charge",
+          targetId: chargeId, targetLabel: member.email,
+          status: "ok", metadata: { via: "dirt", userId: member.id, amount_usd: refund.amount / 100, refund_id: refund.id, reason: args.reason || null },
+        });
+        return {
+          ok: true,
+          refund_id: refund.id,
+          charge_id: chargeId,
+          amount_usd: refund.amount / 100,
+          status: refund.status,
+          user: { id: member.id, email: member.email },
+        };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "charge.refund", targetKind: "stripe_charge",
+          targetId: chargeId || "unknown", targetLabel: member.email,
+          status: "failed", error: e.message, metadata: { via: "dirt", userId: member.id, attempted_amount: args.amount },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+];
+
+const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS, ...STRIPE_TOOLS];
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
 
 // ─── Streaming endpoint ─────────────────────────────────────────────
