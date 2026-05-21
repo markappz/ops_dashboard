@@ -52,6 +52,21 @@ body {
   font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.2s, color 0.2s;
+  /* iOS notch / home-indicator safe area inset, respected by elements
+     that set padding/inset using env() */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* iOS Safari auto-zooms on focus if an input is below 16px font-size.
+   Force inputs/selects/textareas to 16px on small screens to prevent
+   the page from jumping into zoom every time you tap a field. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* Soft brand wash behind the app shell — visible on light mode, subtle radial on dark */

@@ -208,58 +208,47 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Stripe */}
-      <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
-        <div className="px-6 py-4 border-b border-ops-border">
-          <h2 className="text-lg font-semibold text-ops-text">Stripe</h2>
-        </div>
-        <div className="px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 rounded-full bg-green-400" />
-            <div>
-              <div className="text-sm font-medium text-ops-text">Connected</div>
-              <div className="text-xs text-ops-text-muted">Via STRIPE_SECRET_KEY in .env — subscriptions, payments, MRR</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Managed integrations — 2-up grid on tablet+, stacked on mobile */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5 mb-6">
+        {/* Stripe — read-only card (no Edit yet) */}
+        <ReadOnlyCard
+          title="Stripe"
+          status={{ kind: "ok", text: "Connected", detail: "Via STRIPE_SECRET_KEY · subscriptions, payments, MRR" }}
+          note="Self-serve key swap deferred — too risky for a quick paste."
+        />
 
-      {/* Klaviyo */}
-      <ManagedIntegrationCard
-        title="Klaviyo"
-        integration="klaviyo"
-        status={
-          !klaviyo?.configured
-            ? { kind: "off", text: "Not connected", detail: "Add a private API key to surface campaigns, flows, and lists." }
-            : klaviyo.connected
-              ? { kind: "ok", text: klaviyo.organization ? `Connected — ${klaviyo.organization}` : "Connected", detail: klaviyo.defaultSenderEmail ? `Default sender: ${klaviyo.defaultSenderEmail}` : "Campaigns, flows, lists, segments" }
-              : { kind: "error", text: "Connection error", detail: klaviyo.error || "API key was rejected" }
-        }
-        onUpdated={() => {
-          queryClient.invalidateQueries({ queryKey: ["klaviyo-status"] });
-          queryClient.invalidateQueries({ queryKey: ["ops-settings"] });
-        }}
-      />
+        {/* Klaviyo */}
+        <ManagedIntegrationCard
+          title="Klaviyo"
+          integration="klaviyo"
+          status={
+            !klaviyo?.configured
+              ? { kind: "off", text: "Not connected", detail: "Add a private API key to surface campaigns, flows, and lists." }
+              : klaviyo.connected
+                ? { kind: "ok", text: klaviyo.organization ? `Connected — ${klaviyo.organization}` : "Connected", detail: klaviyo.defaultSenderEmail ? `Default sender: ${klaviyo.defaultSenderEmail}` : "Campaigns, flows, lists, segments" }
+                : { kind: "error", text: "Connection error", detail: klaviyo.error || "API key was rejected" }
+          }
+          onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ["klaviyo-status"] });
+            queryClient.invalidateQueries({ queryKey: ["ops-settings"] });
+          }}
+        />
 
-      {/* Slack — DIRT alert routing */}
-      <SlackManagedCard />
+        <SlackManagedCard />
+        <MetaAdsManagedCard />
+        <ClomarkManagedCard />
 
-      {/* Meta Ads */}
-      <MetaAdsManagedCard />
-
-      {/* Clomark */}
-      <ClomarkManagedCard />
-
-      {/* Coming Soon */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Coming Soon */}
         {[
           { name: "Google Ads", desc: "Search ad spend, conversions, ROAS" },
           { name: "TikTok Ads", desc: "TikTok ad spend, conversions" },
         ].map((s) => (
           <div key={s.name} className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-            <h3 className="text-sm font-semibold text-ops-text mb-1">{s.name}</h3>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-base font-semibold text-ops-text">{s.name}</h2>
+              <span className="text-[10px] tracking-wider uppercase text-ops-text-subtle font-semibold px-1.5 py-0.5 rounded bg-ops-bg border border-ops-border">Soon</span>
+            </div>
             <p className="text-xs text-ops-text-muted">{s.desc}</p>
-            <div className="mt-3 text-xs text-ops-text-muted/50">Coming soon</div>
           </div>
         ))}
       </div>
@@ -309,14 +298,17 @@ function ManagedIntegrationCard({
     status.kind === "ok" ? "bg-brand-blue-500" : status.kind === "error" ? "bg-red-400" : "bg-ops-text-muted/40";
 
   return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6">
-      <div className="px-6 py-4 border-b border-ops-border flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold text-ops-text">{title}</h2>
-        <div className="flex gap-2">
+    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5 flex flex-col">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
+          <h2 className="text-sm font-semibold text-ops-text truncate">{title}</h2>
+        </div>
+        <div className="flex gap-1.5 shrink-0">
           <button
             onClick={test}
             disabled={testing}
-            className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors ${
               testRes?.ok
                 ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
                 : testRes && !testRes.ok
@@ -324,27 +316,22 @@ function ManagedIntegrationCard({
                   : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
             }`}
           >
-            {testing ? "Testing…" : testRes?.ok ? "✓ OK" : testRes && !testRes.ok ? "Failed" : "Test connection"}
+            {testing ? "…" : testRes?.ok ? "✓ OK" : testRes && !testRes.ok ? "Failed" : "Test"}
           </button>
           <button
             onClick={() => setEditOpen(true)}
-            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)]"
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-md bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)]"
           >
             Edit
           </button>
         </div>
       </div>
-      <div className="px-6 py-5 space-y-2">
-        <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${dotColor}`} />
-          <div>
-            <div className="text-sm font-medium text-ops-text">{status.text}</div>
-            {status.detail && <div className="text-xs text-ops-text-muted break-words">{status.detail}</div>}
-          </div>
-        </div>
+      <div className="flex-1 space-y-1.5">
+        <div className="text-sm font-medium text-ops-text">{status.text}</div>
+        {status.detail && <div className="text-xs text-ops-text-muted break-words leading-snug">{status.detail}</div>}
         {testRes && (
           <div
-            className={`text-[11px] rounded-lg border px-2.5 py-1.5 ${
+            className={`text-[11px] rounded-lg border px-2 py-1.5 mt-2 ${
               testRes.ok
                 ? "bg-brand-blue-500/5 border-brand-blue-400/20 text-brand-blue-500"
                 : "bg-red-500/5 border-red-500/20 text-red-400"
@@ -362,6 +349,30 @@ function ManagedIntegrationCard({
           onSaved={onUpdated}
         />
       )}
+    </div>
+  );
+}
+
+function ReadOnlyCard({
+  title,
+  status,
+  note,
+}: {
+  title: string;
+  status: ManagedStatus;
+  note?: string;
+}) {
+  const dotColor =
+    status.kind === "ok" ? "bg-brand-blue-500" : status.kind === "error" ? "bg-red-400" : "bg-ops-text-muted/40";
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5 flex flex-col">
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`} />
+        <h2 className="text-sm font-semibold text-ops-text truncate">{title}</h2>
+      </div>
+      <div className="text-sm font-medium text-ops-text">{status.text}</div>
+      {status.detail && <div className="text-xs text-ops-text-muted mt-1 leading-snug">{status.detail}</div>}
+      {note && <div className="text-[10.5px] text-ops-text-subtle mt-2 italic">{note}</div>}
     </div>
   );
 }
