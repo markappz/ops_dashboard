@@ -699,7 +699,7 @@ function HistoryDropdown({
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute top-[68px] right-3 z-50 w-[380px] max-h-[480px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg p-1.5 animate-dirt-slide-down">
+      <div className="absolute top-[68px] inset-x-3 sm:inset-x-auto sm:right-3 z-50 sm:w-[380px] max-h-[480px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg p-1.5 animate-dirt-slide-down">
         <div className="px-2.5 py-2 text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold border-b border-ops-border mb-1">
           Recent conversations
         </div>

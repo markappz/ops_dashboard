@@ -315,7 +315,7 @@ function DirtNotifications() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute top-12 right-0 z-50 w-[400px] max-h-[520px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg animate-dirt-slide-down">
+          <div className="fixed sm:absolute top-16 sm:top-12 inset-x-2 sm:inset-x-auto sm:right-0 z-50 sm:w-[400px] max-h-[520px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg animate-dirt-slide-down">
             <div className="px-3 py-2.5 border-b border-ops-border flex items-center justify-between">
               <div>
                 <div className="text-sm font-semibold text-ops-text">Alerts</div>
