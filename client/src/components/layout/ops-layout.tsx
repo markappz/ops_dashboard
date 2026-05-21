@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { ReactNode } from "react";
 import { useTheme } from "../../hooks/use-theme";
 import logoWhite from "../../assets/fitscript-logo-white.png";
+import { Concierge } from "../concierge/Concierge";
 
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
@@ -174,6 +175,9 @@ export function OpsLayout({
         {/* Page content */}
         <div className="p-8">{children}</div>
       </main>
+
+      {/* Ops Concierge — floating launcher + ⌘K + slide-out panel */}
+      <Concierge />
     </div>
   );
 }
