@@ -49,15 +49,67 @@ const QUICK_PROMPTS = [
   { icon: "📬", label: "Pause the welcome flow in Klaviyo" },
 ];
 
+interface ConvoSummary {
+  id: string;
+  title: string;
+  message_count: number;
+  last_message_at: string;
+  created_at: string;
+}
+
 export function Dirt() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<ConvoSummary[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const r = await fetch("/api/ops/dirt/conversations?limit=30");
+      if (!r.ok) return;
+      const j = await r.json();
+      setHistory(j.conversations || []);
+    } catch {}
+  }, []);
+
+  // Load history when panel opens
+  useEffect(() => {
+    if (open) loadHistory();
+  }, [open, loadHistory]);
+
+  const resumeConversation = useCallback(async (id: string) => {
+    try {
+      const r = await fetch(`/api/ops/dirt/conversations/${id}`);
+      if (!r.ok) return;
+      const j = await r.json();
+      const restored: Message[] = (j.messages || []).map((m: any) => ({
+        id: crypto.randomUUID(),
+        role: m.role,
+        content: m.content,
+        tools: [],
+        createdAt: Date.now(),
+      }));
+      setMessages(restored);
+      setConversationId(id);
+      setHistoryOpen(false);
+    } catch {}
+  }, []);
+
+  const deleteConversation = useCallback(async (id: string) => {
+    await fetch(`/api/ops/dirt/conversations/${id}`, { method: "DELETE" });
+    setHistory((prev) => prev.filter((c) => c.id !== id));
+    if (conversationId === id) {
+      setConversationId(null);
+      setMessages([]);
+    }
+  }, [conversationId]);
 
   // ⌘K / Ctrl+K toggles, Esc closes
   useEffect(() => {
@@ -121,6 +173,7 @@ export function Dirt() {
     }
     setMessages([]);
     setInput("");
+    setConversationId(null);
     setStreaming(false);
   }, [streaming]);
 
@@ -163,6 +216,7 @@ export function Dirt() {
           body: JSON.stringify({
             messages: nextHistory.map((m) => ({ role: m.role, content: m.content })),
             readOnly,
+            conversationId,
           }),
           signal: controller.signal,
         });
@@ -193,7 +247,14 @@ export function Dirt() {
             if (!payload) continue;
             try {
               const evt = JSON.parse(payload);
-              applySSEEvent(assistantMsg.id, evt, setMessages);
+              if (evt.type === "conversation" && evt.id) {
+                setConversationId(evt.id);
+              } else if (evt.type === "done" && evt.conversationId) {
+                setConversationId(evt.conversationId);
+                loadHistory(); // refresh the list with the new convo
+              } else {
+                applySSEEvent(assistantMsg.id, evt, setMessages);
+              }
             } catch {
               // ignore malformed lines
             }
@@ -210,7 +271,7 @@ export function Dirt() {
         abortRef.current = null;
       }
     },
-    [streaming, messages, readOnly, reset],
+    [streaming, messages, readOnly, reset, conversationId, loadHistory],
   );
 
   const cancel = () => abortRef.current?.abort();
@@ -290,13 +351,27 @@ export function Dirt() {
               </div>
             </div>
             <div className="relative flex items-center gap-1">
+              <button
+                onClick={() => { setHistoryOpen((v) => !v); if (!historyOpen) loadHistory(); }}
+                className={`text-[11px] px-2 py-1 rounded transition-colors flex items-center gap-1 ${
+                  historyOpen
+                    ? "bg-ops-accent-soft text-brand-blue-500"
+                    : "text-ops-text-muted hover:text-ops-text hover:bg-ops-surface-hover"
+                }`}
+                title="Conversation history"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                History
+              </button>
               {messages.length > 0 && (
                 <button
                   onClick={reset}
                   className="text-[11px] text-ops-text-muted hover:text-ops-text px-2 py-1 rounded hover:bg-ops-surface-hover transition-colors"
-                  title="Clear conversation (/clear)"
+                  title="Start a new conversation"
                 >
-                  Reset
+                  New
                 </button>
               )}
               <button
@@ -307,6 +382,16 @@ export function Dirt() {
                 <CloseIcon />
               </button>
             </div>
+
+            {historyOpen && (
+              <HistoryDropdown
+                history={history}
+                activeId={conversationId}
+                onPick={resumeConversation}
+                onDelete={deleteConversation}
+                onClose={() => setHistoryOpen(false)}
+              />
+            )}
           </div>
 
           {/* Messages */}
@@ -592,6 +677,81 @@ function SlashHint({ input, onPick }: { input: string; onPick: (cmd: string) => 
       </div>
     </div>
   );
+}
+
+// ─── History dropdown ───────────────────────────────────────────────
+
+function HistoryDropdown({
+  history,
+  activeId,
+  onPick,
+  onDelete,
+  onClose,
+}: {
+  history: ConvoSummary[];
+  activeId: string | null;
+  onPick: (id: string) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute top-[68px] right-3 z-50 w-[380px] max-h-[480px] overflow-y-auto bg-ops-surface border border-ops-border rounded-xl shadow-card-lg p-1.5 animate-dirt-slide-down">
+        <div className="px-2.5 py-2 text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold border-b border-ops-border mb-1">
+          Recent conversations
+        </div>
+        {history.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-ops-text-muted text-center">
+            No saved conversations yet.
+          </div>
+        ) : (
+          history.map((c) => (
+            <div
+              key={c.id}
+              className={`group/h flex items-center gap-2 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                activeId === c.id ? "bg-ops-accent-soft" : "hover:bg-ops-surface-hover"
+              }`}
+              onClick={() => onPick(c.id)}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] text-ops-text truncate">
+                  {c.title || "(untitled)"}
+                </div>
+                <div className="text-[10.5px] text-ops-text-subtle mt-0.5 flex items-center gap-2">
+                  <span>{c.message_count} msg{c.message_count !== 1 ? "s" : ""}</span>
+                  <span>·</span>
+                  <span>{relativeTime(c.last_message_at)}</span>
+                  {activeId === c.id && (
+                    <span className="ml-auto text-brand-blue-500 font-semibold">Active</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(c.id); }}
+                className="opacity-0 group-hover/h:opacity-100 p-1 rounded text-ops-text-subtle hover:text-red-400 hover:bg-red-500/10 transition-all"
+                title="Delete from history"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2" />
+                </svg>
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 // ─── Icons ──────────────────────────────────────────────────────────

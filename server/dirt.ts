@@ -23,6 +23,7 @@
  */
 import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
+import { randomUUID } from "crypto";
 import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
 import { logAiCost } from "./aiCostLogger";
 import { logAdminAction } from "./lib/auditLog";
@@ -925,6 +926,58 @@ const STRIPE_TOOLS: ToolDef[] = [
 ];
 
 const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS, ...STRIPE_TOOLS];
+
+// ─── Conversation persistence ──────────────────────────────────────
+
+let convoTableEnsured = false;
+async function ensureConvoTable() {
+  if (convoTableEnsured) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ops_dirt_conversations (
+      id UUID PRIMARY KEY,
+      admin_email TEXT NOT NULL,
+      title TEXT,
+      messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      last_message_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_dirt_convos_admin
+      ON ops_dirt_conversations (admin_email, last_message_at DESC);
+  `);
+  convoTableEnsured = true;
+}
+
+/** Auto-derive a short title from the first user message. */
+function deriveTitle(messages: Array<{ role: string; content: string }>): string {
+  const first = messages.find((m) => m.role === "user");
+  if (!first) return "New conversation";
+  const text = first.content.replace(/\s+/g, " ").trim();
+  return text.length > 60 ? text.slice(0, 57) + "…" : text;
+}
+
+async function persistConversation(args: {
+  id: string;
+  adminEmail: string;
+  messages: Array<{ role: string; content: string }>;
+}) {
+  try {
+    await ensureConvoTable();
+    const title = deriveTitle(args.messages);
+    await pool.query(
+      `INSERT INTO ops_dirt_conversations (id, admin_email, title, messages, message_count, last_message_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         messages = EXCLUDED.messages,
+         message_count = EXCLUDED.message_count,
+         last_message_at = NOW(),
+         title = COALESCE(ops_dirt_conversations.title, EXCLUDED.title)`,
+      [args.id, args.adminEmail, title, JSON.stringify(args.messages), args.messages.length],
+    );
+  } catch (e) {
+    console.warn("[DIRT] persist failed:", (e as Error).message);
+  }
+}
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
 
 // ─── Streaming endpoint ─────────────────────────────────────────────
@@ -934,6 +987,8 @@ interface ChatBody {
   model?: "fast" | "smart";
   /** if true, only expose READ tools (blocks all writes for this turn). */
   readOnly?: boolean;
+  /** optional — pass to continue a previous conversation; if omitted, a new id is minted. */
+  conversationId?: string;
 }
 
 const MAX_ITERATIONS = 8;
@@ -955,6 +1010,7 @@ export function registerDirtRoutes(app: Express) {
     const modelId = body.model === "fast" ? BEDROCK_MODELS.FAST : BEDROCK_MODELS.HIGH_IQ;
     const userEmail = req.adminEmail || "unknown";
     const activeTools = body.readOnly ? READ_TOOLS : TOOLS;
+    const conversationId = body.conversationId || randomUUID();
 
     res.setHeader("content-type", "text/event-stream");
     res.setHeader("cache-control", "no-cache, no-transform");
@@ -962,10 +1018,14 @@ export function registerDirtRoutes(app: Express) {
     res.setHeader("x-accel-buffering", "no");
     res.flushHeaders?.();
 
+    // Tell client which conversation this turn lives in
+    sseSend(res, { type: "conversation", id: conversationId });
+
     const messages: any[] = body.messages.map((m) => ({ role: m.role, content: m.content }));
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
     let toolCount = 0;
+    let assistantTextForPersist = "";
 
     try {
       for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -985,6 +1045,7 @@ export function registerDirtRoutes(app: Express) {
         for await (const event of stream as any) {
           if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
             sseSend(res, { type: "text_delta", text: event.delta.text });
+            assistantTextForPersist += event.delta.text;
           }
         }
 
@@ -1028,8 +1089,17 @@ export function registerDirtRoutes(app: Express) {
       }
 
       sseSend(res, { type: "usage", inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
-      sseSend(res, { type: "done" });
+      sseSend(res, { type: "done", conversationId });
       res.end();
+
+      // Persist the conversation. Store the rendered text version of the
+      // user turn(s) + assistant turn (not the raw tool_use/tool_result
+      // blocks, which are noisy and unnecessary to restore for replay).
+      const persistMessages = [
+        ...body.messages.map((m) => ({ role: m.role, content: m.content })),
+        { role: "assistant" as const, content: assistantTextForPersist || "(no response)" },
+      ];
+      persistConversation({ id: conversationId, adminEmail: userEmail, messages: persistMessages }).catch(() => {});
 
       logAiCost({
         userId: null,
@@ -1037,12 +1107,75 @@ export function registerDirtRoutes(app: Express) {
         model: modelId,
         inputTokens: totalInputTokens,
         outputTokens: totalOutputTokens,
-        metadata: { admin: userEmail, tool_count: toolCount },
+        metadata: { admin: userEmail, tool_count: toolCount, conversation_id: conversationId },
       }).catch((e) => console.warn("[DIRT] cost log failed:", e.message));
     } catch (e: any) {
       console.error("[DIRT]", e);
       sseSend(res, { type: "error", message: e.message });
       res.end();
+    }
+  });
+
+  // ─── Conversation history endpoints ───────────────────────────────
+
+  app.get("/api/ops/dirt/conversations", async (req: AdminReq, res) => {
+    const userEmail = req.adminEmail || "unknown";
+    try {
+      await ensureConvoTable();
+      const limit = Math.min(parseInt((req.query.limit as string) || "30"), 100);
+      const r = await pool.query(
+        `SELECT id, title, message_count, last_message_at, created_at
+         FROM ops_dirt_conversations
+         WHERE admin_email = $1
+         ORDER BY last_message_at DESC
+         LIMIT $2`,
+        [userEmail, limit],
+      );
+      res.json({ conversations: r.rows });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, conversations: [] });
+    }
+  });
+
+  app.get("/api/ops/dirt/conversations/:id", async (req: AdminReq, res) => {
+    const userEmail = req.adminEmail || "unknown";
+    try {
+      await ensureConvoTable();
+      const r = await pool.query(
+        `SELECT id, title, messages, message_count, last_message_at, created_at
+         FROM ops_dirt_conversations
+         WHERE admin_email = $1 AND id = $2 LIMIT 1`,
+        [userEmail, req.params.id],
+      );
+      if (!r.rows[0]) return res.status(404).json({ error: "not found" });
+      res.json(r.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/ops/dirt/conversations/:id", async (req: AdminReq, res) => {
+    const userEmail = req.adminEmail || "unknown";
+    try {
+      await ensureConvoTable();
+      await pool.query(
+        `DELETE FROM ops_dirt_conversations WHERE admin_email = $1 AND id = $2`,
+        [userEmail, req.params.id],
+      );
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/ops/dirt/conversations", async (req: AdminReq, res) => {
+    const userEmail = req.adminEmail || "unknown";
+    try {
+      await ensureConvoTable();
+      await pool.query(`DELETE FROM ops_dirt_conversations WHERE admin_email = $1`, [userEmail]);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
     }
   });
 
