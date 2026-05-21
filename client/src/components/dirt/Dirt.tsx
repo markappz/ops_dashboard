@@ -296,9 +296,9 @@ export function Dirt() {
         }`}
       >
         <div className="absolute -inset-1.5 bg-gradient-to-r from-brand-blue-600 via-brand-blue-500 to-brand-blue-400 rounded-full opacity-60 blur-lg group-hover:opacity-90 group-hover:blur-xl transition-all duration-300" />
-        <div className="relative flex items-center gap-2 sm:gap-2.5 px-3.5 sm:px-5 h-10 sm:h-12 rounded-full bg-gradient-to-r from-brand-navy-900 via-brand-blue-600 to-brand-blue-500 text-white shadow-[0_10px_30px_-6px_rgba(46,91,255,0.6)] hover:shadow-[0_18px_40px_-8px_rgba(46,91,255,0.8)] transition-all duration-300 hover:-translate-y-0.5">
-          <SparkleIcon className="w-4 h-4 animate-dirt-spin-slow" />
-          <span className="text-xs sm:text-sm font-bold tracking-tight">Talk Dirt</span>
+        <div className="relative flex items-center justify-center sm:gap-2.5 sm:px-5 w-12 h-12 sm:w-auto sm:h-12 rounded-full bg-gradient-to-r from-brand-navy-900 via-brand-blue-600 to-brand-blue-500 text-white shadow-[0_10px_30px_-6px_rgba(46,91,255,0.6)] hover:shadow-[0_18px_40px_-8px_rgba(46,91,255,0.8)] transition-all duration-300 hover:-translate-y-0.5">
+          <SparkleIcon className="w-5 h-5 sm:w-4 sm:h-4 animate-dirt-spin-slow" />
+          <span className="hidden sm:inline text-sm font-bold tracking-tight">Talk Dirt</span>
           <span className="hidden md:inline text-[10px] font-semibold opacity-80 px-1.5 py-0.5 rounded bg-white/15 ml-0.5">⌘K</span>
         </div>
       </button>
