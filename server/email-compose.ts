@@ -46,13 +46,28 @@ HTML rules:
 - All CSS inline on elements (no <style> blocks in <head> beyond a single media query for max-width).
 - One outer 100% container, one inner 600px max-width container centered with align="center".
 - System font stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif.
-- Brand color: FitScript green #0EA57A for buttons and accent text. Background neutral (#F5F7FA outer, #FFFFFF inner). Dark text #1F2937.
+- Brand color: FitScript brand-blue #2E5BFF for buttons and accent text. Background neutral (#F5F7FA outer, #FFFFFF inner). Dark navy text #0A1628.
 - Use real, padded buttons: <a> with display:inline-block, padding, background, color, text-decoration:none, border-radius.
 - Include preheader as the first invisible element (display:none, color:transparent) so it doesn't show in body.
 - Footer: small grey text with "FitScript • [address placeholder]" and an unsubscribe link as {% unsubscribe %} (Klaviyo merge tag).
-- NEVER use external images; if an image is critical, use an https://via.placeholder.com URL or describe with text.
 - NEVER include script tags, form tags, or iframes — most clients block them.
 - Keep total HTML under 80KB.
+
+LOGO — MANDATORY. Every email MUST start with this exact header block inside the 600px inner container, before any content:
+
+<table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
+  <tr>
+    <td align="center" style="padding: 28px 24px 20px 24px;">
+      <img src="https://ops.fitscript.me/email-logo.png" alt="FitScript" width="160" height="auto" style="display: block; margin: 0 auto; max-width: 160px;" />
+    </td>
+  </tr>
+</table>
+
+Do NOT substitute another logo, do NOT use a placeholder image, do NOT add tagline text under it. The URL is fixed: https://ops.fitscript.me/email-logo.png
+
+After the logo block, then the main content. After main content, then footer.
+
+For any other images in the body, prefer text. If a body image is truly necessary, describe what should go there with a TODO comment — don't insert placeholder.com URLs.
 
 Tone: warm, direct, science-grounded. Match what a sharp health-optimization founder would write to their list. No marketing-speak fluff.`;
 
@@ -215,8 +230,17 @@ export function registerEmailComposeRoutes(app: Express) {
 
       const body = await klaviyoRes.json().catch(() => ({}));
       if (!klaviyoRes.ok) {
+        // 403 on /templates/ almost always means the API key is missing
+        // the `Templates:Write` scope. Surface a helpful message instead
+        // of just "Klaviyo 403".
+        const isScopeIssue =
+          klaviyoRes.status === 403 ||
+          JSON.stringify(body).toLowerCase().includes("scope");
+        const friendly = isScopeIssue
+          ? "Klaviyo rejected the save — your API key is missing the `Templates:Write` scope. Open Klaviyo → Settings → API Keys → edit this key → enable Templates:Write (and Campaigns:Write if you want to send from the dashboard too). Then click Save here again."
+          : `Klaviyo ${klaviyoRes.status}: ${(body as any)?.errors?.[0]?.detail || JSON.stringify(body).slice(0, 200)}`;
         return res.status(klaviyoRes.status).json({
-          error: `Klaviyo ${klaviyoRes.status}`,
+          error: friendly,
           detail: body,
         });
       }
