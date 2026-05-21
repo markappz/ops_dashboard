@@ -1219,6 +1219,30 @@ export function registerDirtRoutes(app: Express) {
     }
   });
 
+  // Send a synthetic test alert to the configured Slack webhook so admins
+  // can verify it's working without waiting for the cron scan to fire.
+  app.post("/api/ops/dirt/slack-test", async (req: AdminReq, res) => {
+    if (!process.env.SLACK_OPS_WEBHOOK_URL) {
+      return res.status(400).json({ ok: false, error: "SLACK_OPS_WEBHOOK_URL not configured" });
+    }
+    try {
+      await postToSlack({
+        findings: [
+          {
+            kind: "test",
+            severity: "info",
+            title: "DIRT test alert from ops dashboard",
+            body: `Triggered manually by ${req.adminEmail || "unknown"}. If you see this, the Slack webhook is wired correctly.`,
+          },
+        ],
+        trigger: "manual-test",
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // Legacy non-streaming alias for back-compat
   app.post("/api/ops/concierge/chat", async (req: AdminReq, res) => {
     if (!isAIConfigured()) return res.status(503).json({ error: "AI not configured" });
@@ -1381,7 +1405,67 @@ async function runScan(trigger: string): Promise<{ inserted: number; notificatio
     inserted++;
   }
   console.log(`[DIRT scan] trigger=${trigger} findings=${findings.length} inserted=${inserted}`);
+
+  // Push new findings to Slack (best-effort, doesn't block the scan)
+  if (insertedRows.length > 0) {
+    postToSlack({ findings: insertedRows, trigger }).catch((e) =>
+      console.warn("[DIRT slack] post failed:", e.message),
+    );
+  }
+
   return { inserted, notifications: insertedRows, findings: findings.length };
+}
+
+/**
+ * Post DIRT scan findings to Slack via incoming webhook.
+ * Severity dictates the colored attachment bar (red / amber / blue).
+ * Title becomes the bold header line, body becomes the context block.
+ */
+async function postToSlack(args: {
+  findings: Array<{ kind: string; severity: string; title: string; body?: string; metadata?: any }>;
+  trigger: string;
+}): Promise<void> {
+  const url = process.env.SLACK_OPS_WEBHOOK_URL;
+  if (!url) return;
+
+  const sevColor = (s: string) =>
+    s === "critical" ? "#EF4444" : s === "warn" ? "#F59E0B" : "#2E5BFF";
+  const sevEmoji = (s: string) =>
+    s === "critical" ? ":rotating_light:" : s === "warn" ? ":warning:" : ":information_source:";
+
+  const attachments = args.findings.slice(0, 10).map((f) => ({
+    color: sevColor(f.severity),
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${sevEmoji(f.severity)} *${f.title}*\n${f.body ? `\n${f.body}` : ""}`,
+        },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `\`${f.kind}\` · \`${f.severity}\` · scan trigger: \`${args.trigger}\``,
+          },
+        ],
+      },
+    ],
+  }));
+
+  const payload = {
+    text: `DIRT surfaced ${args.findings.length} new alert${args.findings.length === 1 ? "" : "s"} from the FitScript ops dashboard.`,
+    attachments,
+  };
+
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) throw new Error(`Slack ${r.status}: ${await r.text()}`);
 }
 
 /**

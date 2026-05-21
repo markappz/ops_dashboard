@@ -90,6 +90,12 @@ export function registerSettingsRoutes(app: Express) {
         label:
           "Clomark content pipeline: keyword research, content drafts, SEO score, AI activity on /content",
       },
+      slack: {
+        configured: !!process.env.SLACK_OPS_WEBHOOK_URL,
+        webhookTail: tail(process.env.SLACK_OPS_WEBHOOK_URL, 12),
+        label:
+          "Where DIRT posts proactive scan findings (15-min cadence). Set SLACK_OPS_WEBHOOK_URL to enable.",
+      },
     };
 
     const auth = {

@@ -15,6 +15,7 @@ interface SettingsData {
     googleOAuth: { configured: boolean; clientIdTail: string; label: string };
     metaAds: { configured: boolean; adAccountId: string | null; tokenTail: string; apiVersion: string; label: string };
     clomark: { configured: boolean; businessIdConfigured: boolean; baseUrl: string | null; tokenTail: string; businessIdTail: string; label: string };
+    slack: { configured: boolean; webhookTail: string; label: string };
   };
   auth: { sessionSecretConfigured: boolean; adminRedirectUri: string | null };
   env: { nodeEnv: string; port: string };
@@ -353,6 +354,68 @@ function IntegrationsTab({
           })()}
           description={data.integrations.clomark.label}
         />
+        <SlackIntegrationRow data={data.integrations.slack} />
+      </div>
+    </div>
+  );
+}
+
+function SlackIntegrationRow({
+  data,
+}: {
+  data: { configured: boolean; webhookTail: string; label: string };
+}) {
+  const [status, setStatus] = useState<null | "ok" | "fail">(null);
+  const [busy, setBusy] = useState(false);
+
+  const test = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const r = await fetch("/api/ops/dirt/slack-test", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      setStatus(r.ok && j.ok ? "ok" : "fail");
+    } catch {
+      setStatus("fail");
+    } finally {
+      setBusy(false);
+      setTimeout(() => setStatus(null), 4000);
+    }
+  };
+
+  return (
+    <div className="flex items-start gap-4 py-4 border-b border-ops-border last:border-0">
+      <div className="pt-1">
+        <span className={`inline-block w-2 h-2 rounded-full ${data.configured ? "bg-brand-blue-500" : "bg-red-400"}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium text-ops-text">Slack alerts</span>
+          {data.configured && (
+            <span className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded bg-ops-bg text-ops-text-muted border border-ops-border">
+              {data.webhookTail}
+            </span>
+          )}
+        </div>
+        <div className="text-xs text-ops-text-muted mt-1">{data.label}</div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {data.configured && (
+          <button
+            onClick={test}
+            disabled={busy}
+            className={`text-[11px] font-medium px-2.5 py-1 rounded-lg transition-colors ${
+              status === "ok"
+                ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
+                : status === "fail"
+                  ? "bg-red-500/10 text-red-400 border border-red-500/30"
+                  : "bg-ops-bg text-ops-text-muted border border-ops-border hover:text-ops-text hover:border-brand-blue-400/40"
+            }`}
+          >
+            {busy ? "Sending…" : status === "ok" ? "✓ Sent" : status === "fail" ? "Failed" : "Test"}
+          </button>
+        )}
+        <div className="text-xs text-ops-text-muted">{data.configured ? "Configured" : "Not configured"}</div>
       </div>
     </div>
   );
