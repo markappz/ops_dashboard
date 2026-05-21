@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { QueryError, hasApiError } from "../components/query-error";
 import { PageHero } from "../components/page-hero";
+import { BulkBar } from "../components/bulk-bar";
 
 interface Member {
   id: string;
@@ -70,6 +71,7 @@ export default function Members() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error, refetch } = useQuery<MembersResponse>({
     queryKey: ["ops-members", page, search, tierFilter],
@@ -126,11 +128,40 @@ export default function Members() {
         </select>
       </div>
 
+      {/* Bulk action bar — only when something selected */}
+      {selected.size > 0 && (
+        <BulkBar
+          count={selected.size}
+          onClear={() => setSelected(new Set())}
+          onAskDirt={() => {
+            const picks = (data?.members || []).filter((m) => selected.has(m.id));
+            const lines = picks.slice(0, 25).map((m, i) => `${i + 1}. ${m.email} — ${m.subscriptionTier || "free"}/${m.subscriptionStatus || "active"} (${m.id})`).join("\n");
+            const more = picks.length > 25 ? `\n…and ${picks.length - 25} more` : "";
+            const prompt = `I selected ${picks.length} member${picks.length !== 1 ? "s" : ""}:\n${lines}${more}\n\nWhat can you do with them? Suggest actions and ask me what you should run.`;
+            window.dispatchEvent(new CustomEvent("dirt:open", { detail: { prompt } }));
+          }}
+        />
+      )}
+
       {/* Table */}
       <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
         <table className="w-full">
           <thead>
             <tr className="border-b border-ops-border">
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  className="accent-brand-blue-500 cursor-pointer"
+                  checked={(data?.members?.length || 0) > 0 && (data?.members || []).every((m) => selected.has(m.id))}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelected(new Set((data?.members || []).map((m) => m.id)));
+                    } else {
+                      setSelected(new Set());
+                    }
+                  }}
+                />
+              </th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Member</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Tier</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Status</th>
@@ -161,7 +192,7 @@ export default function Members() {
           <tbody className="divide-y divide-ops-border">
             {isLoading ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center">
+                <td colSpan={9} className="px-5 py-12 text-center">
                   <div className="w-6 h-6 border-2 border-fitscript-green border-t-transparent rounded-full animate-spin mx-auto" />
                 </td>
               </tr>
@@ -179,8 +210,30 @@ export default function Members() {
                   return 0;
                 });
                 return sorted.map((member) => (
-                <tr key={member.id} className="hover:bg-ops-surface-hover transition-colors cursor-pointer"
-                    onClick={() => { console.log("Navigating to member:", member.id); navigate(`/members/${member.id}`); }}>
+                <tr
+                  key={member.id}
+                  className={`hover:bg-ops-surface-hover transition-colors cursor-pointer ${selected.has(member.id) ? "bg-brand-blue-500/5" : ""}`}
+                  onClick={(e) => {
+                    // Don't navigate if the click came from the checkbox cell
+                    if ((e.target as HTMLElement).tagName === "INPUT") return;
+                    navigate(`/members/${member.id}`);
+                  }}
+                >
+                  <td className="px-4 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="accent-brand-blue-500 cursor-pointer"
+                      checked={selected.has(member.id)}
+                      onChange={(e) => {
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(member.id);
+                          else next.delete(member.id);
+                          return next;
+                        });
+                      }}
+                    />
+                  </td>
                   <td className="px-5 py-3">
                     <div>
                       <div className="text-sm text-ops-text font-medium">
