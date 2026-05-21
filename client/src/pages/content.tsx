@@ -505,7 +505,7 @@ function ClomarkSection() {
         />
       )}
 
-      <div className="flex items-baseline justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3 mb-4">
         <div>
           <h3 className="text-sm font-semibold text-ops-text">
             Clomark — Content &amp; SEO Pipeline
@@ -517,18 +517,18 @@ function ClomarkSection() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {ready && (
             <>
               <button
                 onClick={() => setAddOpen(true)}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-ops-bg border border-ops-border text-ops-text hover:bg-ops-surface-hover"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-ops-bg border border-ops-border text-ops-text hover:bg-ops-surface-hover whitespace-nowrap"
               >
                 + Add Blog
               </button>
               <button
                 onClick={() => setLocationOpen(true)}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-fitscript-green text-white hover:bg-fitscript-green/90"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] whitespace-nowrap"
               >
                 + Add Location Page
               </button>
