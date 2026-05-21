@@ -39,9 +39,9 @@ export function RevenueChart() {
 
   return (
     <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
         <h3 className="text-sm font-semibold text-ops-text">Revenue (90 days)</h3>
-        <div className="flex gap-4 text-xs text-ops-text-muted">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ops-text-muted">
           <span>Refunds: ${data.totalRefunds}</span>
           <span>Active subs: {data.activeSubscriptions}</span>
           <span>Canceled (30d): {data.canceledRecent}</span>

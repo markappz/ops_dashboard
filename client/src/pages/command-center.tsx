@@ -237,7 +237,7 @@ export default function CommandCenter() {
                 : "All AI surfaces"}
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-4 mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
             <div>
               <div className="text-xs text-ops-text-muted uppercase tracking-wider">Revenue MTD</div>
               <div className="text-2xl font-bold text-fitscript-green">

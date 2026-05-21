@@ -443,7 +443,15 @@ export function registerKlaviyoRoutes(app: Express) {
           : `Using ${conv.name} as the conversion metric. Revenue values will be 0 until a values-data-compatible revenue event exists.`,
       });
     } catch (e: any) {
-      res.status(e.status || 500).json({ error: e.message });
+      console.warn("[OPS][KLAVIYO] flow-metrics failed:", e.message);
+      res.json({
+        metrics: {},
+        timeframe: null,
+        flowCount: 0,
+        revenueAvailable: false,
+        conversionMetricName: null,
+        warning: `Flow metrics unavailable: ${e.message}`,
+      });
     }
   });
 
@@ -662,7 +670,19 @@ export function registerKlaviyoRoutes(app: Express) {
           : `Using ${conv.name} as the conversion metric. Revenue values will be 0 until a store integration (Shopify/Stripe) is connected in Klaviyo, or set KLAVIYO_CONVERSION_METRIC_NAME to your account's revenue event.`,
       });
     } catch (e: any) {
-      res.status(e.status || 500).json({ error: e.message });
+      // Degrade gracefully — return empty metrics + warning so the
+      // rest of the Email page still renders. Klaviyo values-report can
+      // 400 if the conversion metric isn't compatible with this report
+      // type; surfacing a 400 to the client breaks the entire page.
+      console.warn("[OPS][KLAVIYO] campaign-metrics failed:", e.message);
+      res.json({
+        metrics: {},
+        timeframe: null,
+        campaignCount: 0,
+        revenueAvailable: false,
+        conversionMetricName: null,
+        warning: `Campaign metrics unavailable: ${e.message}`,
+      });
     }
   });
 

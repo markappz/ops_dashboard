@@ -330,7 +330,7 @@ export default function Email() {
       </div>
 
       {/* Stat strip */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
         <Stat label="Campaigns" value={campaigns.length} />
         <Stat label="Sent (recent)" value={recentSent.length} />
         <Stat label="Live flows" value={liveFlows} />
