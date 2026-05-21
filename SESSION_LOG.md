@@ -533,3 +533,86 @@ Phase 2 trigger: Paul says "concierge feels right, add the write actions" OR spe
 - Cost analytics: every concierge turn writes to `ai_costs` with admin email + tool count + iterations in metadata, so we can answer "how much is the concierge itself costing us" via the existing economics dashboard.
 - ⌘K + floating launcher hits both keyboard and mouse users with one panel.
 
+---
+
+## 2026-05-21 (overnight v2) — DIRT replaces Concierge; streaming + writes + top-bar bar + animations
+
+Paul came back and asked: cross-check everything works, rename to DIRT (his AI personality), add micro-animations + chart movement, add a top-bar AI search, upgrade the chat to high-end. Also reported: "AI not configured" 503 in prod.
+
+### Production AI fix (the blocker)
+
+ECS task definition `fitscript-ops-task:34` was missing AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION in `secrets[]`. The values were already in the AWS Secrets Manager JSON (`prod/ops-secrets`), they just weren't exposed to the container.
+
+Fix:
+1. Pulled task def JSON, appended 3 secret references pointing into the existing secret keys.
+2. Registered new revision `fitscript-ops-task:35`.
+3. `aws ecs update-service --force-new-deployment` → waited for stability.
+4. Verified `https://ops.fitscript.me/api/health` returns 200 on revision 35.
+
+Now `isAIConfigured()` returns true in prod and DIRT can call Bedrock. Added `bedrock` to the `get_integration_health` tool so DIRT can self-report when AI is broken.
+
+### DIRT rewrite — replaces v1 Concierge
+
+**Commits:**
+```
+29dd551  Introduce DIRT — streaming AI ops personality + write tools + premium UX
+```
+
+**Server (`server/dirt.ts` + `server/lib/auditLog.ts`):**
+- `POST /api/ops/dirt/chat` — SSE streaming endpoint
+- `POST /api/ops/concierge/chat` — legacy non-streaming alias for back-compat
+- DIRT personality: direct, confident, no fluff, knows Paul, FitScript brand voice
+- 13 read tools + 4 write tools
+- Write tools (Phase 2 SHIPPED):
+  - `set_klaviyo_flow_status` — pause/activate Klaviyo email flows
+  - `approve_content_draft` — approve / deny / pending Clomark content
+  - `queue_blog_topic` — add a new blog to Clomark generation pipeline
+  - `send_klaviyo_test` — render template + log; full send still needs Klaviyo UI
+- Every write writes `ops_admin_actions` row before AND after execution (success or failure both audited)
+- Read-only mode via `{ readOnly: true }` body field — blocks all writes for that turn
+- Cost logged to `ai_costs` with `surface=ops_dirt`, admin email + tool count metadata
+
+**`logAdminAction` extracted** from `server/klaviyo.ts` into `server/lib/auditLog.ts` so DIRT and Klaviyo share one audit trail. Klaviyo refactored to import from there.
+
+**`get_admin_log` bug fix** — was querying non-existent `admin_actions`; now queries `ops_admin_actions` (the real table).
+
+**Client (`components/dirt/Dirt.tsx`):**
+- 540px glass-morphism slide-out (backdrop-blur)
+- Streaming text with blinking caret as Claude generates
+- Per-message tool timeline: pending spinner → ok check / red error
+- Tool cards expand on click for input + result JSON + ms
+- Slash commands: `/clear`, `/tools`, `/read`
+- Copy-to-clipboard on hover for assistant messages
+- Stop button while streaming (AbortController)
+- Auto-resize textarea
+- Floating launcher with animated brand gradient + float + slow spin
+- Quick prompts with icons, staggered fade-in
+- Listens for `dirt:open` custom event so the top-bar command bar can summon
+
+**Top-bar DIRT command bar (`ops-layout.tsx → DirtCommandBar`):**
+- Center of the top bar (`md:` and up)
+- Pill-shaped, focus-glows brand blue
+- Type query → Enter dispatches `dirt:open` event with prompt pre-filled
+- ⌘K hint chip when empty, ↵ hint chip when there's input
+
+**Charts + micro-animations:**
+- `.shadow-card` gets auto hover-lift dashboard-wide (transform + border glow)
+- `PageHero` fades in with `animate-page-fade-in`
+- `RevenueChart`: 1200ms ease-out animation, thicker 2.5px stroke, active-dot on hover
+- Recharts tooltip styled to brand surface + lg shadow
+- DIRT-specific keyframes: dirt-fade-in, dirt-slide-down, dirt-blink, dirt-float, dirt-spin-slow
+
+### Verified
+- `tsc --noEmit` clean
+- `vite build` clean (46.4 KB CSS, 1.05 MB JS gz 278kb)
+- Local dev: both `/api/ops/dirt/chat` and `/api/ops/concierge/chat` 401 (admin-gated)
+- Critical endpoints (`snapshot`, `members`, `economics`, `settings`, `admin-actions`) all 401
+- Prod ECS revision 35 active before push, deploy of `29dd551` queued
+
+### What I'll remember
+- DIRT is the official ops AI name. Concierge is dead.
+- Writes are audit-logged via `server/lib/auditLog.ts` — every new write tool must log before + after.
+- SSE event format: `text_delta`, `tool_start`, `tool_result`, `tool_error`, `usage`, `done`, `error`.
+- Bedrock prod creds live in `prod/ops-secrets` AWS Secrets Manager; ECS task def must expose AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION via `secrets[]`.
+- Read-only toggle is a per-request flag, not a server-side state. UI exposes it via `/read` command.
+

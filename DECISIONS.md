@@ -202,6 +202,56 @@ Record of every important decision so we don't revisit settled questions.
 
 ---
 
+## 2026-05-21 — DIRT is the ops AI name; Concierge retired
+
+**Decision:** The ops dashboard AI is named **DIRT**. The label is the brand. Operators see "Ask DIRT", "DIRT is working…", `surface=ops_dirt` in analytics. The legacy term "Concierge" stays only as a back-compat endpoint alias.
+
+**Why:** Paul wanted a punchy, memorable name. "DIRT" has alpha energy that matches the FitScript brand voice. It's short, easy to say, and reads as a real personality (not a generic "AI assistant").
+
+**How to apply:**
+- New UI strings always say DIRT, never Concierge.
+- New endpoints go under `/api/ops/dirt/*`. `/api/ops/concierge/chat` stays only as the legacy non-streaming alias for back-compat — don't add new aliases.
+- Cost surface is `ops_dirt` (not `ops_concierge`). Old surface data stays in `ai_costs` but new writes use the new name.
+- CSS class is `prose-dirt`, animations are `animate-dirt-*`.
+
+---
+
+## 2026-05-21 — Streaming SSE over single-request for DIRT chat
+
+**Decision:** Production DIRT chat uses SSE streaming. Event shape: `text_delta`, `tool_start`, `tool_result`, `tool_error`, `usage`, `done`, `error`. Client maintains an in-progress "streaming" assistant message that text deltas append to AND a per-message tool timeline that grows as tools execute.
+
+**Why this and not alternatives:**
+- **vs. one-shot non-streaming JSON:** Multi-tool turns can take 4-10s. With no streaming, the UI is dead for that whole window — feels broken. Streaming lets the user see "DIRT is using `get_snapshot`…" then watch numbers appear word by word. Premium UX.
+- **vs. WebSocket:** SSE is one-way and simpler. We're not sending data from client to server mid-stream; we just want to stream responses out. WebSocket would add bidirectional complexity for zero benefit here.
+- **vs. polling:** Adds latency, doubles request count.
+
+**How to apply:**
+- New DIRT capabilities that take time should emit intermediate SSE events. E.g., if we add a long-running batch tool, emit `progress` events along the way.
+- Client must use `fetch` + `getReader()` for SSE (NOT EventSource) because we need to POST a body. EventSource is GET-only.
+- Keep event payloads small — these are JSON-parsed every line. Tool result objects can be big, send them as one `tool_result` event but never stream a tool result piecewise.
+- Always end with `done` event so client knows when to stop the "streaming" UI state.
+
+---
+
+## 2026-05-21 — Bedrock requires AWS creds in ECS task definition (not IAM task role)
+
+**Decision:** Production ECS task definition for ops-dashboard MUST expose `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_REGION` as `secrets[]` entries pointing into `prod/ops-secrets` (AWS Secrets Manager). Even though ECS Fargate provides an IAM task role automatically, our `@anthropic-ai/bedrock-sdk` instantiation in `server/lib/bedrock.ts` reads explicit env vars and won't fall back to the SDK default credential chain.
+
+**Why:** First discovered when Paul reported "AI not configured" 503 in prod. The Secrets Manager JSON had the AWS keys but the task definition's `secrets[]` array didn't reference them, so the container booted without them. `isAIConfigured()` returned false because `process.env.AWS_ACCESS_KEY_ID` was missing.
+
+Two ways to fix this long-term:
+- (current) Continue exposing via `secrets[]` — explicit, works, but rotations require new task def revisions.
+- (future) Rewrite `server/lib/bedrock.ts` to use `AnthropicBedrock`'s default credential chain (it'd pick up the task role automatically). Cleaner but needs careful testing.
+
+For now: every new ECS task definition revision must include the 3 AWS secret refs. Don't strip them.
+
+**How to apply:**
+- When updating the ECS task def for any reason: confirm `secrets[]` still contains `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`.
+- If onboarding a new admin to manage prod: they need IAM perms for `ecs:RegisterTaskDefinition` + `secretsmanager:GetSecretValue` on `prod/ops-secrets-*`.
+- DIRT's `get_integration_health` tool surfaces a `bedrock` status row so we self-detect this regression: if `bedrock.connected` is false, AI is broken.
+
+---
+
 ## 2026-05-20 — Empty data state rules (don't render zero KPI tiles)
 
 **Decision:** When a data source hasn't accumulated meaningful data yet (e.g. the tracking pixel was deployed but no visitors have hit it, or a connector isn't wired), DO NOT render zero-valued KPI tiles or stale "Not Connected" cards. Instead, hide the affected section entirely and surface a slim contextual notice explaining the state. The visible parts of the page must reflect actual capability.
