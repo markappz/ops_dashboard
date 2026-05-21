@@ -1,8 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { ReactNode } from "react";
+import { ReactNode, useRef, useState } from "react";
 import { useTheme } from "../../hooks/use-theme";
 import logoWhite from "../../assets/fitscript-logo-white.png";
-import { Concierge } from "../concierge/Concierge";
+import { Dirt } from "../dirt/Dirt";
 
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
@@ -124,15 +124,19 @@ export function OpsLayout({
       {/* Main */}
       <main className="flex-1 overflow-y-auto">
         {/* Top Bar */}
-        <header className="h-16 border-b border-ops-border flex items-center justify-between px-8 bg-ops-surface/80 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
+        <header className="h-16 border-b border-ops-border flex items-center justify-between gap-6 px-8 bg-ops-surface/80 backdrop-blur-md sticky top-0 z-10">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="text-sm font-medium text-ops-text-muted">
               {currentSectionLabel(location)}
               <span className="mx-2 text-ops-text-subtle">/</span>
               <span className="text-ops-text">{currentPageLabel(location)}</span>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+
+          {/* Center: Ask DIRT command bar */}
+          <DirtCommandBar />
+
+          <div className="flex items-center gap-3 shrink-0">
             <div className="flex items-center gap-2 text-xs text-ops-text-muted px-2.5 py-1 rounded-full bg-ops-accent-soft">
               <div className="w-1.5 h-1.5 rounded-full bg-brand-blue-400 animate-pulse" />
               Live
@@ -176,8 +180,8 @@ export function OpsLayout({
         <div className="p-8">{children}</div>
       </main>
 
-      {/* Ops Concierge — floating launcher + ⌘K + slide-out panel */}
-      <Concierge />
+      {/* DIRT — floating launcher + ⌘K + slide-out panel */}
+      <Dirt />
     </div>
   );
 }
@@ -204,4 +208,55 @@ function currentPageLabel(path: string): string {
     }
   }
   return "—";
+}
+
+/**
+ * Top-bar command input — types into DIRT directly. Press Enter to fire,
+ * or ⌘K to open the full panel from anywhere. Focus when user clicks it,
+ * fades into a subtle pill state when not focused.
+ */
+function DirtCommandBar() {
+  const [value, setValue] = useState("");
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = value.trim();
+    if (!q) return;
+    window.dispatchEvent(new CustomEvent("dirt:open", { detail: { prompt: q } }));
+    setValue("");
+    inputRef.current?.blur();
+  };
+
+  return (
+    <form onSubmit={submit} className="flex-1 max-w-xl mx-auto hidden md:flex">
+      <div className={`relative w-full transition-all duration-200 ${focused ? "scale-[1.01]" : ""}`}>
+        <div
+          aria-hidden
+          className={`absolute -inset-px rounded-full bg-gradient-to-r from-brand-blue-500/30 via-brand-blue-400/30 to-brand-blue-500/30 transition-opacity blur ${focused ? "opacity-100" : "opacity-0"}`}
+        />
+        <div className="relative flex items-center gap-2 px-4 h-10 rounded-full bg-ops-bg border border-ops-border focus-within:border-brand-blue-500 focus-within:ring-2 focus-within:ring-brand-blue-500/20 transition-all">
+          <svg className="w-4 h-4 text-brand-blue-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2l1.91 6.09L20 10l-6.09 1.91L12 18l-1.91-6.09L4 10l6.09-1.91L12 2z" />
+          </svg>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            type="text"
+            placeholder="Ask DIRT… (or press ⌘K)"
+            className="flex-1 bg-transparent border-0 outline-none text-sm text-ops-text placeholder-ops-text-subtle"
+          />
+          {value ? (
+            <kbd className="text-[10px] font-mono text-brand-blue-500 bg-brand-blue-500/10 border border-brand-blue-500/30 px-1.5 py-0.5 rounded">↵</kbd>
+          ) : (
+            <kbd className="text-[10px] font-mono text-ops-text-subtle bg-ops-surface border border-ops-border px-1.5 py-0.5 rounded">⌘K</kbd>
+          )}
+        </div>
+      </div>
+    </form>
+  );
 }

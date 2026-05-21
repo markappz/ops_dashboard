@@ -68,7 +68,17 @@ export function RevenueChart() {
             formatter={(value: number) => [`$${value}`, "Revenue"]}
             labelStyle={{ color: "rgb(var(--ops-text-muted))" }}
           />
-          <Area type="monotone" dataKey="revenue" stroke="#2E5BFF" strokeWidth={2} fill="url(#revenueGrad)" />
+          <Area
+            type="monotone"
+            dataKey="revenue"
+            stroke="#2E5BFF"
+            strokeWidth={2.5}
+            fill="url(#revenueGrad)"
+            isAnimationActive
+            animationDuration={1200}
+            animationEasing="ease-out"
+            activeDot={{ r: 5, fill: "#2E5BFF", stroke: "#fff", strokeWidth: 2 }}
+          />
         </AreaChart>
       </ResponsiveContainer>
     </div>

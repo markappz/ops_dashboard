@@ -16,7 +16,7 @@ export function PageHero({
   actions?: ReactNode;
 }) {
   return (
-    <div className="relative mb-8 -mt-2 px-6 py-7 rounded-2xl border border-ops-border bg-ops-surface shadow-card overflow-hidden">
+    <div className="relative mb-8 -mt-2 px-6 py-7 rounded-2xl border border-ops-border bg-ops-surface shadow-card overflow-hidden animate-page-fade-in">
       {/* Subtle brand cloud wash */}
       <div
         aria-hidden

@@ -14,6 +14,7 @@
  */
 import type { Express, Request } from "express";
 import { pool } from "./db";
+import { logAdminAction } from "./lib/auditLog";
 
 interface AdminReq extends Request {
   adminEmail?: string;
@@ -1072,59 +1073,8 @@ async function ensureSendsTable() {
  * Schema is deliberately loose (metadata jsonb + free-form action_type)
  * so any new admin action can append a row without a migration.
  */
-async function ensureAdminActionsTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ops_admin_actions (
-      id SERIAL PRIMARY KEY,
-      admin_email TEXT NOT NULL,
-      action_type TEXT NOT NULL,
-      target_kind TEXT NOT NULL,
-      target_id TEXT NOT NULL,
-      target_label TEXT,
-      status TEXT NOT NULL,
-      error TEXT,
-      metadata JSONB,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_admin_actions_created
-      ON ops_admin_actions (created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_admin_actions_target
-      ON ops_admin_actions (target_kind, target_id, created_at DESC);
-  `);
-}
-
-async function logAdminAction(args: {
-  adminEmail: string;
-  actionType: string;
-  targetKind: string;
-  targetId: string;
-  targetLabel?: string | null;
-  status: "ok" | "failed";
-  error?: string | null;
-  metadata?: Record<string, unknown>;
-}) {
-  try {
-    await ensureAdminActionsTable();
-    await pool.query(
-      `INSERT INTO ops_admin_actions
-       (admin_email, action_type, target_kind, target_id, target_label, status, error, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        args.adminEmail,
-        args.actionType,
-        args.targetKind,
-        args.targetId,
-        args.targetLabel ?? null,
-        args.status,
-        args.error ?? null,
-        args.metadata ? JSON.stringify(args.metadata) : null,
-      ],
-    );
-  } catch (e) {
-    // Never throw out of an audit log write.
-    console.warn("[OPS] admin action log failed:", (e as Error).message);
-  }
-}
+// logAdminAction extracted to server/lib/auditLog.ts so DIRT (and any
+// other future module) can share the same audit trail.
 
 /**
  * Utility for other server modules that want to push events into Klaviyo.

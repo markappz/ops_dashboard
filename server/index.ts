@@ -16,7 +16,7 @@ import { registerMetaAdsRoutes } from "./meta-ads";
 import { registerAdminActionsRoutes } from "./admin-actions";
 import { registerLeadsRoutes } from "./leads";
 import { registerClomarkRoutes } from "./clomark";
-import { registerConciergeRoutes } from "./concierge";
+import { registerDirtRoutes } from "./dirt";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -56,7 +56,7 @@ registerMetaAdsRoutes(app);
 registerAdminActionsRoutes(app);
 registerLeadsRoutes(app);
 registerClomarkRoutes(app);
-registerConciergeRoutes(app);
+registerDirtRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
