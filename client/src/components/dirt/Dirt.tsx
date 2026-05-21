@@ -382,17 +382,19 @@ export function Dirt() {
                 <CloseIcon />
               </button>
             </div>
-
-            {historyOpen && (
-              <HistoryDropdown
-                history={history}
-                activeId={conversationId}
-                onPick={resumeConversation}
-                onDelete={deleteConversation}
-                onClose={() => setHistoryOpen(false)}
-              />
-            )}
           </div>
+
+          {/* History dropdown — rendered OUTSIDE the header (which has
+              overflow-hidden for the gradient wash) so it isn't clipped. */}
+          {historyOpen && (
+            <HistoryDropdown
+              history={history}
+              activeId={conversationId}
+              onPick={resumeConversation}
+              onDelete={deleteConversation}
+              onClose={() => setHistoryOpen(false)}
+            />
+          )}
 
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
