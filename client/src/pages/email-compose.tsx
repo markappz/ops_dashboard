@@ -297,12 +297,13 @@ export default function EmailCompose() {
         </div>
       </div>
 
-      {/* Chat + Preview */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+      {/* Chat + Preview — both panels height-bounded so the page doesn't
+          grow infinitely as Claude streams long HTML output */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-5 mb-5 h-[calc(100vh-340px)] min-h-[520px]">
         {/* Chat panel */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card flex flex-col min-h-[480px]">
-          <div className="px-4 py-3 border-b border-ops-border flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-ops-text">Chat</h3>
+        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-ops-border flex items-center justify-between shrink-0">
+            <h3 className="text-sm font-semibold text-ops-text">Chat with Claude</h3>
             {messages.length > 0 && (
               <button
                 onClick={reset}
@@ -312,7 +313,7 @@ export default function EmailCompose() {
               </button>
             )}
           </div>
-          <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px]">
+          <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
             {messages.length === 0 && (
               <div>
                 <div className="text-sm text-ops-text-muted mb-3">
@@ -334,24 +335,18 @@ export default function EmailCompose() {
             {messages.map((m) =>
               m.role === "user" ? (
                 <div key={m.id} className="flex justify-end animate-dirt-fade-in">
-                  <div className="max-w-[88%] px-3 py-2 rounded-2xl rounded-br-md bg-gradient-to-br from-brand-blue-600 to-brand-blue-500 text-white text-sm">
+                  <div className="max-w-[88%] px-3 py-2 rounded-2xl rounded-br-md bg-gradient-to-br from-brand-blue-600 to-brand-blue-500 text-white text-sm break-words">
                     {m.content}
                   </div>
                 </div>
               ) : (
-                <div key={m.id} className="animate-dirt-fade-in">
-                  <div className="text-[10px] text-ops-text-subtle uppercase tracking-wider mb-1">Claude</div>
-                  <pre className="text-[11px] font-mono text-ops-text-muted bg-ops-bg border border-ops-border rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words">
-                    {m.content}
-                    {m.streaming && <span className="inline-block w-[2px] h-[1em] bg-brand-blue-500 align-text-bottom ml-0.5 animate-dirt-blink" />}
-                  </pre>
-                </div>
+                <AssistantTurn key={m.id} message={m} />
               ),
             )}
           </div>
           <form
             onSubmit={(e) => { e.preventDefault(); send(input); }}
-            className="border-t border-ops-border p-3 flex gap-2"
+            className="border-t border-ops-border p-3 flex gap-2 shrink-0"
           >
             <textarea
               value={input}
@@ -385,17 +380,17 @@ export default function EmailCompose() {
           </form>
         </div>
 
-        {/* Live preview */}
-        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card flex flex-col min-h-[480px]">
-          <div className="px-4 py-3 border-b border-ops-border flex items-center justify-between">
+        {/* Live preview — iframe fills the remaining flex height with internal scroll */}
+        <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card flex flex-col overflow-hidden">
+          <div className="px-4 py-3 border-b border-ops-border flex items-center justify-between shrink-0">
             <h3 className="text-sm font-semibold text-ops-text">Live preview</h3>
             {hasFinal && (
               <span className="text-[10px] text-ops-text-subtle">
-                {parsed.html ? `${parsed.html.length} chars HTML` : `${parsed.text.length} chars text`}
+                {parsed.html ? `${parsed.html.length.toLocaleString()} chars HTML` : `${parsed.text.length.toLocaleString()} chars text`}
               </span>
             )}
           </div>
-          <div className="flex-1 overflow-hidden bg-white relative">
+          <div className="flex-1 bg-white relative min-h-0">
             {!hasFinal ? (
               <div className="absolute inset-0 flex items-center justify-center text-sm text-ops-text-muted p-6 text-center">
                 Preview will appear here once Claude returns a complete email.
@@ -404,11 +399,11 @@ export default function EmailCompose() {
               <iframe
                 srcDoc={parsed.html}
                 title="Email preview"
-                className="w-full h-full border-0 bg-white"
+                className="absolute inset-0 w-full h-full border-0 bg-white"
                 sandbox="allow-same-origin"
               />
             ) : (
-              <pre className="w-full h-full p-6 text-sm text-gray-800 bg-white font-mono whitespace-pre-wrap overflow-y-auto">
+              <pre className="absolute inset-0 w-full h-full p-6 text-sm text-gray-800 bg-white font-mono whitespace-pre-wrap overflow-y-auto">
                 {parsed.text}
               </pre>
             )}
@@ -608,6 +603,63 @@ function BrandProfileEditModal({
         </div>
       </div>
     </ModalPortal>
+  );
+}
+
+function AssistantTurn({ message }: { message: ChatMessage }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const parsed = useMemo(() => parseFinalEmail(message.content), [message.content]);
+  const hasParsed = (parsed.html || parsed.text).length > 100;
+  const isStreaming = !!message.streaming;
+  const charCount = message.content.length;
+
+  return (
+    <div className="animate-dirt-fade-in">
+      <div className="text-[10px] text-ops-text-subtle uppercase tracking-wider mb-1.5">Claude</div>
+      {isStreaming && !hasParsed ? (
+        <div className="text-sm text-ops-text-muted bg-ops-bg border border-ops-border rounded-lg p-3 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-brand-blue-400 animate-pulse" />
+          Writing… {charCount > 0 && <span className="text-[10px] text-ops-text-subtle">{charCount.toLocaleString()} chars so far</span>}
+        </div>
+      ) : hasParsed ? (
+        <div className="bg-ops-bg border border-ops-border rounded-lg p-3 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5 text-brand-blue-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+            <span className="text-xs font-semibold text-ops-text">Email drafted</span>
+            {isStreaming && <span className="text-[10px] text-ops-text-subtle">streaming…</span>}
+          </div>
+          {parsed.subject && (
+            <div className="text-[12px] text-ops-text"><span className="text-ops-text-subtle">Subject: </span>{parsed.subject}</div>
+          )}
+          {parsed.preheader && (
+            <div className="text-[11px] text-ops-text-muted"><span className="text-ops-text-subtle">Preheader: </span>{parsed.preheader}</div>
+          )}
+          <div className="flex items-center gap-3 pt-1">
+            <span className="text-[10px] text-ops-text-subtle">
+              {parsed.html ? `${parsed.html.length.toLocaleString()} chars HTML` : `${parsed.text.length.toLocaleString()} chars text`}
+            </span>
+            <button
+              onClick={() => setShowRaw((v) => !v)}
+              className="text-[10px] text-brand-blue-500 hover:text-brand-blue-600 font-semibold"
+            >
+              {showRaw ? "Hide raw" : "Show raw"}
+            </button>
+          </div>
+          {showRaw && (
+            <pre className="mt-2 text-[10px] font-mono text-ops-text-muted bg-ops-surface border border-ops-border rounded-md p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+              {message.content}
+            </pre>
+          )}
+        </div>
+      ) : (
+        // No parseable email yet — Claude's response is either chat-style
+        // (e.g. asking clarifying question) or hasn't finished a section header
+        <div className="text-sm text-ops-text bg-ops-bg border border-ops-border rounded-lg p-3 whitespace-pre-wrap break-words">
+          {message.content}
+          {isStreaming && <span className="inline-block w-[2px] h-[1em] bg-brand-blue-500 align-text-bottom ml-0.5 animate-dirt-blink" />}
+        </div>
+      )}
+    </div>
   );
 }
 
