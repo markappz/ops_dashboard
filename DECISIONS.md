@@ -326,3 +326,87 @@ The fix: only render the top KPI grid when `totalVisitors > 0`. Only render chan
 - New attribution / funnel / campaign / pixel work goes on `/marketing`. Don't create a sibling page for "advanced tracking."
 - New audit / admin-action surfaces go as tabs on `/settings` (alongside General, Integrations, Admin Log). Don't add a new top-level "Audit" page.
 - Redirects in `App.tsx` are the standard pattern for "page moved" — never delete a route without adding the redirect.
+
+---
+
+## 2026-05-21 — AI composer is the dashboard's email author, NOT a Klaviyo WYSIWYG clone
+
+**Decision:** The dashboard owns an AI-driven *chat* composer (`/email/compose`). The composer outputs subject + preheader + HTML/text and saves to Klaviyo as a Template. The dashboard still does NOT ship a WYSIWYG/drag-and-drop editor.
+
+**Why this and not the May-08 "no in-dashboard composer" decision:**
+- The 2026-05-08 ruling was about not rebuilding Klaviyo's drag-and-drop. A chat composer is a *different product* — operators describe an email in natural language and Claude returns brand-compliant HTML grounded in a `BrandProfile`. That's value Klaviyo doesn't provide (and won't, because their UX is for marketing designers, not for ops describing intent).
+- Operators in ops contexts don't open Klaviyo to design — they want "win-back to lapsed 30d users, 1 CTA, ship it." Chat is the right interface.
+- Templates land in Klaviyo as normal CODE templates; the send flow stays template-trigger. Composer is a *template author*, not a send orchestrator.
+
+**Rules to keep this from drifting into a Klaviyo-clone:**
+- No WYSIWYG, no drag-and-drop, no block editor. If a future feature wants those, that's a Klaviyo problem.
+- Composer never owns audience selection, scheduling, or send. Those stay in `/email/send`.
+- Brand profiles (`ops_email_brand_profiles`) are reusable bundles, not per-template designs. Don't let them grow into a CMS — keep the field list tight (colors, font, logo, voice, footer).
+- Output format stays `=== SUBJECT === / === PREHEADER === / === HTML | TEXT ===` so the parser is one function. Don't bolt JSON on.
+
+**How to apply:**
+- Adding a new style = new `EmailStyle` union member + branch in `buildSystemPrompt`. Don't add a new endpoint.
+- Adding a new brand attribute (e.g. social-media link block) = column on `ops_email_brand_profiles` + plumb through `BrandProfileEditModal` + reference in system prompt. Stop there.
+- If someone asks "can we edit the output HTML in the dashboard?" — the answer is no, edit it after Save in Klaviyo. We are not building an editor.
+
+---
+
+## 2026-05-21 — DIRT writes are dashboard-native; refunds > $50 typed-confirm in the model loop
+
+**Decision:** DIRT executes 9 write tools end-to-end: 4 Klaviyo/content (`set_klaviyo_flow_status`, `approve_content_draft`, `queue_blog_topic`, `send_klaviyo_test`) + 5 Stripe (`cancel`, `pause`, `resume`, `change_tier`, `refund`). Every write logs to `ops_admin_actions` before AND after. Refunds above $50 require typed-confirmation from the admin within the conversation — the model is instructed to pause and ask for "REFUND $X" verbatim before calling the tool.
+
+**Why this and not "writes via UI only":**
+- Operators ask DIRT for context anyway ("what's this customer's situation?"). Following with "okay refund them" should be the same surface. Bouncing to a separate page is the wrong friction.
+- Typed-confirm > role gating: any admin can do it, but only after explicit consent in-context. The audit log captures both the request and the confirmation turn, so postmortem is intact.
+- The $50 threshold mirrors the same logic from `email-send`: friction above where mistakes get expensive, frictionless below.
+
+**How to apply:**
+- New DIRT writes follow the same pattern: pre-log row, execute, post-log result. Use `logAdminAction` from `server/lib/auditLog.ts`.
+- Write a system-prompt rule for any new "expensive" action — make the model gate the call behind a typed confirm. Don't rely on UI buttons; DIRT is conversational, the gate must be in the conversation.
+- Read-only mode (`{readOnly: true}` body field, `/read` slash command) still hard-blocks every write tool. New write tools must respect it.
+
+---
+
+## 2026-05-21 — Self-serve credentials write to AWS Secrets Manager from `/integrations`
+
+**Decision:** `/integrations` edits live AWS secrets in `prod/ops-secrets`. Admins rotate Klaviyo / Stripe / Google / Slack keys without redeploying. The page also runs a "Test" call against each provider before saving.
+
+**Why this and not "edit task def to rotate":**
+- Rotating a key shouldn't require an ECS deploy. Old flow was: AWS console → Secrets Manager → update → restart task → 4 minutes of grace period. New: edit in UI, save, secret manager writes immediately, app picks it up on next request (since secrets are read per-request via env, not cached at boot for these connectors).
+- Test-before-save eliminates "I rotated it but typo'd" outages.
+
+**How to apply:**
+- New integrations: register both a `read` (status) and a `test` (probe-call) endpoint, then add to the Integrations page schema in `client/src/pages/integrations.tsx`.
+- Secret keys are stored in the same `prod/ops-secrets` JSON. Never split into a separate secret per provider — duplicates the rotation overhead.
+- The IAM role on ECS task def MUST have `secretsmanager:PutSecretValue` on `prod/ops-secrets`. Read-only role would break this flow.
+
+---
+
+## 2026-05-21 — All modals via React portal
+
+**Decision:** Any modal that could render inside an `overflow-hidden` container uses `client/src/components/modal-portal.tsx` (renders into `document.body`). Inline modal rendering is banned.
+
+**Why:** On mobile, parents with `overflow-hidden` clip absolutely-positioned modals so they appear "below the page" or invisible. Portal escapes the clip. Desktop is unaffected.
+
+**How to apply:**
+- Every new modal wraps its contents in `<ModalPortal>`. No exceptions.
+- If you find an inline modal during a refactor, port it. Don't add new ones.
+- Backdrop click-to-close is handled by the portal — don't reimplement.
+
+---
+
+## 2026-05-22 — Klaviyo conversion metric: per-purpose, probe-and-cache
+
+**Decision:** `getConversionMetric(purpose)` caches per "campaign" vs "flow" because Klaviyo's `values-report` 400s for different metric × report combinations. Candidates are tried in priority order (revenue first, then engagement fallbacks); first that returns 200 wins. Cache TTL 30 min.
+
+**Why this and not "find the one true metric":**
+- Klaviyo accounts vary: some have "Placed Order" wired (Shopify), some only have base engagement events. Hard-coding one metric breaks new accounts.
+- A given metric can be valid for one report type and rejected for another in the same account — values-report has different compatibility rules than the metric list itself. Per-purpose cache is the cleanest answer.
+- Probe-once-then-cache is cheap. The miss happens at boot per purpose; every subsequent call is hot.
+
+**How to apply:**
+- New report endpoints that need a `conversion_metric_id` should call `getConversionMetric('campaign' | 'flow')` and handle the `null` case (return `{metrics:{}, warning}` so the UI degrades).
+- When we add value-capable stats to a request, gate them on `conv.isRevenueMetric` — non-revenue metrics 400 on `conversion_value` / `revenue_per_recipient`. Engagement-only stat list is the safe fallback.
+- `KLAVIYO_CONVERSION_METRIC_NAME` env override skips the priority list — use it when an account has a custom event name (e.g. "Subscription Created").
+
+

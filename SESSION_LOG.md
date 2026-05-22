@@ -616,3 +616,128 @@ Now `isAIConfigured()` returns true in prod and DIRT can call Bedrock. Added `be
 - Bedrock prod creds live in `prod/ops-secrets` AWS Secrets Manager; ECS task def must expose AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_REGION via `secrets[]`.
 - Read-only toggle is a per-request flag, not a server-side state. UI exposes it via `/read` command.
 
+---
+
+## 2026-05-21 → 2026-05-22 — DIRT expansion + Stripe writes + mobile pass + email composer v2
+
+Catch-up entry covering 31 commits between `35933f8` (DIRT "Talk Dirt" copy) and `c4cd22f` (Email composer bounded panels). Listed by theme, oldest → newest within each cluster.
+
+### DIRT capability expansion
+
+- `35933f8` Launcher copy → "Talk Dirt".
+- `549a298` ECS task def template — add AWS_ACCESS_KEY_ID + SECRET + REGION secrets[] (companion to the prod fix in revision 35).
+- `49cab39` Slash-command hints are now clickable.
+- `c55ca6f` **Phase 3 — 5 Stripe write tools** (cancel / pause / resume / change_tier / refund). All audit-logged. Refund > $50 requires typed confirm in the model loop. Now DIRT can act on customers, not just describe them.
+- `94dcea6` **Conversation persistence** with history dropdown — turns saved to `ops_dirt_conversations` per admin, latest 30 surfaced.
+- `1a9bab6` **Proactive anomaly scan + notifications inbox** — top-bar bell shows new findings (revenue dip, refund spike, integration failure). Server scan runs on a cadence; inbox lives in `ops-layout.tsx`.
+- `56a241a` Fix History dropdown clipped by header overflow-hidden.
+- `0ef1ba9` Persist conversations on EVERY exit path (close panel / abort / error), log success or failure.
+- `b03e646` **DIRT → Slack** — proactive scan findings posted to incoming webhook (`SLACK_OPS_WEBHOOK_URL`). Settings exposes a per-admin opt-in.
+- `edfc34b` ECS task def — expose `SLACK_OPS_WEBHOOK_URL` from Secrets Manager.
+- `88c4ffa` **DIRT daily digest** — scheduled Slack brief (snapshot + anomalies + tomorrow's send queue) + manual trigger button on `/integrations`.
+- `20bdb3f` **Voice DIRT** — talk to DIRT via browser Web Speech API. Hold-to-talk on launcher (or `/voice` in chat). Streams text replies as before; voice is input-only for now.
+
+### Integrations refactor + mobile-first polish
+
+- `e20d753` Resolve duplication — `/integrations` is the only home (was also at `/settings`). 200 lines deleted from settings.tsx.
+- `d9dc80c` **Self-serve integration credentials** — Edit + Test from `/integrations`. New `server/integrations.ts` + `server/lib/secretsManager.ts` write directly to AWS Secrets Manager. New `IntegrationEditModal` component.
+- `9612167` Integrations 2-up grid + global mobile-first polish (cards, table breakpoints, padding).
+- `4ebc4f8` Bell button visually balances with avatar circle.
+- `0df6b14` "Talk Dirt" floating pill — icon-only on mobile, full pill on sm+.
+
+### Mobile sweep (Apr-mobile-pass equivalent for ops)
+
+- `ab158ef` Sidebar drawer + hamburger + compact top bar + padding pass.
+- `807a85c` MetricCard hover + Send-Campaign back button + responsive grids on command-center.
+- `8f3e50e` Mobile pass #2 — revenue-chart sizing + Klaviyo metrics 400s degrade gracefully (no more blank Email page on metric discovery failure).
+- `fd9ec69` Mobile pass #3 — every remaining non-responsive grid (content, leads, marketing, member-detail, orders, settings).
+- `267b337` Tables horizontally scroll on mobile instead of truncating.
+- `27f0c16` Dropdowns fit inside viewport on mobile.
+- `48dc072` Clomark header buttons no longer word-wrap.
+- `52f4c3e` Add Location Page modal stacks 1-col on mobile.
+- `da597cb` **Modals render via React portal** (`modal-portal.tsx`) — fixes "opens below the page" on mobile when parent has overflow:hidden. Used by content, email, member-detail.
+- `d9d0703` Settings Auth/Environment cards: URL stops wrapping one-letter-per-line.
+
+### Bulk actions on /members
+
+- `238b90d` Row selection + floating bulk bar → "Ask DIRT" with selected member IDs piped into the prompt. Reusable `BulkBar` component.
+
+### Klaviyo metrics resilience
+
+- `8f3e50e` (above) Wrap `campaign-values-reports` 400s into a `{warning, metrics:{}}` response so the Email page still renders.
+- `9df5875` Split engagement-only vs value-capable stats by metric. Klaviyo 400s when you ask for `conversion_value` on a non-revenue metric — now we only request value stats when the active conversion metric is revenue-flagged (per-purpose cache: campaign vs flow can pick different metrics).
+
+### Email composer v2 — the new big surface
+
+- `5d9af97` Mandatory FitScript logo block in every branded HTML email + clearer Klaviyo 403 message ("missing Templates:Write scope" → exact remediation steps).
+- `cc291d9` **Email v2 — brand profiles + style selector + chat composition.** Rewrites both `client/src/pages/email-compose.tsx` (903 LOC) and `server/email-compose.ts` (537 LOC).
+  - New `ops_email_brand_profiles` table — reusable color/font/logo/voice bundles. Default FitScript profile is seeded on first read.
+  - 4 CRUD endpoints + `BrandProfileEditModal`.
+  - Style selector: `branded-html` / `minimal-html` / `plain-text`. System prompt branches per style.
+  - SSE multi-turn chat at `POST /api/ops/email/compose/chat` — Claude streams back `=== SUBJECT === / === PREHEADER === / === HTML === | === TEXT ===` blocks; client parses and renders a live `srcDoc` iframe preview.
+  - `POST /api/ops/email/compose/save` → Klaviyo template (handles plain-text by wrapping in `<pre>`).
+- `c9f2803` Inter web font (Google Fonts <link> in <head>, system fallback) + quickchart.io chart support documented in the system prompt for branded-html.
+- `c4cd22f` Composer UX — bounded panels (no infinite page growth as Claude streams), compact assistant cards. `h-[calc(100vh-340px)]` on the chat+preview split.
+
+### What I'll remember
+
+- **Email composer architecture**: brand profiles in `ops_email_brand_profiles`, prompt is built per-style + per-profile in `buildSystemPrompt`, output format is hard-delimited `=== ... ===` blocks that the client parses with simple string splits. Adding a new style = add to `EmailStyle` union + branch in `buildSystemPrompt`.
+- **Klaviyo conversion metric** is purpose-cached (campaign vs flow). Revenue metric is flagged; engagement-only metrics block value stats. Probe-and-cache pattern means cold-start is one extra POST per purpose but every subsequent call hits the cache for 30 min.
+- **Modal portal** is now the standard for any modal that might open inside an `overflow-hidden` container. Don't render modals inline anymore.
+- **Bulk actions pattern**: a `BulkBar` floats above the selected rows and dispatches a `dirt:open` event with the row-IDs in the prompt. Reuse for other list pages (members done; orders/leads/sends candidates).
+- **DIRT writes are now full-Stripe**: cancel/pause/resume/change_tier/refund. All audit-logged. Refund > $50 requires typed confirm IN THE LOOP — model is instructed to ask, can't just fire.
+- **Self-serve credentials** write to AWS Secrets Manager from `/integrations`. No more SSH-into-task-def to rotate a key.
+
+### Pending / on deck
+
+- Email composer is functionally complete: brand profiles ✓ multi-turn chat ✓ live preview ✓ save to Klaviyo ✓ logo + Inter ✓ quickchart support ✓ bounded panels ✓. Open questions in [[DECISIONS]] below: should send-from-composer be one click (compose → schedule in same flow), or keep template-then-send as two flows?
+- Klaviyo metrics page is read-only and resilient. Send flow is at `/email/send`. No outstanding bugs reported.
+- DIRT next: writes for blog publishing pipeline (Clomark), tagging Klaviyo profiles, suppression list management.
+
+---
+
+## 2026-05-22 — Email composer: premium voice + scaffold + CHANGES block + color coercion
+
+Paul tested the composer end-to-end. Two issues surfaced:
+1. Output "felt basic" — generic stat boxes ("New insights" / "Ready to go"), platitude bullets, no personalization tokens.
+2. White-on-transparent logo invisible on light page bg (current `email-logo.png` is dark-mode only).
+3. After my first prompt edit, the model started painting the whole email dark (`#0a0a0a` body bg). Training-data bias toward "dark = premium" was overriding the explicit light-mode rule.
+
+### Shipped
+
+**Server prompt (`server/email-compose.ts`)** — full rewrite of `buildSystemPrompt` for branded-html:
+- Hardened voice: senior designer + copywriter framing, FitScript voice anchors, anti-pattern list ("we miss you" / "Come back" / placeholder stat boxes / em-dash openings forbidden).
+- Length budget: body under 180 words, hero h1 under 8 words, section headlines under 6, exactly one primary CTA.
+- Klaviyo personalization tokens mandated (`{{ first_name|default:"there" }}`, location.*, person|lookup for custom props).
+- New output block: `=== CHANGES ===` between PREHEADER and HTML — "Initial draft." on turn 1, 2-5 verb-led bullets (Cut / Added / Rewrote / Shortened / Replaced / Tightened / Removed) on refinements. Explicitly mandated on EVERY turn including refinements.
+- **HTML scaffold** as fill-in template — fully specified outer frame with light page bg, navy logo band, white card, branded CTA, footer. Model fills slots (HERO_H1, BODY_SECTIONS, CTA_URL/LABEL). Replaces "describe the rules" with "use this scaffold". Stronger forcing function.
+- Plain-text mode also got the CHANGES block.
+
+**Client parser + render (`client/src/pages/email-compose.tsx`):**
+- `ParsedEmail` now carries `changes: string`. Parser extracts `=== CHANGES ===` block.
+- `AssistantTurn` renders a "What changed" / "Status" subsection under each draft card — bulleted list (parsed from dash-prefixed lines) for refinements, single "Initial draft." line for turn 1.
+- `coerceFrameColors(html, pageBg, accentBand)` post-processes the parsed HTML — swaps any forbidden near-black `background-color` (`#0a0a0a`, `#000000`, `#111`, `#1a1a1a`, `#0f172a`, etc.) for the profile's page bg. Accent navy is preserved so the logo band stays dark. Belt + suspenders against prompt drift.
+
+### Why coercion despite the scaffold
+
+Two API end-to-end tests after the scaffold change still produced `<body style="background-color: #0a0a0a">`. The model treats "premium email" as ≈ "dark frame around white card" — a strong pattern in training data that survives even a full scaffold + explicit forbidden-colors rule. Rather than keep escalating prompt force, the client coerces. Light/navy frame is now invariant regardless of what the model outputs.
+
+### Verified (end-to-end via forged admin cookie + curl)
+
+1. **Initial draft** (newsletter): subject "Your fasting insulin matters more than you think", preheader "Plus: track your recovery with the new HRV trend view.", CHANGES = "Initial draft."
+2. **Refinement turn** ("Cut HRV, add first_name token"): CHANGES bullets are sharp and specific —
+   - Removed entire HRV section and divider per request.
+   - Added `{{ first_name|default:"there" }}` personalization to hero lead.
+   - Shortened body from 140 → 95 words.
+   - Tightened hero headline for stronger contrast.
+3. **Color audit**: raw body bg was `#0a0a0a`; after `coerceFrameColors` → `#F2F6FC`; navy `#0A1628` logo band preserved; no remaining forbidden hex.
+4. **Personalization**: Klaviyo `first_name` token landed in body copy.
+
+### What I'll remember
+
+- **Forcing functions beat rules for visual design.** Telling the model "use this scaffold" works far better than "follow these 8 color rules." Both are needed for redundancy.
+- **Prompt drift is real for visual + color choices.** A model can ignore a HARD RULE if there's a stronger latent association from training data. Add a client/server post-processor for any visual invariant you absolutely require.
+- **CHANGES block as a contract**: makes multi-turn refinement legible. Operators can see at a glance what shifted between drafts instead of comparing HTML side-by-side.
+- **Logo is white-on-transparent** — must always sit on a dark band (`accent_color`, default `#0A1628`). If a future profile has no accent_color, falls back to navy.
+- **`tsx server/index.ts` (the dev script) does NOT watch.** Server-side edits require a manual restart. Vite HMR handles client only. Worth either adding `tsx --watch` to the dev script or remembering this every time.
+

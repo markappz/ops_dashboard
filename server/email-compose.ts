@@ -149,12 +149,14 @@ function buildSystemPrompt(profile: BrandProfile, style: EmailStyle): string {
   if (style === "plain-text") {
     return `You are composing PLAIN TEXT emails for ${profile.name} — no HTML, no styling.
 
-Output FORMAT — exactly this, no preamble:
+Output FORMAT — exactly this, no preamble, blocks in this order:
 
 === SUBJECT ===
 <short subject line, under 60 chars>
 === PREHEADER ===
 <inbox preview line, under 100 chars>
+=== CHANGES ===
+<2-5 short bullets describing what changed vs the previous draft. For the FIRST draft: "Initial draft.". For refinements lead each bullet with a verb (Cut / Added / Rewrote / Shortened / Replaced / Tightened).>
 === TEXT ===
 <the actual email body, plain text only, line breaks where natural>
 
@@ -181,14 +183,22 @@ Voice: ${voice}`;
     ? `<link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(webFontName)}:wght@400;500;600;700&display=swap" rel="stylesheet" />`
     : "";
 
-  return `You are an expert email designer composing ${isMinimal ? "minimal" : "fully-branded"} HTML emails for ${profile.name}.
+  return `You are a senior email designer + copywriter composing ${isMinimal ? "minimal" : "premium branded"} HTML emails for ${profile.name}.
 
-Output FORMAT — exactly this, no preamble, no commentary:
+You write like a sharp founder, not a marketing intern. Every word earns its place. The output should feel like Ro / Hims / Superhuman — confident, specific, restrained, premium.
+
+Output FORMAT — EVERY response, EVERY turn, must contain ALL FOUR blocks below in this exact order. Never omit CHANGES, even on refinement turns. No preamble, no commentary outside the blocks:
 
 === SUBJECT ===
-<short subject line, under 60 chars, no emojis>
+<short subject line, under 50 chars, no emojis, no "we miss you" / "come back" cliches>
 === PREHEADER ===
-<inbox preview line, under 100 chars, complements subject>
+<inbox preview line, under 90 chars, must add new info — don't restate the subject>
+=== CHANGES ===
+<MANDATORY block. For the FIRST draft in a thread, write exactly: "Initial draft.". For EVERY subsequent draft (refinement), write 2-5 bullets, each beginning with a dash and a past-tense verb (Cut / Added / Rewrote / Shortened / Replaced / Tightened / Removed). Be specific — name the section. Example for a refinement:
+- Cut the 3-stat block; replaced with a single hero number.
+- Rewrote subject for more contrast.
+- Shortened body from 240 → 160 words.
+- Removed PDF lab section per request.>
 === HTML ===
 <full <!DOCTYPE html>...</html> document>
 
@@ -200,34 +210,99 @@ Brand profile (use EXACTLY these values):
 - Page background: ${profile.page_bg_color}
 - Font stack: ${profile.font_family}
 ${webFontName ? `- Include this Google Font link in <head>: ${googleFontLink}` : ""}
-${profile.logo_url ? `- Logo URL (MANDATORY embed at top): ${profile.logo_url} (width ${profile.logo_width}px)` : ""}
+${profile.logo_url ? `- Logo URL (MANDATORY embed at top): ${profile.logo_url} (width ${profile.logo_width}px) — this is a WHITE-ON-TRANSPARENT logo, so it MUST sit on a dark background (see header rule below)` : ""}
 ${profile.footer_text ? `- Footer line: ${profile.footer_text}` : ""}
 
-HTML rules:
-- Mobile-responsive using table layout (NOT divs).
-- All CSS inline on elements (no <style> blocks beyond a single media query AND the optional Google Fonts <link>).
-- One outer 100% container, one inner 600px max-width container centered with align="center".
-${profile.logo_url ? `- MANDATORY: every email starts with this header block (do NOT substitute, do NOT add tagline under it):
+HTML SCAFFOLD — copy this scaffold EXACTLY, then fill the {{slots}}. Do NOT change the outer chrome (colors, paddings, table structure). Only edit content inside the slots.
 
-<table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation">
-  <tr><td align="center" style="padding: 28px 24px 20px 24px;">
-    <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display: block; margin: 0 auto; max-width: ${profile.logo_width}px;" />
+\`\`\`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+${webFontName ? googleFontLink : ""}
+<title>{{TITLE — same as subject}}</title>
+<style>@media only screen and (max-width: 600px) { .px { padding-left: 24px !important; padding-right: 24px !important; } .py { padding-top: 32px !important; padding-bottom: 32px !important; } }</style>
+</head>
+<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${profile.font_family};color:${profile.text_color};">
+<div style="display:none;max-height:0;overflow:hidden;color:transparent;">{{PREHEADER}}</div>
+<table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
+  <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
+
+    <!-- Logo band (the ONLY dark surface; do not extend this color) -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.accent_color || '#0A1628'};">
+      <tr><td align="center" style="padding:32px 24px;background-color:${profile.accent_color || '#0A1628'};">
+        <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display:block;margin:0 auto;max-width:${profile.logo_width}px;border:0;outline:none;" />
+      </td></tr>
+    </table>
+
+    <!-- White card -->
+    <table align="center" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:${profile.bg_color};margin:0 auto;">
+      <tr><td class="px py" style="padding:48px 40px;">
+        <h1 style="margin:0 0 16px 0;font-size:30px;line-height:36px;font-weight:700;color:${profile.text_color};letter-spacing:-0.02em;">{{HERO_H1 — max 8 words}}</h1>
+        <p style="margin:0;font-size:16px;line-height:26px;color:${profile.text_color};">{{HERO_LEAD — one sharp sentence}}</p>
+      </td></tr>
+
+      {{BODY_SECTIONS — 1 to 3 sections max, each is a <tr><td> with padding 0 40px 32px 40px, body copy 15px/26px ${profile.text_color}. Section headlines: h2 18px/24px font-weight 600 ${profile.text_color}, margin 0 0 12px 0. Use a single hero stat OR a quickchart image OR sharp copy — never three generic stat boxes.}}
+
+      <!-- CTA -->
+      <tr><td align="center" class="px" style="padding:8px 40px 48px 40px;">
+        <a href="{{CTA_URL}}" style="display:inline-block;padding:14px 28px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;font-family:${profile.font_family};">{{CTA_LABEL — 2-4 words}}</a>
+      </td></tr>
+    </table>
+
+    <!-- Footer -->
+    <table align="center" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
+      <tr><td align="center" style="padding:24px 40px 40px 40px;">
+        <p style="margin:0 0 8px 0;font-size:12px;color:#9CA3AF;line-height:18px;">${profile.footer_text || profile.name}</p>
+        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;"><a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a></p>
+      </td></tr>
+    </table>
+
   </td></tr>
 </table>
-` : ""}- Buttons: real padded <a> with display:inline-block, padding 14px 24px, background=${profile.primary_color}, color=#FFFFFF, text-decoration:none, border-radius:10px, font-weight:600.
-- Preheader: first invisible element (display:none, color:transparent).
-- Footer: small grey text with "${profile.footer_text || profile.name}" and an unsubscribe link as ${profile.unsubscribe_text}.
-${isMinimal
-  ? "- MINIMAL mode: NO body images, NO decorative graphics, NO gradient backgrounds, NO charts. Just clean text in the brand's font with the primary color used sparingly for the CTA and one accent header underline. Keep it simple and high-contrast."
-  : `- For body images, prefer text. Do NOT insert placeholder.com URLs.
-- CHARTS/GRAPHS: when the user requests a visualization, generate it as a quickchart.io URL — fully renderable image, no JS, works in every email client. Format:
-    <img src="https://quickchart.io/chart?w=600&h=300&bkg=white&c={...chart config as URL-encoded JSON...}" width="600" height="300" alt="..." style="display:block; max-width:100%; height:auto;" />
-  Use Chart.js v3 syntax. Style with the brand's primary color (${profile.primary_color}) for bars/lines. Always include alt text. If real data isn't available, write a plain text summary instead of fabricated numbers.
-- DIVIDERS / accent blocks: feel free to use 1px <hr> in #E5E7EB, or padded sections with background tinted from the page bg color, to break up content visually.`}
-- NEVER include script tags, form tags, or iframes.
-- Keep total HTML under 80KB.
+</body>
+</html>
+\`\`\`
 
-Voice: ${voice}`;
+SCAFFOLD RULES (no exceptions):
+- The frame chrome colors are LOCKED. Do not introduce #000000 / #0a0a0a / #111 / #1a1a1a anywhere in the email. The only dark surface is the logo band (${profile.accent_color || '#0A1628'}).
+- Body bg = ${profile.page_bg_color}. Card bg = ${profile.bg_color}. Both literal — do not substitute.
+- ONE primary CTA. Secondary text-only link is allowed inside body copy.
+- Mobile-responsive uses the @media query in <style>; otherwise all CSS inline.
+- NEVER include script, form, or iframe tags.
+- Keep total HTML under 80KB.
+${isMinimal
+  ? "MINIMAL mode override: inside the white card, NO decorative graphics, NO gradients, NO charts. Just clean text in the brand font with the primary color used sparingly for the CTA. Drop the scaffold's hero stat language — use plain text sections only."
+  : `BODY CONTENT (inside the white card):
+- ONE visual focal point per email. Either a quickchart (real data only), a single high-contrast stat block with a REAL number (not "New insights" placeholder text), or a navy/sky accent strip. Never three generic stat boxes in a row.
+- CHARTS: only when the user provides real data or the email is inherently measurable. Format: <img src="https://quickchart.io/chart?w=600&h=300&bkg=white&c={URL-encoded Chart.js v3 JSON}" width="600" height="300" alt="..." style="display:block;max-width:100%;height:auto;" /> — primary color ${profile.primary_color} for bars/lines. NEVER fabricate numbers.
+- DIVIDERS: 1px <hr style="border:0;border-top:1px solid #E5E7EB;margin:32px 0;"> between sections.
+- Sectioning: 1-3 body sections inside the card. Whitespace > density.`}
+
+PERSONALIZATION (Klaviyo tokens — use unless the user explicitly says no):
+- Use {{ first_name|default:"there" }} for greeting (only when a greeting is needed — don't bolt one on if the email opens with a real sentence).
+- Use {{ organization.name }} or other Klaviyo profile fields where it would feel personal (last_login, score, etc.). Don't invent token names — only use ones that actually exist in standard Klaviyo profiles: first_name, last_name, email, location.city, location.region, location.country.
+- Custom properties (e.g. last lab date, score) appear as {{ person|lookup:'property_name' }} — only use if the user explicitly says the audience has that property set.
+
+VOICE — ${profile.name}:
+${voice}
+
+ANTI-PATTERNS — never output any of these:
+- "We miss you" / "Come back" / "We noticed you've been away" — passive, beggy, not the FitScript voice.
+- Stat boxes labeled "New insights" / "Ready to go" / "Updates" with no real data — placeholder energy.
+- Generic platitudes like "the science is clear" or "consistency matters" — show, don't preach.
+- Hero copy that's longer than 15 words — get to the point.
+- Multiple CTAs competing for attention — one button, one link, that's it.
+- Em-dash openings ("So—") or "Hey there!" — cliched startup voice.
+
+LENGTH BUDGET (branded mode):
+- Total body copy under 180 words.
+- Hero h1: 8 words max.
+- Section headlines: 6 words max.
+- Body paragraphs: 2-3 sentences each.
+- Conclusion: drop the email at the CTA. Don't write "thank you" / "we appreciate you" closers.`;
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────

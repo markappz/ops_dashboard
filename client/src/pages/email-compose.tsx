@@ -33,6 +33,7 @@ interface ChatMessage {
 interface ParsedEmail {
   subject: string;
   preheader: string;
+  changes: string;
   html: string;
   text: string;
 }
@@ -43,29 +44,69 @@ const STYLE_OPTIONS: { value: EmailStyle; label: string; description: string }[]
   { value: "plain-text", label: "Plain text", description: "No HTML — text-only newsletter style" },
 ];
 
+// Some models override the prompt's light-mode rule and paint the email frame
+// near-black (training-data bias toward "dark = premium"). Coerce those back to
+// the brand's page background. The white card and logo band stay untouched.
+const FORBIDDEN_FRAME_COLORS = [
+  "#0a0a0a", "#0A0A0A",
+  "#000000", "#000",
+  "#111111", "#111",
+  "#1a1a1a", "#1A1A1A",
+  "#0f0f0f", "#0F0F0F",
+  "#0f172a", "#0F172A",
+];
+
+function coerceFrameColors(html: string, pageBg: string, accentBand: string): string {
+  if (!html) return html;
+  let out = html;
+  // Replace any forbidden hex when used as a background-color value. Be careful
+  // not to touch the navy logo band (which is the profile's accent color, e.g.
+  // #0A1628) — accentBand is allowed.
+  for (const bad of FORBIDDEN_FRAME_COLORS) {
+    if (bad.toLowerCase() === accentBand.toLowerCase()) continue;
+    const re = new RegExp(`background-color\\s*:\\s*${bad}\\b`, "gi");
+    out = out.replace(re, `background-color: ${pageBg}`);
+  }
+  return out;
+}
+
 function parseFinalEmail(raw: string): ParsedEmail {
   const subjectIdx = raw.indexOf("=== SUBJECT ===");
   const preheaderIdx = raw.indexOf("=== PREHEADER ===");
+  const changesIdx = raw.indexOf("=== CHANGES ===");
   const htmlIdx = raw.indexOf("=== HTML ===");
   const textIdx = raw.indexOf("=== TEXT ===");
-  const endOfMain = htmlIdx >= 0 ? htmlIdx : textIdx >= 0 ? textIdx : raw.length;
+  const bodyIdx = htmlIdx >= 0 ? htmlIdx : textIdx >= 0 ? textIdx : raw.length;
 
   let subject = "";
   let preheader = "";
+  let changes = "";
   let html = "";
   let text = "";
 
+  // Pick the first delimiter that appears AFTER each section header to bound it.
+  const nextAfter = (start: number, candidates: number[]): number => {
+    const valid = candidates.filter((i) => i > start);
+    return valid.length ? Math.min(...valid) : raw.length;
+  };
+
   if (subjectIdx >= 0) {
-    const end = preheaderIdx >= 0 ? preheaderIdx : endOfMain;
+    const end = nextAfter(subjectIdx, [preheaderIdx, changesIdx, htmlIdx, textIdx]);
     subject = raw.slice(subjectIdx + "=== SUBJECT ===".length, end).trim();
   }
   if (preheaderIdx >= 0) {
-    preheader = raw.slice(preheaderIdx + "=== PREHEADER ===".length, endOfMain).trim();
+    const end = nextAfter(preheaderIdx, [changesIdx, htmlIdx, textIdx]);
+    preheader = raw.slice(preheaderIdx + "=== PREHEADER ===".length, end).trim();
   }
-  if (htmlIdx >= 0) html = raw.slice(htmlIdx + "=== HTML ===".length).trim();
+  if (changesIdx >= 0) {
+    const end = nextAfter(changesIdx, [htmlIdx, textIdx]);
+    changes = raw.slice(changesIdx + "=== CHANGES ===".length, end).trim();
+  }
+  if (htmlIdx >= 0) html = raw.slice(htmlIdx + "=== HTML ===".length, textIdx > htmlIdx ? textIdx : raw.length).trim();
   if (textIdx >= 0) text = raw.slice(textIdx + "=== TEXT ===".length).trim();
+  void bodyIdx;
 
-  return { subject, preheader, html, text };
+  return { subject, preheader, changes, html, text };
 }
 
 export default function EmailCompose() {
@@ -111,7 +152,21 @@ export default function EmailCompose() {
     }
     return "";
   }, [messages]);
-  const parsed = useMemo(() => parseFinalEmail(lastAssistant), [lastAssistant]);
+  const activeProfile = useMemo(
+    () => profiles.find((p) => p.id === profileId) || defaultProfile,
+    [profiles, profileId, defaultProfile],
+  );
+  const parsed = useMemo(() => {
+    const p = parseFinalEmail(lastAssistant);
+    if (p.html && activeProfile) {
+      p.html = coerceFrameColors(
+        p.html,
+        activeProfile.page_bg_color,
+        activeProfile.accent_color || "#0A1628",
+      );
+    }
+    return p;
+  }, [lastAssistant, activeProfile]);
   const hasFinal = (parsed.html || parsed.text).length > 0;
 
   const send = async (text: string) => {
@@ -634,6 +689,7 @@ function AssistantTurn({ message }: { message: ChatMessage }) {
           {parsed.preheader && (
             <div className="text-[11px] text-ops-text-muted"><span className="text-ops-text-subtle">Preheader: </span>{parsed.preheader}</div>
           )}
+          {parsed.changes && <ChangesBlock changes={parsed.changes} />}
           <div className="flex items-center gap-3 pt-1">
             <span className="text-[10px] text-ops-text-subtle">
               {parsed.html ? `${parsed.html.length.toLocaleString()} chars HTML` : `${parsed.text.length.toLocaleString()} chars text`}
@@ -658,6 +714,40 @@ function AssistantTurn({ message }: { message: ChatMessage }) {
           {message.content}
           {isStreaming && <span className="inline-block w-[2px] h-[1em] bg-brand-blue-500 align-text-bottom ml-0.5 animate-dirt-blink" />}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ChangesBlock({ changes }: { changes: string }) {
+  const lines = useMemo(() => {
+    return changes
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.replace(/^[-*•]\s*/, ""));
+  }, [changes]);
+
+  if (lines.length === 0) return null;
+
+  const isInitial = lines.length === 1 && /^initial draft\.?$/i.test(lines[0]);
+
+  return (
+    <div className="mt-1.5 pt-1.5 border-t border-ops-border/60">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ops-text-subtle mb-1">
+        {isInitial ? "Status" : "What changed"}
+      </div>
+      {isInitial ? (
+        <div className="text-[11px] text-ops-text-muted">Initial draft.</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {lines.map((line, i) => (
+            <li key={i} className="text-[11px] text-ops-text-muted leading-snug flex gap-1.5">
+              <span className="text-brand-blue-500 shrink-0">›</span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
