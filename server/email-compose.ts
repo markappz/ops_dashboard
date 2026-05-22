@@ -96,7 +96,7 @@ async function ensureProfilesTable() {
         'system')`,
       [
         randomUUID(),
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+        '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
       ],
     );
     console.log("[OPS][EMAIL] Seeded default FitScript brand profile");
@@ -171,6 +171,16 @@ Voice: ${voice}`;
 
   const isMinimal = style === "minimal-html";
 
+  // Detect if the font stack starts with a web font (quoted name) so we
+  // can pull it from Google Fonts in the head. Apple Mail / iOS Mail
+  // render Google Fonts; Gmail/Outlook fall back to the next item in
+  // the stack (so the system fonts stay as fallback).
+  const fontMatch = profile.font_family.match(/^"([^"]+)"/);
+  const webFontName = fontMatch ? fontMatch[1] : null;
+  const googleFontLink = webFontName
+    ? `<link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(webFontName)}:wght@400;500;600;700&display=swap" rel="stylesheet" />`
+    : "";
+
   return `You are an expert email designer composing ${isMinimal ? "minimal" : "fully-branded"} HTML emails for ${profile.name}.
 
 Output FORMAT — exactly this, no preamble, no commentary:
@@ -189,12 +199,13 @@ Brand profile (use EXACTLY these values):
 - Card background: ${profile.bg_color}
 - Page background: ${profile.page_bg_color}
 - Font stack: ${profile.font_family}
+${webFontName ? `- Include this Google Font link in <head>: ${googleFontLink}` : ""}
 ${profile.logo_url ? `- Logo URL (MANDATORY embed at top): ${profile.logo_url} (width ${profile.logo_width}px)` : ""}
 ${profile.footer_text ? `- Footer line: ${profile.footer_text}` : ""}
 
 HTML rules:
 - Mobile-responsive using table layout (NOT divs).
-- All CSS inline on elements (no <style> blocks beyond a single media query).
+- All CSS inline on elements (no <style> blocks beyond a single media query AND the optional Google Fonts <link>).
 - One outer 100% container, one inner 600px max-width container centered with align="center".
 ${profile.logo_url ? `- MANDATORY: every email starts with this header block (do NOT substitute, do NOT add tagline under it):
 
@@ -203,12 +214,16 @@ ${profile.logo_url ? `- MANDATORY: every email starts with this header block (do
     <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display: block; margin: 0 auto; max-width: ${profile.logo_width}px;" />
   </td></tr>
 </table>
-` : ""}- Buttons: real padded <a> with display:inline-block, padding, background=${profile.primary_color}, color=#FFFFFF, text-decoration:none, border-radius:8px.
+` : ""}- Buttons: real padded <a> with display:inline-block, padding 14px 24px, background=${profile.primary_color}, color=#FFFFFF, text-decoration:none, border-radius:10px, font-weight:600.
 - Preheader: first invisible element (display:none, color:transparent).
 - Footer: small grey text with "${profile.footer_text || profile.name}" and an unsubscribe link as ${profile.unsubscribe_text}.
 ${isMinimal
-  ? "- MINIMAL mode: NO body images, NO decorative graphics, NO gradient backgrounds. Just clean text in the brand's font with the primary color used sparingly for the CTA and one accent header underline. Keep it simple and high-contrast."
-  : "- For body images, prefer text or use a TODO comment. Do NOT insert placeholder.com URLs."}
+  ? "- MINIMAL mode: NO body images, NO decorative graphics, NO gradient backgrounds, NO charts. Just clean text in the brand's font with the primary color used sparingly for the CTA and one accent header underline. Keep it simple and high-contrast."
+  : `- For body images, prefer text. Do NOT insert placeholder.com URLs.
+- CHARTS/GRAPHS: when the user requests a visualization, generate it as a quickchart.io URL — fully renderable image, no JS, works in every email client. Format:
+    <img src="https://quickchart.io/chart?w=600&h=300&bkg=white&c={...chart config as URL-encoded JSON...}" width="600" height="300" alt="..." style="display:block; max-width:100%; height:auto;" />
+  Use Chart.js v3 syntax. Style with the brand's primary color (${profile.primary_color}) for bars/lines. Always include alt text. If real data isn't available, write a plain text summary instead of fabricated numbers.
+- DIVIDERS / accent blocks: feel free to use 1px <hr> in #E5E7EB, or padded sections with background tinted from the page bg color, to break up content visually.`}
 - NEVER include script tags, form tags, or iframes.
 - Keep total HTML under 80KB.
 
