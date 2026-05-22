@@ -229,6 +229,8 @@ HTML SCAFFOLD — copy this scaffold EXACTLY, then fill the {{slots}}. Do NOT ch
 ${webFontName ? googleFontLink : ""}
 <title>{{TITLE — same as subject}}</title>
 <style>
+  body, table, td, p, h1, h2, h3, a, span, div { font-family: ${fontFamilyAttr}; }
+  .font-body { font-family: ${fontFamilyAttr}; }
   @media only screen and (max-width: 600px) {
     .px { padding-left: 24px !important; padding-right: 24px !important; }
     .py { padding-top: 32px !important; padding-bottom: 32px !important; }
@@ -238,7 +240,7 @@ ${webFontName ? googleFontLink : ""}
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${fontFamilyAttr};color:${profile.text_color};">
+<body class="font-body" style="margin:0;padding:0;background-color:${profile.page_bg_color};color:${profile.text_color};">
 <div style="display:none;max-height:0;overflow:hidden;color:transparent;">{{PREHEADER}}</div>
 <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
   <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
@@ -261,7 +263,7 @@ ${webFontName ? googleFontLink : ""}
 
       <!-- CTA — .cta class makes it full-width below 600px so the button never clips -->
       <tr><td align="center" class="px" style="padding:8px 40px 48px 40px;">
-        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:14px 28px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words}}</a>
+        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:14px 28px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;">{{CTA_LABEL — 2-4 words}}</a>
       </td></tr>
     </table>
 
@@ -269,7 +271,7 @@ ${webFontName ? googleFontLink : ""}
     <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
       <tr><td align="center" class="px" style="padding:24px 40px 40px 40px;">
         <p style="margin:0 0 8px 0;font-size:12px;color:#9CA3AF;line-height:18px;">${profile.footer_text || profile.name}</p>
-        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;"><a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a></p>
+        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;">${profile.unsubscribe_text}</p>
       </td></tr>
     </table>
 
@@ -283,7 +285,9 @@ SCAFFOLD RULES (no exceptions):
 - The frame chrome colors are LOCKED. Do not introduce #000000 / #0a0a0a / #111 / #1a1a1a anywhere in the email. The only dark surface is the logo band (${profile.accent_color || '#0A1628'}).
 - Body bg = ${profile.page_bg_color}. Card bg = ${profile.bg_color}. Both literal — do not substitute.
 - ONE primary CTA. Secondary text-only link is allowed inside body copy.
-- RESPONSIVE: PRESERVE the .px / .py / .hero-h1 / .body-text / .cta class names on the elements they appear in the scaffold. The <style> @media query targets those classes; removing them breaks mobile. When adding new body sections, give the cells class="px" and the body copy class="body-text".
+- RESPONSIVE: PRESERVE the .px / .py / .hero-h1 / .body-text / .cta / .font-body class names on the elements they appear in the scaffold. The <style> @media query targets those classes; removing them breaks mobile. When adding new body sections, give the cells class="px" and the body copy class="body-text".
+- TYPOGRAPHY — DO NOT inline font-family in style attrs. The <style> block declares .font-body globally; the <body> has class="font-body" and all descendants inherit. Inline style attrs only carry size / line-height / weight / color / spacing — never font-family. (Klaviyo strips quotes from inline style attrs which silently breaks the email.)
+- UNSUBSCRIBE — render ${profile.unsubscribe_text} (i.e. "{% unsubscribe %}") standalone inside a <p>. Do NOT wrap it in your own <a href="">. Klaviyo's tag expands into a full anchor at send time, so wrapping creates nested broken anchors.
 - NEVER use width="600" on a table — use width="100%" with style="max-width:600px" so the card shrinks under 600px viewports.
 - NEVER include script, form, or iframe tags.
 - Keep total HTML under 80KB.
@@ -380,6 +384,8 @@ ${googleFontLink}
 ${playfairLink}
 <title>{{TITLE — same as subject}}</title>
 <style>
+  body, table, td, p, h1, h2, h3, a, span, div, .font-body { font-family: ${fontFamilyAttr}; }
+  .font-display, .hero-display, .section-h2, .pullquote, .footer-tagline { font-family: 'Playfair Display', Georgia, serif; }
   @media only screen and (max-width: 600px) {
     .px { padding-left: 24px !important; padding-right: 24px !important; }
     .py { padding-top: 28px !important; padding-bottom: 28px !important; }
@@ -393,7 +399,7 @@ ${playfairLink}
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${fontFamilyAttr};color:${profile.text_color};">
+<body class="font-body" style="margin:0;padding:0;background-color:${profile.page_bg_color};color:${profile.text_color};">
 <div style="display:none;max-height:0;overflow:hidden;color:transparent;">{{PREHEADER}}</div>
 <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
   <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
@@ -403,7 +409,7 @@ ${playfairLink}
       <tr><td align="center" class="px" style="padding:36px 32px 16px 32px;background-color:${profile.accent_color || '#0A1628'};">
         <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display:block;margin:0 auto;max-width:${profile.logo_width}px;border:0;outline:none;" />
       </td></tr>
-      {{NAV_STRIP — OPTIONAL: 2-3 short SECTION labels (all caps). Use ONLY when the email has 2+ distinct content sections. Render as a <tr><td align="center" class="nav-strip" style="padding:0 32px 32px 32px;background-color:${profile.accent_color || '#0A1628'};font-family:${fontFamilyAttr};font-size:13px;letter-spacing:2px;color:#FFFFFF;line-height:1.8;">SECTION ONE &nbsp;&nbsp;·&nbsp;&nbsp; SECTION TWO &nbsp;&nbsp;·&nbsp;&nbsp; SECTION THREE</td></tr>. If only 1 content section, OMIT this entirely.}}
+      {{NAV_STRIP — OPTIONAL: 2-3 short SECTION labels (all caps). Use ONLY when the email has 2+ distinct content sections. Render as a <tr><td align="center" class="nav-strip" style="padding:0 32px 32px 32px;background-color:${profile.accent_color || '#0A1628'};font-size:13px;letter-spacing:2px;color:#FFFFFF;line-height:1.8;">SECTION ONE &nbsp;&nbsp;·&nbsp;&nbsp; SECTION TWO &nbsp;&nbsp;·&nbsp;&nbsp; SECTION THREE</td></tr>. If only 1 content section, OMIT this entirely. Do NOT add font-family inline — the body class .font-body cascades.}}
     </table>
 
     <!-- Slim accent strip below masthead — 4px primary color for visual punctuation -->
@@ -416,35 +422,35 @@ ${playfairLink}
 
       <!-- Eyebrow + Hero display -->
       <tr><td class="px py" style="padding:56px 56px 24px 56px;">
-        <p class="eyebrow" style="margin:0 0 20px 0;font-family:${fontFamilyAttr};font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:${profile.primary_color};">{{EYEBROW — 1-3 words, the issue/category label e.g. "MONTHLY ISSUE", "RESEARCH NOTE", "DISPATCH"}}</p>
-        <h1 class="hero-display" style="margin:0 0 20px 0;font-family:'Playfair Display', Georgia, 'Times New Roman', serif;font-size:42px;line-height:48px;font-weight:700;color:${profile.text_color};letter-spacing:-0.015em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_DISPLAY_H1 — max 10 words, editorial tone, no clickbait}}</h1>
+        <p class="eyebrow" style="margin:0 0 20px 0;font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:${profile.primary_color};">{{EYEBROW — 1-3 words, the issue/category label e.g. "MONTHLY ISSUE", "RESEARCH NOTE", "DISPATCH"}}</p>
+        <h1 class="hero-display font-display" style="margin:0 0 20px 0;font-size:42px;line-height:48px;font-weight:700;color:${profile.text_color};letter-spacing:-0.015em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_DISPLAY_H1 — max 10 words, editorial tone, no clickbait}}</h1>
         <p class="body-text" style="margin:0;font-size:17px;line-height:28px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">{{HERO_LEAD — 1-2 sharp sentences, the editorial standfirst}}</p>
       </td></tr>
 
       {{BODY_SECTIONS — 1 to 3 sections. Each is a <tr><td class="px" style="padding:0 56px 36px 56px;"> containing:
-        - <h2 class="section-h2" style="margin:0 0 14px 0;font-family:'Playfair Display',Georgia,serif;font-size:26px;line-height:32px;font-weight:700;color:${profile.text_color};word-wrap:break-word;">Section title</h2>
+        - <h2 class="section-h2 font-display" style="margin:0 0 14px 0;font-size:26px;line-height:32px;font-weight:700;color:${profile.text_color};word-wrap:break-word;">Section title</h2>
         - <p class="body-text" style="margin:0 0 14px 0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">Body copy</p>
 
         Optional visual elements between sections (use 1-2 total in an email, never all four):
-        - PULL QUOTE (italic Playfair with left border in primary color): <tr><td class="px" style="padding:0 56px 36px 56px;"><p class="pullquote" style="margin:0;padding-left:24px;border-left:3px solid ${profile.primary_color};font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:24px;line-height:34px;color:${profile.text_color};">"Short, punchy quote that captures the email's thesis in one line."</p></td></tr>
+        - PULL QUOTE (italic serif with left border in primary color): <tr><td class="px" style="padding:0 56px 36px 56px;"><p class="pullquote font-display" style="margin:0;padding-left:24px;border-left:3px solid ${profile.primary_color};font-style:italic;font-size:24px;line-height:34px;color:${profile.text_color};">"Short, punchy quote that captures the email's thesis in one line."</p></td></tr>
         - HAIRLINE DIVIDER: <tr><td class="px" style="padding:0 56px 36px 56px;"><hr style="border:0;border-top:1px solid #E5E7EB;margin:0;" /></td></tr>
         - ACCENT STRIP (4px primary color, full width inside card): <tr><td style="background-color:${profile.primary_color};height:4px;font-size:0;line-height:0;">&nbsp;</td></tr>
-        - TINTED CALLOUT BOX (sky-tinted background panel for "by the numbers" or a key takeaway): <tr><td class="px" style="padding:0 56px 36px 56px;"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:${profile.page_bg_color};"><tr><td style="padding:24px 28px;border-left:3px solid ${profile.primary_color};"><p class="eyebrow" style="margin:0 0 8px 0;font-family:${fontFamilyAttr};font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${profile.primary_color};">EYEBROW</p><p style="margin:0;font-family:'Playfair Display',Georgia,serif;font-size:22px;line-height:30px;color:${profile.text_color};">A single sharp statement or stat in serif.</p></td></tr></table></td></tr>
+        - TINTED CALLOUT BOX (sky-tinted background panel for "by the numbers" or a key takeaway): <tr><td class="px" style="padding:0 56px 36px 56px;"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:${profile.page_bg_color};"><tr><td style="padding:24px 28px;border-left:3px solid ${profile.primary_color};"><p class="eyebrow" style="margin:0 0 8px 0;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${profile.primary_color};">EYEBROW</p><p class="font-display" style="margin:0;font-size:22px;line-height:30px;color:${profile.text_color};">A single sharp statement or stat in serif.</p></td></tr></table></td></tr>
+
+        IMPORTANT: do NOT add font-family inline in any of these elements — the .font-body and .font-display classes already declare it in the <style> block.
       }}
 
       <!-- CTA — uppercase letter-spaced editorial button -->
       <tr><td align="center" class="px" style="padding:16px 56px 64px 56px;">
-        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:18px 40px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:4px;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words, will render uppercase}}</a>
+        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:18px 40px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:4px;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;">{{CTA_LABEL — 2-4 words, will render uppercase}}</a>
       </td></tr>
     </table>
 
     <!-- Footer -->
     <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
       <tr><td align="center" class="px" style="padding:36px 56px 56px 56px;">
-        <p style="margin:0 0 10px 0;font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:14px;color:#6B7280;line-height:20px;">${profile.footer_text || profile.name}</p>
-        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;font-family:${fontFamilyAttr};">
-          <a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a>
-        </p>
+        <p class="footer-tagline" style="margin:0 0 10px 0;font-style:italic;font-size:14px;color:#6B7280;line-height:20px;">${profile.footer_text || profile.name}</p>
+        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;">${profile.unsubscribe_text}</p>
       </td></tr>
     </table>
 
@@ -456,13 +462,15 @@ ${playfairLink}
 
 EDITORIAL RULES:
 - NO PHOTOS, NO STOCK IMAGES, NO ICONS. The only <img> tag in the email is the logo on the navy band. All other visual weight comes from typography, color, whitespace, and the structural blocks (eyebrow, hero display, pull-quote, accent strip, tinted callout).
-- Display headlines (h1, h2) use PLAYFAIR DISPLAY serif. Body uses the sans body stack. Eyebrows use sans, uppercase, letter-spaced, primary color. This typography contrast IS the visual signature.
+- Display headlines (h1, h2) and pull-quotes get class="font-display" (serif via <style>). Body copy gets class="body-text" which inherits .font-body sans. The typography contrast IS the visual signature.
+- TYPOGRAPHY — DO NOT inline font-family in style attrs. The <style> block declares .font-body and .font-display globally; assign classes on elements. Inline style attrs only carry size / line-height / weight / color / spacing — never font-family. (Klaviyo strips quotes from inline style attrs, which would silently break the email.)
+- UNSUBSCRIBE — render \${profile.unsubscribe_text} (i.e. "{% unsubscribe %}") standalone inside a <p>. Do NOT wrap it in your own <a href="">. Klaviyo's tag expands into a full anchor element at send time.
 - Use the EYEBROW above the hero to anchor the issue / category (e.g. "MONTHLY ISSUE", "RESEARCH NOTE", "DISPATCH FROM THE LAB").
 - Between sections, pick ONE or TWO visual punctuation elements from {pull-quote, hairline divider, accent strip, tinted callout}. Don't stack all four.
 - Buttons: uppercase, letter-spaced, primary color, slight border-radius (4px) — not pills.
 - Whitespace > density. Section padding is 56px horizontal, 36-56px vertical.
 - Colors are LOCKED: page bg ${profile.page_bg_color}, card bg ${profile.bg_color}, accent ${profile.accent_color || '#0A1628'}, body text ${profile.text_color}, CTA ${profile.primary_color}. NO #000000 / #0a0a0a / #111 / #1a1a1a anywhere except the logo band.
-- RESPONSIVE: PRESERVE .px / .py / .hero-display / .section-h2 / .body-text / .nav-strip / .pullquote / .cta / .eyebrow class names. The @media query targets them.
+- RESPONSIVE: PRESERVE .px / .py / .hero-display / .section-h2 / .body-text / .nav-strip / .pullquote / .cta / .eyebrow / .font-body / .font-display class names. The @media query and font rules target them.
 - NEVER use width="600" on a table — always width="100%" with style="max-width:600px".
 
 PERSONALIZATION (Klaviyo tokens — use unless explicitly told not to):

@@ -804,6 +804,60 @@ Old `minimal-html` is gone. Server back-compat maps legacy `branded-html` / `min
 - Old `T89U5q` template was deleted from Klaviyo today; the new `Usffp7` "Monthly newsletter (responsive test)" and a fresh editorial template Paul generated are the live test artifacts.
 - **DEFERRED: Branded-mode imagery.** Paul wants images in Branded mode but explicitly no API + no recurring cost. Three options on the table when he revisits: (1) one-time Unsplash API harvest committed as static URL manifest, (2) self-hosted image library at `client/public/email-images/` with manifest + tags, (3) inline SVG illustrations generated procedurally by the model. Until he picks, Branded relies on typography + color blocks + pull-quotes + accent strips for visual interest. See [[feedback_no_external_image_apis_ops]].
 
+---
+
+## 2026-05-22 (evening) — End-to-end test surfaced two Klaviyo-storage bugs; fixed and validated
+
+Paul ran a real send through the new pipeline (compose → save to Klaviyo → /email/send → fire to the new "Ops Test (internal)" list). Email arrived, but two visible bugs in the rendered output:
+
+1. **Footer leaked HTML attributes as visible text** — `Unsubscribe" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe` showed up as literal text in the email body.
+2. **Nav strip text invisible** — "PRODUCT · APPROACH · LAUNCH" rendered with no `color:#FFFFFF`, so the dark navy text on the navy band was effectively unreadable.
+
+### Root cause
+
+Both bugs share one cause: **Klaviyo strips single quotes from `style="..."` attribute values when saving templates via the `/templates/` API**. Before save we POST `style="font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', ..."`. After save Klaviyo returns `style="font-family:"` — the value gets truncated at the first stripped quote, and the rest of the font stack gets re-parsed as boolean HTML attributes (`arial=""`, `helvetica=""`, `inter=""`, etc.) that take over the element. Everything after `font-family:` in the style attribute is dropped, so `color:#FFFFFF` was silently lost on the nav strip, and the `<p>` wrapping the unsubscribe got broken in a way that exposed the inner `<a href="{% unsubscribe %}">` attributes as text.
+
+The second bug compounded: `<a href="{% unsubscribe %}">Unsubscribe</a>` is wrong even without the quote issue — Klaviyo's `{% unsubscribe %}` tag expands into a FULL anchor element at send time, so wrapping it produces nested broken anchors. Both bugs needed fixing.
+
+### Fix
+
+**Typography moved to `<style>` block + classes:**
+- `<head><style>` now declares `body, table, td, p, h1, h2, h3, a, span, div, .font-body { font-family: ${fontFamilyAttr}; }` and `.font-display, .hero-display, .section-h2, .pullquote, .footer-tagline { font-family: 'Playfair Display', Georgia, serif; }`.
+- `<body class="font-body">` cascades the font.
+- Every `font-family:` removed from inline `style="..."` attributes in both `html` and `branded` scaffolds.
+- Klaviyo preserves `<style>` blocks (CSS quote-stripping inside `<style>` still produces valid CSS — multi-word font names like "Segoe UI" or "Playfair Display" parse as identifier-sequences whether quoted or not).
+- Email clients that strip `<style>` (Gmail desktop, Outlook) fall through to the browser/client default font — acceptable. Apple Mail / iOS / web clients honoring `<style>` get Inter + Playfair Display.
+
+**Unsubscribe pattern fixed:**
+- Old: `<p>...<a href="{% unsubscribe %}" style="...">Unsubscribe</a></p>` — produced nested anchors.
+- New: `<p>{% unsubscribe %}</p>` — Klaviyo expands the tag into its own anchor element. No wrapping.
+
+### Verified end-to-end
+
+Full validation suite (`/email/compose chat → /compose/save → /klaviyo/templates GET → /klaviyo/send → /campaigns GET`) ran clean:
+
+- Raw output: 0 inline `font-family:`, 0 wrapped unsubscribe, 0 non-logo images.
+- Klaviyo round-trip (template `WrvSaV`): no broken attr leak, font-family preserved in `<style>`, unsubscribe standalone, body bg `#F2F6FC`, white nav strip text present.
+- Send `01KS8S1GSFQV226EQH1HEQ6F8Y` to 2-person Ops Test list (Paul + Sameer) with `smart_sending=false` (to bypass Klaviyo's 16h re-send suppression). Klaviyo status: `Sent`. Both recipients received.
+
+### Real-inbox rendering
+
+Looks correct visually. Lands in **Gmail Promotions tab** — that's expected pre-launch given no Dedicated Sending Domain in Klaviyo and no DKIM/SPF/DMARC on `fitscript.me`. Pipeline is fine; deliverability is a separate workstream tracked in [[project_fitscript_klaviyo_deliverability]].
+
+### Infrastructure changes
+
+- **Created Klaviyo "Ops Test (internal)" list (`S9m4kq`)** via API. Both Paul (`01KMK9WVYYPJ5AJQAD45H7R0D2`) and Sameer (`01KMJKHWSAWBMSWX2PHCJPK2HE`) added. Safe to fire test sends here without blasting real users.
+- Created (then deleted) several template iterations during debugging: `Usffp7` (responsive HTML, broken font-family), `T89U5q` (broken Monthly newsletter from morning), `SdgPLp` (broken Branded), `SVpRxk` (Branded v3 quote-fix passing), `WrvSaV` (E2E validation, the canonical clean one).
+
+### What I'll remember
+
+- **Klaviyo's `/templates/` API silently strips single quotes from inline `style` attribute values.** Any time you put a quoted font-family or other quoted CSS value inline, it'll truncate. ALWAYS move typography to a `<style>` block in `<head>` and use classes. See [[feedback_klaviyo_strips_quotes]].
+- **`{% unsubscribe %}` is a Klaviyo block tag, not a URL.** It renders the full anchor element. Don't wrap it. Same rule probably applies to other `{% ... %}` Klaviyo tags that emit HTML (web_view, social_links, etc.).
+- **Smart-sending blocks re-sends within ~16h.** For test campaigns to the same recipient, pass `smartSendingEnabled: false` in the send body or the second send will end up "Queued without Recipients".
+- **`tsx server/index.ts` does NOT hot-reload server-side changes.** Every server-side edit needs a manual kill + restart. Already noted earlier; reaffirmed this session.
+
+
+
 ### What I'll remember
 
 - **Unsplash Source is dead** — `source.unsplash.com/featured/...` returns 503. Anything that needs Unsplash photos in 2026 must hit `api.unsplash.com/search/photos` with a Client-ID key.
