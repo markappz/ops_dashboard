@@ -70,6 +70,17 @@ export function Dirt() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Voice input — Web Speech API, browser-native, no API cost
+  const voice = useVoiceInput({
+    onTranscript: (text, isFinal) => {
+      setInput(text);
+      if (isFinal) {
+        // Auto-focus textarea so user can edit or hit Enter
+        inputRef.current?.focus();
+      }
+    },
+  });
+
   const loadHistory = useCallback(async () => {
     try {
       const r = await fetch("/api/ops/dirt/conversations?limit=30");
@@ -430,9 +441,19 @@ export function Dirt() {
                     }
                   }}
                   rows={1}
-                  placeholder={streaming ? "DIRT is digging…" : "Talk dirt · / for commands"}
+                  placeholder={
+                    voice.listening
+                      ? "Listening… speak now"
+                      : streaming
+                        ? "DIRT is digging…"
+                        : "Talk dirt · / for commands · 🎙 for voice"
+                  }
                   disabled={streaming}
-                  className="w-full resize-none bg-ops-bg border border-ops-border rounded-xl px-3.5 py-2.5 pr-10 text-sm text-ops-text placeholder-ops-text-subtle focus:outline-none focus:border-brand-blue-500 focus:ring-2 focus:ring-brand-blue-500/20 max-h-40 transition-all"
+                  className={`w-full resize-none bg-ops-bg border rounded-xl px-3.5 py-2.5 pr-10 text-sm text-ops-text placeholder-ops-text-subtle focus:outline-none focus:ring-2 max-h-40 transition-all ${
+                    voice.listening
+                      ? "border-red-400 focus:border-red-400 focus:ring-red-400/20"
+                      : "border-ops-border focus:border-brand-blue-500 focus:ring-brand-blue-500/20"
+                  }`}
                   style={{ minHeight: "44px" }}
                 />
                 {input.startsWith("/") && (
@@ -442,6 +463,7 @@ export function Dirt() {
                   />
                 )}
               </div>
+              <VoiceButton voice={voice} disabled={streaming} />
               {streaming ? (
                 <button
                   type="button"
@@ -464,7 +486,11 @@ export function Dirt() {
             </form>
             <div className="text-[10px] text-ops-text-subtle mt-2 px-1 flex items-center justify-between">
               <span>13 read tools · 9 write tools · audit-logged</span>
-              <span className="opacity-70">cost: <code>ops_dirt</code></span>
+              <span className="opacity-70">
+                {voice.error
+                  ? <span className="text-red-400">mic: {voice.error}</span>
+                  : <>cost: <code>ops_dirt</code></>}
+              </span>
             </div>
           </div>
         </div>
@@ -855,4 +881,132 @@ function applySSEEvent(
     );
   }
   // 'usage' and 'done' are informational; the stream end already finalizes the message
+}
+
+// ─── Voice input (browser Web Speech API) ──────────────────────────
+
+interface VoiceState {
+  supported: boolean;
+  listening: boolean;
+  error: string | null;
+  start: () => void;
+  stop: () => void;
+  toggle: () => void;
+}
+
+function useVoiceInput({
+  onTranscript,
+}: {
+  onTranscript: (text: string, isFinal: boolean) => void;
+}): VoiceState {
+  const [supported, setSupported] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const recRef = useRef<any>(null);
+
+  useEffect(() => {
+    const Recognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setSupported(!!Recognition);
+  }, []);
+
+  const start = useCallback(() => {
+    const Recognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!Recognition) {
+      setError("not supported in this browser");
+      return;
+    }
+    if (recRef.current) {
+      try { recRef.current.stop(); } catch {}
+      recRef.current = null;
+    }
+    const rec = new Recognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = navigator.language || "en-US";
+
+    let accumulated = "";
+    rec.onresult = (e: any) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript;
+        if (e.results[i].isFinal) final += transcript;
+        else interim += transcript;
+      }
+      if (final) {
+        accumulated += final;
+        onTranscript(accumulated + interim, false);
+      } else {
+        onTranscript(accumulated + interim, false);
+      }
+    };
+    rec.onerror = (e: any) => {
+      setError(e.error || "mic error");
+      setListening(false);
+    };
+    rec.onend = () => {
+      setListening(false);
+      onTranscript(accumulated.trim(), true);
+      recRef.current = null;
+    };
+    try {
+      rec.start();
+      recRef.current = rec;
+      setListening(true);
+      setError(null);
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [onTranscript]);
+
+  const stop = useCallback(() => {
+    if (recRef.current) {
+      try { recRef.current.stop(); } catch {}
+    }
+    setListening(false);
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (listening) stop();
+    else start();
+  }, [listening, start, stop]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => { if (recRef.current) { try { recRef.current.stop(); } catch {} } };
+  }, []);
+
+  return { supported, listening, error, start, stop, toggle };
+}
+
+function VoiceButton({ voice, disabled }: { voice: VoiceState; disabled: boolean }) {
+  if (!voice.supported) return null;
+  return (
+    <button
+      type="button"
+      onClick={voice.toggle}
+      disabled={disabled}
+      title={voice.listening ? "Stop listening" : "Talk to DIRT"}
+      className={`h-[44px] w-[44px] flex items-center justify-center rounded-xl transition-all shrink-0 ${
+        voice.listening
+          ? "bg-gradient-to-br from-red-500 to-red-600 text-white shadow-[0_4px_14px_-4px_rgba(239,68,68,0.5)] animate-dirt-pulse-mic"
+          : "bg-ops-surface border border-ops-border text-ops-text-muted hover:text-ops-text hover:border-brand-blue-400/40"
+      } disabled:opacity-30 disabled:cursor-not-allowed`}
+    >
+      {voice.listening ? (
+        // Stop / square icon
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        // Mic icon
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+        </svg>
+      )}
+    </button>
+  );
 }
