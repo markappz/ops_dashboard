@@ -387,30 +387,22 @@ export function registerKlaviyoRoutes(app: Express) {
         });
       }
 
+      // Same value-vs-engagement split as campaign-metrics — Klaviyo 400s
+      // if you request `conversion_value` against a non-revenue metric.
+      const FLOW_ENGAGEMENT_STATS = [
+        "opens", "opens_unique", "clicks", "clicks_unique", "delivered",
+        "bounced", "unsubscribes", "spam_complaints", "recipients",
+        "open_rate", "click_rate", "click_to_open_rate", "bounce_rate",
+        "unsubscribe_rate",
+      ];
+      const FLOW_VALUE_STATS = ["conversions", "conversion_uniques", "conversion_value", "revenue_per_recipient"];
+      const stats = conv.isRevenueMetric ? [...FLOW_ENGAGEMENT_STATS, ...FLOW_VALUE_STATS] : FLOW_ENGAGEMENT_STATS;
+
       const body = {
         data: {
           type: "flow-values-report",
           attributes: {
-            statistics: [
-              "opens",
-              "opens_unique",
-              "clicks",
-              "clicks_unique",
-              "delivered",
-              "bounced",
-              "unsubscribes",
-              "spam_complaints",
-              "conversions",
-              "conversion_uniques",
-              "conversion_value",
-              "recipients",
-              "open_rate",
-              "click_rate",
-              "click_to_open_rate",
-              "bounce_rate",
-              "unsubscribe_rate",
-              "revenue_per_recipient",
-            ],
+            statistics: stats,
             timeframe: { key: presetKey },
             conversion_metric_id: conv.id,
           },
@@ -615,31 +607,24 @@ export function registerKlaviyoRoutes(app: Express) {
         });
       }
 
+      // Klaviyo's values-report 400s when you ask for `conversion_value` /
+      // `revenue_per_recipient` against a metric that doesn't carry value
+      // data (e.g. "Active on Site"). Only request value-based stats when
+      // the metric is actually revenue-compatible.
+      const ENGAGEMENT_STATS = [
+        "opens", "opens_unique", "clicks", "clicks_unique", "delivered",
+        "bounced", "unsubscribes", "unsubscribe_uniques", "spam_complaints",
+        "recipients", "open_rate", "click_rate", "click_to_open_rate",
+        "bounce_rate", "unsubscribe_rate",
+      ];
+      const VALUE_STATS = ["conversions", "conversion_uniques", "conversion_value", "revenue_per_recipient"];
+      const stats = conv.isRevenueMetric ? [...ENGAGEMENT_STATS, ...VALUE_STATS] : ENGAGEMENT_STATS;
+
       const body = {
         data: {
           type: "campaign-values-report",
           attributes: {
-            statistics: [
-              "opens",
-              "opens_unique",
-              "clicks",
-              "clicks_unique",
-              "delivered",
-              "bounced",
-              "unsubscribes",
-              "unsubscribe_uniques",
-              "spam_complaints",
-              "conversions",
-              "conversion_uniques",
-              "conversion_value",
-              "recipients",
-              "open_rate",
-              "click_rate",
-              "click_to_open_rate",
-              "bounce_rate",
-              "unsubscribe_rate",
-              "revenue_per_recipient",
-            ],
+            statistics: stats,
             timeframe: { key: presetKey },
             conversion_metric_id: conv.id,
           },
