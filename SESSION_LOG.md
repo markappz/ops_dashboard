@@ -800,8 +800,9 @@ Old `minimal-html` is gone. Server back-compat maps legacy `branded-html` / `min
 
 ### Pending
 
-- **Prod needs `UNSPLASH_ACCESS_KEY`** in AWS Secrets Manager (`prod/ops-secrets`) before this can ship to ops.fitscript.me. Without it the resolver returns 503 and branded mode falls back to broken images.
+- ~~Prod needs `UNSPLASH_ACCESS_KEY`~~ — Paul decided against external image APIs. Reverted Unsplash integration; Branded mode is image-free for now.
 - Old `T89U5q` template was deleted from Klaviyo today; the new `Usffp7` "Monthly newsletter (responsive test)" and a fresh editorial template Paul generated are the live test artifacts.
+- **DEFERRED: Branded-mode imagery.** Paul wants images in Branded mode but explicitly no API + no recurring cost. Three options on the table when he revisits: (1) one-time Unsplash API harvest committed as static URL manifest, (2) self-hosted image library at `client/public/email-images/` with manifest + tags, (3) inline SVG illustrations generated procedurally by the model. Until he picks, Branded relies on typography + color blocks + pull-quotes + accent strips for visual interest. See [[feedback_no_external_image_apis_ops]].
 
 ### What I'll remember
 

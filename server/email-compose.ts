@@ -36,13 +36,6 @@ interface AdminReq extends Request {
 const KLAVIYO_BASE = "https://a.klaviyo.com/api";
 const KLAVIYO_REVISION = "2025-04-15";
 
-// In-memory Unsplash photo URL cache for branded-editorial composer.
-// Key = query string ("biomarker,laboratory"), value = resolved CDN URL.
-// 7-day TTL; resets on process restart. Avoids hammering Unsplash for
-// repeated compositions of the same email.
-const unsplashCache = new Map<string, { url: string; at: number }>();
-const UNSPLASH_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
 // ─── Brand profiles ────────────────────────────────────────────────
 
 interface BrandProfile {
@@ -345,11 +338,11 @@ function buildBrandedEditorialPrompt(
   const fontHead = `${googleFontLink}\n${playfairLink}`;
   void webFontName; // included via googleFontLink
 
-  return `You are a senior editorial email designer composing PREMIUM magazine-style branded emails for ${profile.name}.
+  return `You are a senior editorial email designer composing PREMIUM, type-driven branded emails for ${profile.name}.
 
-Reference standard: the editorial emails from brands like Apartamento, Cereal, Monocle, or a luxury travel magazine — full-bleed photography, serif display headlines, restrained color, generous whitespace.
+Reference standard: the editorial emails from The New York Times Cooking, Substack premium publications, Stripe's product launch announcements, Apple's keynote follow-ups — the visual weight comes from TYPOGRAPHY, COLOR BLOCKS, and STRUCTURAL RHYTHM, not photography. No stock photos. No imagery beyond the brand logo. This mode is intentionally photo-free.
 
-You write like a senior editor + designer, not a marketing intern. Every word and every visual element earns its place.
+You write like a senior editor, not a marketing intern. Every word earns its place.
 
 Output FORMAT — EVERY response, EVERY turn, must contain ALL FOUR blocks below in this exact order. Never omit CHANGES, even on refinement turns. No preamble:
 
@@ -375,7 +368,7 @@ ${fontHead}
 ${profile.logo_url ? `- Logo: ${profile.logo_url} (width ${profile.logo_width}px) — white-on-transparent; ALWAYS sits on the navy band` : ""}
 ${profile.footer_text ? `- Footer line: ${profile.footer_text}` : ""}
 
-HTML SCAFFOLD — copy this exactly, fill the {{slots}}. Do NOT change colors, do NOT change table widths, do NOT remove the responsive class names. Only edit content inside the slots.
+HTML SCAFFOLD — copy this exactly, fill the {{slots}}. Do NOT add image tags (other than the logo). Do NOT change colors. Do NOT change table widths. Do NOT remove responsive class names.
 
 \`\`\`
 <!DOCTYPE html>
@@ -394,8 +387,9 @@ ${playfairLink}
     .section-h2 { font-size: 22px !important; line-height: 28px !important; }
     .body-text { font-size: 15px !important; line-height: 25px !important; }
     .nav-strip { font-size: 11px !important; letter-spacing: 1.5px !important; }
+    .pullquote { font-size: 22px !important; line-height: 30px !important; padding-left: 16px !important; }
     .cta { display: block !important; width: 100% !important; box-sizing: border-box !important; text-align: center !important; }
-    .hero-img { height: auto !important; }
+    .eyebrow { font-size: 11px !important; letter-spacing: 2px !important; }
   }
 </style>
 </head>
@@ -404,42 +398,49 @@ ${playfairLink}
 <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
   <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
 
-    <!-- Logo band + nav strip — the dark editorial header -->
+    <!-- Logo band + optional nav strip — the dark editorial masthead -->
     <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.accent_color || '#0A1628'};">
       <tr><td align="center" class="px" style="padding:36px 32px 16px 32px;background-color:${profile.accent_color || '#0A1628'};">
         <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display:block;margin:0 auto;max-width:${profile.logo_width}px;border:0;outline:none;" />
       </td></tr>
-      {{NAV_STRIP — OPTIONAL: 2-3 short SECTION labels (all caps, letter-spacing). Use ONLY when the email has 2+ distinct content sections that map to navigable areas. Render as a <tr><td align="center" class="nav-strip" style="padding:0 32px 32px 32px;background-color:[accent];font-family:[body font];font-size:13px;letter-spacing:2px;color:#FFFFFF;line-height:1.8;">SECTION ONE &nbsp;&nbsp;·&nbsp;&nbsp; SECTION TWO &nbsp;&nbsp;·&nbsp;&nbsp; SECTION THREE</td></tr>. If only 1 content section, OMIT this entirely.}}
+      {{NAV_STRIP — OPTIONAL: 2-3 short SECTION labels (all caps). Use ONLY when the email has 2+ distinct content sections. Render as a <tr><td align="center" class="nav-strip" style="padding:0 32px 32px 32px;background-color:${profile.accent_color || '#0A1628'};font-family:${fontFamilyAttr};font-size:13px;letter-spacing:2px;color:#FFFFFF;line-height:1.8;">SECTION ONE &nbsp;&nbsp;·&nbsp;&nbsp; SECTION TWO &nbsp;&nbsp;·&nbsp;&nbsp; SECTION THREE</td></tr>. If only 1 content section, OMIT this entirely.}}
     </table>
 
-    <!-- Hero image — full-width inside the card -->
+    <!-- Slim accent strip below masthead — 4px primary color for visual punctuation -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
+      <tr><td style="background-color:${profile.primary_color};height:4px;font-size:0;line-height:0;">&nbsp;</td></tr>
+    </table>
+
+    <!-- White card with editorial content -->
     <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:${profile.bg_color};margin:0 auto;">
-      <tr><td style="padding:0;font-size:0;line-height:0;">
-        <img src="UNSPLASH:{{HERO_IMAGE_KEYWORDS — 2-4 lowercase keywords describing the hero visual, comma-separated. Examples: "biomarker,laboratory,blood", "morning,sunrise,fitness", "minimal,architecture,quiet", "autumn,forest,landscape". Pick keywords that match the email's tone — evocative not literal. NEVER write placeholder text here; always provide real keywords.}}" alt="{{HERO_IMAGE_ALT — short description}}" width="600" class="hero-img" style="display:block;width:100%;max-width:600px;height:auto;border:0;outline:none;" />
+
+      <!-- Eyebrow + Hero display -->
+      <tr><td class="px py" style="padding:56px 56px 24px 56px;">
+        <p class="eyebrow" style="margin:0 0 20px 0;font-family:${fontFamilyAttr};font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:${profile.primary_color};">{{EYEBROW — 1-3 words, the issue/category label e.g. "MONTHLY ISSUE", "RESEARCH NOTE", "DISPATCH"}}</p>
+        <h1 class="hero-display" style="margin:0 0 20px 0;font-family:'Playfair Display', Georgia, 'Times New Roman', serif;font-size:42px;line-height:48px;font-weight:700;color:${profile.text_color};letter-spacing:-0.015em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_DISPLAY_H1 — max 10 words, editorial tone, no clickbait}}</h1>
+        <p class="body-text" style="margin:0;font-size:17px;line-height:28px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">{{HERO_LEAD — 1-2 sharp sentences, the editorial standfirst}}</p>
       </td></tr>
 
-      <!-- Display headline — serif Playfair -->
-      <tr><td class="px py" style="padding:48px 48px 24px 48px;">
-        <h1 class="hero-display" style="margin:0 0 20px 0;font-family:'Playfair Display', Georgia, 'Times New Roman', serif;font-size:38px;line-height:44px;font-weight:700;color:${profile.text_color};letter-spacing:-0.01em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_DISPLAY_H1 — max 10 words, editorial tone}}</h1>
-        <p class="body-text" style="margin:0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">{{HERO_LEAD — 1-2 sharp sentences, the editorial standfirst}}</p>
-      </td></tr>
-
-      {{BODY_SECTIONS — 1 to 3 editorial sections. Each is a <tr><td class="px" style="padding:0 48px 32px 48px;"> containing:
+      {{BODY_SECTIONS — 1 to 3 sections. Each is a <tr><td class="px" style="padding:0 56px 36px 56px;"> containing:
         - <h2 class="section-h2" style="margin:0 0 14px 0;font-family:'Playfair Display',Georgia,serif;font-size:26px;line-height:32px;font-weight:700;color:${profile.text_color};word-wrap:break-word;">Section title</h2>
-        - <p class="body-text" style="margin:0 0 14px 0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">Body copy paragraph</p>
-        Optionally include a secondary image between sections: <tr><td style="padding:8px 0 32px 0;font-size:0;line-height:0;"><img src="UNSPLASH:keywords" alt="..." width="600" class="hero-img" style="display:block;width:100%;max-width:600px;height:auto;" /></td></tr>
-        Optionally include a <hr style="border:0;border-top:1px solid #E5E7EB;margin:8px 0 32px 0;"> between sections.
+        - <p class="body-text" style="margin:0 0 14px 0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">Body copy</p>
+
+        Optional visual elements between sections (use 1-2 total in an email, never all four):
+        - PULL QUOTE (italic Playfair with left border in primary color): <tr><td class="px" style="padding:0 56px 36px 56px;"><p class="pullquote" style="margin:0;padding-left:24px;border-left:3px solid ${profile.primary_color};font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:24px;line-height:34px;color:${profile.text_color};">"Short, punchy quote that captures the email's thesis in one line."</p></td></tr>
+        - HAIRLINE DIVIDER: <tr><td class="px" style="padding:0 56px 36px 56px;"><hr style="border:0;border-top:1px solid #E5E7EB;margin:0;" /></td></tr>
+        - ACCENT STRIP (4px primary color, full width inside card): <tr><td style="background-color:${profile.primary_color};height:4px;font-size:0;line-height:0;">&nbsp;</td></tr>
+        - TINTED CALLOUT BOX (sky-tinted background panel for "by the numbers" or a key takeaway): <tr><td class="px" style="padding:0 56px 36px 56px;"><table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:${profile.page_bg_color};"><tr><td style="padding:24px 28px;border-left:3px solid ${profile.primary_color};"><p class="eyebrow" style="margin:0 0 8px 0;font-family:${fontFamilyAttr};font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:${profile.primary_color};">EYEBROW</p><p style="margin:0;font-family:'Playfair Display',Georgia,serif;font-size:22px;line-height:30px;color:${profile.text_color};">A single sharp statement or stat in serif.</p></td></tr></table></td></tr>
       }}
 
-      <!-- CTA — primary editorial button -->
-      <tr><td align="center" class="px" style="padding:16px 48px 56px 48px;">
-        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:16px 36px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:4px;font-weight:600;font-size:14px;letter-spacing:1px;text-transform:uppercase;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words, all caps in rendering}}</a>
+      <!-- CTA — uppercase letter-spaced editorial button -->
+      <tr><td align="center" class="px" style="padding:16px 56px 64px 56px;">
+        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:18px 40px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:4px;font-weight:600;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words, will render uppercase}}</a>
       </td></tr>
     </table>
 
     <!-- Footer -->
     <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
-      <tr><td align="center" class="px" style="padding:32px 48px 48px 48px;">
+      <tr><td align="center" class="px" style="padding:36px 56px 56px 56px;">
         <p style="margin:0 0 10px 0;font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:14px;color:#6B7280;line-height:20px;">${profile.footer_text || profile.name}</p>
         <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;font-family:${fontFamilyAttr};">
           <a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a>
@@ -454,14 +455,14 @@ ${playfairLink}
 \`\`\`
 
 EDITORIAL RULES:
-- Display headlines use PLAYFAIR DISPLAY serif. Section h2s use Playfair Display too. Body copy uses the sans body stack. This is the magazine contrast.
-- ALWAYS include the hero image. NEVER skip it. Pick keywords that evoke the email's mood (not literal). Use lowercase, comma-separated, 2-4 words.
-- Image-text rhythm: hero image → display headline → standfirst lead → 1-3 sections (each can include its own image) → CTA → footer.
-- Image URLs MUST use the exact pattern src="UNSPLASH:keyword1,keyword2" — the server resolves these to real Unsplash CDN URLs before render and save. NEVER write a real image URL (no http/https, no placeholder.com), NEVER use source.unsplash.com (deprecated).
-- Buttons use UPPERCASE text with letter-spacing for the editorial feel. Slight border-radius (4px), not pill-shape.
-- Whitespace > density. Section padding is 48px horizontal, 32-48px vertical.
+- NO PHOTOS, NO STOCK IMAGES, NO ICONS. The only <img> tag in the email is the logo on the navy band. All other visual weight comes from typography, color, whitespace, and the structural blocks (eyebrow, hero display, pull-quote, accent strip, tinted callout).
+- Display headlines (h1, h2) use PLAYFAIR DISPLAY serif. Body uses the sans body stack. Eyebrows use sans, uppercase, letter-spaced, primary color. This typography contrast IS the visual signature.
+- Use the EYEBROW above the hero to anchor the issue / category (e.g. "MONTHLY ISSUE", "RESEARCH NOTE", "DISPATCH FROM THE LAB").
+- Between sections, pick ONE or TWO visual punctuation elements from {pull-quote, hairline divider, accent strip, tinted callout}. Don't stack all four.
+- Buttons: uppercase, letter-spaced, primary color, slight border-radius (4px) — not pills.
+- Whitespace > density. Section padding is 56px horizontal, 36-56px vertical.
 - Colors are LOCKED: page bg ${profile.page_bg_color}, card bg ${profile.bg_color}, accent ${profile.accent_color || '#0A1628'}, body text ${profile.text_color}, CTA ${profile.primary_color}. NO #000000 / #0a0a0a / #111 / #1a1a1a anywhere except the logo band.
-- RESPONSIVE: PRESERVE .px / .py / .hero-display / .section-h2 / .body-text / .nav-strip / .cta / .hero-img class names. The @media query targets them.
+- RESPONSIVE: PRESERVE .px / .py / .hero-display / .section-h2 / .body-text / .nav-strip / .pullquote / .cta / .eyebrow class names. The @media query targets them.
 - NEVER use width="600" on a table — always width="100%" with style="max-width:600px".
 
 PERSONALIZATION (Klaviyo tokens — use unless explicitly told not to):
@@ -480,12 +481,12 @@ LENGTH BUDGET:
 - Drop the email at the CTA. No "thanks for reading" / closer fluff.
 
 ANTI-PATTERNS:
+- ANY image tag besides the brand logo — forbidden. No <img src="..."> for content, no stock photos, no Unsplash, no placeholder.
 - "We miss you" / "Come back" / "We noticed" — passive beggy openers.
 - Stat boxes with placeholder text ("New insights" / "Ready to go") — never.
 - Generic platitudes ("the science is clear") — show, don't preach.
-- Multiple competing CTAs — ONE primary button, ONE optional text link inline.
-- Em-dash openings ("So—") or "Hey there!" — startup cliche voice.
-- Skipping the hero image — the visual is the point of this mode.`;
+- Multiple competing CTAs — ONE primary button. A secondary text link inline is fine.
+- Em-dash openings ("So—") or "Hey there!" — startup cliche voice.`;
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────
@@ -595,47 +596,6 @@ export function registerEmailComposeRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
-  });
-
-  // ─── Image resolver — model emits `UNSPLASH:keywords` markers; client
-  //     batches them here and we swap in real Unsplash CDN URLs before
-  //     the preview iframe + save-to-Klaviyo see the HTML.
-  //
-  //     Recipients never hit our domain for images; the saved template
-  //     points directly at Unsplash CDN. Cached in-memory for 7 days
-  //     (per process; resets on restart).
-  app.post("/api/ops/email/resolve-images", async (req: AdminReq, res) => {
-    const queries: string[] = Array.isArray(req.body?.queries) ? req.body.queries : [];
-    if (queries.length === 0) return res.json({ results: {} });
-    const key = process.env.UNSPLASH_ACCESS_KEY;
-    if (!key) return res.status(503).json({ error: "UNSPLASH_ACCESS_KEY not configured" });
-    const unique = Array.from(new Set(queries.map((q) => String(q).trim()).filter(Boolean)));
-    const results: Record<string, string> = {};
-    await Promise.all(unique.map(async (q) => {
-      const cached = unsplashCache.get(q);
-      if (cached && Date.now() - cached.at < UNSPLASH_TTL_MS) {
-        results[q] = cached.url;
-        return;
-      }
-      try {
-        const r = await fetch(
-          `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=1&orientation=landscape&content_filter=high`,
-          { headers: { Authorization: `Client-ID ${key}` } },
-        );
-        if (!r.ok) return;
-        const j: any = await r.json();
-        const photo = j?.results?.[0];
-        // Use the regular-sized URL (1080w) — good balance of quality + weight for email.
-        const url = photo?.urls?.regular || photo?.urls?.full;
-        if (url) {
-          unsplashCache.set(q, { url, at: Date.now() });
-          results[q] = url;
-        }
-      } catch {
-        // silently fail — caller falls back to a placeholder
-      }
-    }));
-    res.json({ results });
   });
 
   // ─── Conversational compose (SSE) ────────────────────────────────

@@ -168,10 +168,6 @@ export default function EmailCompose() {
     [profiles, profileId, defaultProfile],
   );
 
-  // Resolved Unsplash photo URLs — keyed by the marker query string.
-  const [resolvedImages, setResolvedImages] = useState<Record<string, string>>({});
-  const inflightResolvesRef = useRef<Set<string>>(new Set());
-
   const parsed = useMemo(() => {
     const p = parseFinalEmail(lastAssistant);
     if (p.html && activeProfile) {
@@ -180,43 +176,10 @@ export default function EmailCompose() {
         activeProfile.page_bg_color,
         activeProfile.accent_color || "#0A1628",
       );
-      // Swap any resolved UNSPLASH:query markers with the real CDN URL.
-      p.html = p.html.replace(/UNSPLASH:([^"'\s>]+)/g, (whole, query) => {
-        const real = resolvedImages[query.trim()];
-        return real || whole;
-      });
     }
     return p;
-  }, [lastAssistant, activeProfile, resolvedImages]);
+  }, [lastAssistant, activeProfile]);
   const hasFinal = (parsed.html || parsed.text).length > 0;
-
-  // Whenever the parsed HTML contains unresolved UNSPLASH:... markers,
-  // batch-resolve them via the server (which calls the Unsplash API and caches).
-  useEffect(() => {
-    if (!parsed.html) return;
-    const queries = Array.from(
-      new Set(
-        Array.from(parsed.html.matchAll(/UNSPLASH:([^"'\s>]+)/g)).map((m) => m[1].trim()),
-      ),
-    ).filter((q) => q && !resolvedImages[q] && !inflightResolvesRef.current.has(q));
-    if (queries.length === 0) return;
-    queries.forEach((q) => inflightResolvesRef.current.add(q));
-    (async () => {
-      try {
-        const r = await fetch("/api/ops/email/resolve-images", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ queries }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (j?.results) {
-          setResolvedImages((prev) => ({ ...prev, ...j.results }));
-        }
-      } finally {
-        queries.forEach((q) => inflightResolvesRef.current.delete(q));
-      }
-    })();
-  }, [parsed.html, resolvedImages]);
 
   const send = async (text: string) => {
     const trimmed = text.trim();
