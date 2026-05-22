@@ -741,3 +741,73 @@ Two API end-to-end tests after the scaffold change still produced `<body style="
 - **Logo is white-on-transparent** — must always sit on a dark band (`accent_color`, default `#0A1628`). If a future profile has no accent_color, falls back to navy.
 - **`tsx server/index.ts` (the dev script) does NOT watch.** Server-side edits require a manual restart. Vite HMR handles client only. Worth either adding `tsx --watch` to the dev script or remembering this every time.
 
+---
+
+## 2026-05-22 (afternoon) — Email composer arc: three styles, compose→send handoff, branded editorial mode
+
+Continuation of the same-day prompt rewrite. Paul tested live in Klaviyo, hit a string of real issues, fixed each, then asked for an editorial variant matching Klaviyo's premium drag-drop templates.
+
+### Issues fixed in order
+
+1. **Klaviyo API key rejected** — old `…0de` key was revoked. Paul created new full-access `…407b` key; swapped in `.env`, verified `/accounts/` 200, restarted server.
+2. **"Open in Klaviyo" link 404** — `https://www.klaviyo.com/template/{id}` is not the in-app URL. Probed Klaviyo's path patterns; the working in-app list is `klaviyo.com/templates/list`. Swapped the link.
+3. **Mobile responsiveness broken** — Klaviyo's preview pane clipped headlines because the scaffold used `<table width="600">` (rigid). Changed to `width="100%" style="max-width:600px"` on every inner table. Also added `@media` query with `.hero-h1` / `.body-text` / `.cta` / `.px` / `.py` / `.hero-img` classes for size reduction below 600px. Added `word-wrap: break-word` to text elements.
+4. **Markdown ` ```html ` fence leaking into preview** — model occasionally wraps output in a code block. Added `stripCodeFence()` helper in the client parser.
+5. **Broken hero image (source.unsplash.com 503)** — Unsplash deprecated their Source endpoint; the redirect returns 503 now. Built a proper resolver using Paul's `UNSPLASH_ACCESS_KEY` from `~/.config/secrets.local.zsh`. New flow: model emits `src="UNSPLASH:keywords"` markers, client batches a `POST /api/ops/email/resolve-images`, server calls Unsplash search API and returns real CDN URLs, client swaps them in before preview and save. In-memory cache (7-day TTL, per process). Recipients fetch from `images.unsplash.com` directly — our domain stays out of the image path.
+6. **HTML attribute breaking on inner double quotes** — FitScript brand profile has `font_family = '"Inter", -apple-system, ...'`. When inlined into `style="font-family:..."`, the inner `"Inter"` quotes terminated the style attribute early; everything after `font-family:` was parsed as broken HTML, which is why the nav strip rendered without the white text color. Added `fontFamilyAttr = profile.font_family.replace(/"/g, "'")` and used it everywhere `font-family:` is inlined in style attributes.
+
+### New: compose → send handoff
+
+After save, the success card now shows **Continue to schedule send →** + **Open in Klaviyo** + **Save another**. Clicking Continue navigates to `/email/send?templateId=X&name=...&subject=...&preheader=...` — `email-send.tsx` reads those query params and pre-fills the form, jumping straight to step 2 (audience picker), skipping template selection. The arc is closed: compose draft + refine → save → audience + schedule + send → audit log, all without bouncing through Klaviyo's UI.
+
+### New: three style variants
+
+Paul wanted three meaningful options replacing the existing Branded HTML / Minimal HTML / Plain text:
+
+- **HTML** (was `branded-html`, now `html`) — the responsive scaffold we just fixed. Light page, navy band, white card. Default option, lightweight, deliverable.
+- **Branded** (NEW) — editorial magazine layout. Full-bleed hero photo (resolved via Unsplash API), optional nav strip (PRODUCT · APPROACH · LAUNCH style), serif display headlines (Playfair Display via Google Fonts), section h2s in serif, multiple image+text sections, generous whitespace, uppercase letter-spaced CTA. Reference: Cereal / Monocle / Apartamento / luxury travel newsletters.
+- **Plain text** — unchanged.
+
+Old `minimal-html` is gone. Server back-compat maps legacy `branded-html` / `minimal-html` style values to `html` so any in-flight clients don't break.
+
+### Server changes (`server/email-compose.ts`)
+
+- `EmailStyle = "html" | "branded" | "plain-text"` (was `"branded-html" | "minimal-html" | "plain-text"`)
+- `buildSystemPrompt` switches into `buildBrandedEditorialPrompt` for `branded`.
+- `buildBrandedEditorialPrompt` is ~150 lines of system prompt with a full editorial HTML scaffold (Playfair Display links in `<head>`, navy band header with optional nav strip, full-width hero image, serif display h1 + sans-serif standfirst lead, 1-3 magazine sections, uppercase CTA, italic Playfair footer).
+- `UNSPLASH:keywords` marker pattern documented in the scaffold; resolver endpoint at `POST /api/ops/email/resolve-images` calls Unsplash and caches.
+- `fontFamilyAttr` helper swaps `"` → `'` for safe inlining into `style="..."` attributes.
+
+### Client changes (`client/src/pages/email-compose.tsx`)
+
+- `STYLE_OPTIONS` labels updated.
+- `parseFinalEmail` adds `stripCodeFence` post-process.
+- New `useEffect` watches parsed.html for `UNSPLASH:...` markers, batches a resolve call, stores `resolvedImages` keyed by query, swaps URLs into `parsed.html` via a second `replace()` pass inside the same `useMemo`.
+- Save-to-Klaviyo success replaces the form with a "Saved" card showing template ID + three actions: **Continue to schedule send** (primary gradient CTA), **Open in Klaviyo** (secondary outline), **Save another** (link).
+- `coerceFrameColors` already exists from morning's work; still doing its job replacing `#0a0a0a` body bg with the brand light bg.
+
+### Client changes (`client/src/pages/email-send.tsx`)
+
+- `handoff` memo reads `templateId`, `name`, `subject`, `preheader` from URL search params.
+- Initial state seeds from `handoff`. When `templateId` is present, the wizard starts at step 2 (skip template picker).
+
+### Verified end-to-end
+
+- New Klaviyo API key works (`/accounts/` 200, FitScript org confirmed).
+- Old template `T89U5q` deleted via direct Klaviyo DELETE (key has full access).
+- New responsive HTML template saved as `Usffp7`; Klaviyo round-trip confirms `width="100%"` tables, `@media` query intact, all responsive classes preserved, body bg `#F2F6FC`, navy band `#0A1628` preserved, no forbidden near-blacks remain.
+- Branded editorial draft generated successfully: serif Playfair Display headlines, nav strip in white, hero image resolved to actual Unsplash CDN URL (`images.unsplash.com/photo-...`), no markdown fence leak, font-family single-quoted in all style attributes.
+
+### Pending
+
+- **Prod needs `UNSPLASH_ACCESS_KEY`** in AWS Secrets Manager (`prod/ops-secrets`) before this can ship to ops.fitscript.me. Without it the resolver returns 503 and branded mode falls back to broken images.
+- Old `T89U5q` template was deleted from Klaviyo today; the new `Usffp7` "Monthly newsletter (responsive test)" and a fresh editorial template Paul generated are the live test artifacts.
+
+### What I'll remember
+
+- **Unsplash Source is dead** — `source.unsplash.com/featured/...` returns 503. Anything that needs Unsplash photos in 2026 must hit `api.unsplash.com/search/photos` with a Client-ID key.
+- **CSS font stacks with inner double quotes break HTML attributes silently.** Always normalize to single quotes when inlining `font-family` into `style="..."`. Same goes for any user-defined string interpolated into an attribute.
+- **Klaviyo template URLs don't deep-link from outside the app.** Use `klaviyo.com/templates/list` as the "open in Klaviyo" target — the new template is at the top sorted by recent.
+- **Klaviyo template editor types:** API can only create `CODE` (raw HTML). Drag-drop (`SYSTEM_DRAGGABLE` / `USER_DRAGGABLE`) types can only be made in Klaviyo's UI. The composer is HTML-author, not drag-drop-author.
+- **Image-resolver pattern**: marker in src + client-side batch resolve + swap before render. Keeps the saved HTML pointing at the real CDN, no recipient traffic on our domain, and lets the model emit semantic queries without knowing real URLs.
+

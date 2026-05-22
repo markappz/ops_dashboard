@@ -50,22 +50,29 @@ const TYPE_TO_CONFIRM_THRESHOLD = 1000;
 
 export default function EmailSend() {
   const [, navigate] = useLocation();
-  // Pre-select template if /email/send?templateId=... (from compose handoff)
-  const initialTemplateId = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("templateId") || "";
+  // Pre-fill from /email/send?templateId=...&name=...&subject=...&preheader=...
+  // (handoff from the AI composer at /email/compose)
+  const handoff = useMemo(() => {
+    if (typeof window === "undefined") return { templateId: "", name: "", subject: "", preheader: "" };
+    const qs = new URLSearchParams(window.location.search);
+    return {
+      templateId: qs.get("templateId") || "",
+      name: qs.get("name") || "",
+      subject: qs.get("subject") || "",
+      preheader: qs.get("preheader") || "",
+    };
   }, []);
 
-  const [step, setStep] = useState<Step>(initialTemplateId ? 2 : 1);
+  const [step, setStep] = useState<Step>(handoff.templateId ? 2 : 1);
 
   // form state
-  const [name, setName] = useState("");
-  const [templateId, setTemplateId] = useState<string>(initialTemplateId);
+  const [name, setName] = useState(handoff.name);
+  const [templateId, setTemplateId] = useState<string>(handoff.templateId);
   const [includeListIds, setIncludeListIds] = useState<string[]>([]);
   const [includeSegmentIds, setIncludeSegmentIds] = useState<string[]>([]);
   const [excludedSegmentIds, setExcludedSegmentIds] = useState<string[]>([]);
-  const [subject, setSubject] = useState("");
-  const [previewText, setPreviewText] = useState("");
+  const [subject, setSubject] = useState(handoff.subject);
+  const [previewText, setPreviewText] = useState(handoff.preheader);
   const [fromEmail, setFromEmail] = useState("");
   const [fromLabel, setFromLabel] = useState("");
   const [sendMethod, setSendMethod] = useState<SendMethod>("immediate");

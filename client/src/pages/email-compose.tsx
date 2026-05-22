@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { ModalPortal } from "../components/modal-portal";
 
-type EmailStyle = "branded-html" | "minimal-html" | "plain-text";
+type EmailStyle = "html" | "branded" | "plain-text";
 
 interface BrandProfile {
   id: string;
@@ -39,9 +39,9 @@ interface ParsedEmail {
 }
 
 const STYLE_OPTIONS: { value: EmailStyle; label: string; description: string }[] = [
-  { value: "branded-html", label: "Branded HTML", description: "Full design with logo, buttons, color blocks" },
-  { value: "minimal-html", label: "Minimal HTML", description: "Brand colors, clean layout, no graphics" },
-  { value: "plain-text", label: "Plain text", description: "No HTML — text-only newsletter style" },
+  { value: "html", label: "HTML", description: "Clean responsive layout — navy band + white card. Fast, deliverable." },
+  { value: "branded", label: "Branded", description: "Editorial magazine — hero photo, serif headlines, multi-section." },
+  { value: "plain-text", label: "Plain text", description: "Text-only newsletter. No HTML at all." },
 ];
 
 // Some models override the prompt's light-mode rule and paint the email frame
@@ -68,6 +68,16 @@ function coerceFrameColors(html: string, pageBg: string, accentBand: string): st
     out = out.replace(re, `background-color: ${pageBg}`);
   }
   return out;
+}
+
+// Models occasionally wrap their HTML output in a ```html ... ``` markdown
+// fence despite the prompt saying not to. Strip it so the iframe doesn't
+// render literal backticks above the doctype.
+function stripCodeFence(s: string): string {
+  let out = s.trim();
+  out = out.replace(/^```(?:html|HTML)?\s*\n?/, "");
+  out = out.replace(/\n?```\s*$/, "");
+  return out.trim();
 }
 
 function parseFinalEmail(raw: string): ParsedEmail {
@@ -102,7 +112,7 @@ function parseFinalEmail(raw: string): ParsedEmail {
     const end = nextAfter(changesIdx, [htmlIdx, textIdx]);
     changes = raw.slice(changesIdx + "=== CHANGES ===".length, end).trim();
   }
-  if (htmlIdx >= 0) html = raw.slice(htmlIdx + "=== HTML ===".length, textIdx > htmlIdx ? textIdx : raw.length).trim();
+  if (htmlIdx >= 0) html = stripCodeFence(raw.slice(htmlIdx + "=== HTML ===".length, textIdx > htmlIdx ? textIdx : raw.length).trim());
   if (textIdx >= 0) text = raw.slice(textIdx + "=== TEXT ===".length).trim();
   void bodyIdx;
 
@@ -121,7 +131,7 @@ export default function EmailCompose() {
   const defaultProfile = profiles.find((p) => p.is_default) || profiles[0];
 
   const [profileId, setProfileId] = useState<string>("");
-  const [style, setStyle] = useState<EmailStyle>("branded-html");
+  const [style, setStyle] = useState<EmailStyle>("html");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -131,6 +141,7 @@ export default function EmailCompose() {
   const [templateName, setTemplateName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ templateId: string; klaviyoUrl: string | null } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -156,6 +167,11 @@ export default function EmailCompose() {
     () => profiles.find((p) => p.id === profileId) || defaultProfile,
     [profiles, profileId, defaultProfile],
   );
+
+  // Resolved Unsplash photo URLs — keyed by the marker query string.
+  const [resolvedImages, setResolvedImages] = useState<Record<string, string>>({});
+  const inflightResolvesRef = useRef<Set<string>>(new Set());
+
   const parsed = useMemo(() => {
     const p = parseFinalEmail(lastAssistant);
     if (p.html && activeProfile) {
@@ -164,10 +180,43 @@ export default function EmailCompose() {
         activeProfile.page_bg_color,
         activeProfile.accent_color || "#0A1628",
       );
+      // Swap any resolved UNSPLASH:query markers with the real CDN URL.
+      p.html = p.html.replace(/UNSPLASH:([^"'\s>]+)/g, (whole, query) => {
+        const real = resolvedImages[query.trim()];
+        return real || whole;
+      });
     }
     return p;
-  }, [lastAssistant, activeProfile]);
+  }, [lastAssistant, activeProfile, resolvedImages]);
   const hasFinal = (parsed.html || parsed.text).length > 0;
+
+  // Whenever the parsed HTML contains unresolved UNSPLASH:... markers,
+  // batch-resolve them via the server (which calls the Unsplash API and caches).
+  useEffect(() => {
+    if (!parsed.html) return;
+    const queries = Array.from(
+      new Set(
+        Array.from(parsed.html.matchAll(/UNSPLASH:([^"'\s>]+)/g)).map((m) => m[1].trim()),
+      ),
+    ).filter((q) => q && !resolvedImages[q] && !inflightResolvesRef.current.has(q));
+    if (queries.length === 0) return;
+    queries.forEach((q) => inflightResolvesRef.current.add(q));
+    (async () => {
+      try {
+        const r = await fetch("/api/ops/email/resolve-images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ queries }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (j?.results) {
+          setResolvedImages((prev) => ({ ...prev, ...j.results }));
+        }
+      } finally {
+        queries.forEach((q) => inflightResolvesRef.current.delete(q));
+      }
+    })();
+  }, [parsed.html, resolvedImages]);
 
   const send = async (text: string) => {
     const trimmed = text.trim();
@@ -244,6 +293,7 @@ export default function EmailCompose() {
     }
     setSaving(true);
     setSaveMsg(null);
+    setSaved(null);
     try {
       const r = await fetch("/api/ops/email/compose/save", {
         method: "POST",
@@ -260,13 +310,25 @@ export default function EmailCompose() {
       if (!r.ok || !j.ok) {
         setSaveMsg(`Failed: ${j.error || "unknown"}`);
       } else {
-        setSaveMsg(`✓ Saved to Klaviyo${j.klaviyoUrl ? ` — ${j.klaviyoUrl}` : ""}`);
+        setSaveMsg(null);
+        setSaved({ templateId: j.templateId, klaviyoUrl: j.klaviyoUrl ?? null });
       }
     } catch (e: any) {
       setSaveMsg(`Failed: ${e.message}`);
     } finally {
       setSaving(false);
     }
+  };
+
+  const continueToSend = () => {
+    if (!saved) return;
+    const qs = new URLSearchParams({
+      templateId: saved.templateId,
+      name: templateName.trim(),
+      subject: parsed.subject || "",
+      preheader: parsed.preheader || "",
+    });
+    navigate(`/email/send?${qs.toString()}`);
   };
 
   const SUGGESTED = [
@@ -469,33 +531,75 @@ export default function EmailCompose() {
       {/* Save to Klaviyo */}
       {hasFinal && (
         <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5">
-          <h3 className="text-sm font-semibold text-ops-text mb-3">Save to Klaviyo</h3>
-          {parsed.subject && (
-            <div className="mb-3">
-              <div className="text-[11px] font-semibold text-ops-text-muted uppercase tracking-wider mb-1">Subject</div>
-              <div className="text-sm text-ops-text bg-ops-bg border border-ops-border rounded-lg px-3 py-2">
-                {parsed.subject}
+          {!saved ? (
+            <>
+              <h3 className="text-sm font-semibold text-ops-text mb-3">Save to Klaviyo</h3>
+              {parsed.subject && (
+                <div className="mb-3">
+                  <div className="text-[11px] font-semibold text-ops-text-muted uppercase tracking-wider mb-1">Subject</div>
+                  <div className="text-sm text-ops-text bg-ops-bg border border-ops-border rounded-lg px-3 py-2">
+                    {parsed.subject}
+                  </div>
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="Template name (e.g. Win-back · Lapsed 30d)"
+                  className="flex-1 bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-sm text-ops-text focus:outline-none focus:border-brand-blue-500"
+                />
+                <button
+                  onClick={saveToKlaviyo}
+                  disabled={saving || !templateName.trim()}
+                  className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95"
+                >
+                  {saving ? "Saving…" : "Save to Klaviyo"}
+                </button>
               </div>
-            </div>
-          )}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              placeholder="Template name (e.g. Win-back · Lapsed 30d)"
-              className="flex-1 bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-sm text-ops-text focus:outline-none focus:border-brand-blue-500"
-            />
-            <button
-              onClick={saveToKlaviyo}
-              disabled={saving || !templateName.trim()}
-              className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95"
-            >
-              {saving ? "Saving…" : "Save to Klaviyo"}
-            </button>
-          </div>
-          {saveMsg && (
-            <div className={`mt-3 px-3 py-2 rounded-lg text-xs ${saveMsg.startsWith("✓") ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30" : "bg-red-500/10 text-red-400 border border-red-500/30"}`}>
-              {saveMsg}
+              {saveMsg && (
+                <div className="mt-3 px-3 py-2 rounded-lg text-xs bg-red-500/10 text-red-400 border border-red-500/30">
+                  {saveMsg}
+                </div>
+              )}
+            </>
+          ) : (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-full bg-brand-blue-500/15 border border-brand-blue-400/40 flex items-center justify-center">
+                  <svg className="w-4 h-4 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-ops-text">Saved to Klaviyo</div>
+                  <div className="text-[11px] text-ops-text-muted">Template <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                <button
+                  onClick={continueToSend}
+                  className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] hover:opacity-95 inline-flex items-center gap-1.5"
+                >
+                  Continue to schedule send
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                </button>
+                {saved.klaviyoUrl && (
+                  <a
+                    href={saved.klaviyoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-4 py-2.5 text-xs font-medium rounded-lg bg-ops-bg border border-ops-border text-ops-text-muted hover:text-ops-text hover:bg-ops-surface-hover inline-flex items-center gap-1.5"
+                  >
+                    Open in Klaviyo
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                  </a>
+                )}
+                <button
+                  onClick={() => { setSaved(null); setTemplateName(""); }}
+                  className="px-3 py-2.5 text-xs text-ops-text-muted hover:text-ops-text"
+                >
+                  Save another
+                </button>
+              </div>
             </div>
           )}
         </div>

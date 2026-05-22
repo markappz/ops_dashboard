@@ -17,9 +17,9 @@
  *   POST /api/ops/email/compose/save                   — save final to Klaviyo
  *
  * Style modes
- *   branded-html  → full branded HTML email (logo, buttons, graphics)
- *   minimal-html  → simple HTML, brand colors but minimal styling
- *   plain-text    → actual text/plain output (no HTML at all)
+ *   html       → clean responsive branded HTML (default, lightweight scaffold)
+ *   branded    → editorial-magazine layout — hero image, nav strip, serif headlines
+ *   plain-text → actual text/plain output (no HTML at all)
  *
  * Cost is logged to ai_costs with surface `ops_email_compose`.
  */
@@ -35,6 +35,13 @@ interface AdminReq extends Request {
 
 const KLAVIYO_BASE = "https://a.klaviyo.com/api";
 const KLAVIYO_REVISION = "2025-04-15";
+
+// In-memory Unsplash photo URL cache for branded-editorial composer.
+// Key = query string ("biomarker,laboratory"), value = resolved CDN URL.
+// 7-day TTL; resets on process restart. Avoids hammering Unsplash for
+// repeated compositions of the same email.
+const unsplashCache = new Map<string, { url: string; at: number }>();
+const UNSPLASH_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 // ─── Brand profiles ────────────────────────────────────────────────
 
@@ -141,7 +148,7 @@ async function getDefaultProfile(): Promise<BrandProfile> {
 
 // ─── System prompt builder ─────────────────────────────────────────
 
-type EmailStyle = "branded-html" | "minimal-html" | "plain-text";
+type EmailStyle = "html" | "branded" | "plain-text";
 
 function buildSystemPrompt(profile: BrandProfile, style: EmailStyle): string {
   const voice = profile.brand_voice || "Direct, warm, science-grounded. No marketing-speak.";
@@ -171,8 +178,6 @@ Rules:
 Voice: ${voice}`;
   }
 
-  const isMinimal = style === "minimal-html";
-
   // Detect if the font stack starts with a web font (quoted name) so we
   // can pull it from Google Fonts in the head. Apple Mail / iOS Mail
   // render Google Fonts; Gmail/Outlook fall back to the next item in
@@ -182,8 +187,15 @@ Voice: ${voice}`;
   const googleFontLink = webFontName
     ? `<link href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(webFontName)}:wght@400;500;600;700&display=swap" rel="stylesheet" />`
     : "";
+  // CSS font-family lists frequently contain inner double quotes ("Inter",
+  // "Segoe UI") which collide with the outer style="..." attribute quotes
+  // and silently truncate everything after the family name. Swap inner
+  // double quotes for single quotes when interpolating into a style attribute.
+  const fontFamilyAttr = profile.font_family.replace(/"/g, "'");
 
-  return `You are a senior email designer + copywriter composing ${isMinimal ? "minimal" : "premium branded"} HTML emails for ${profile.name}.
+  if (style === "branded") return buildBrandedEditorialPrompt(profile, voice, webFontName, googleFontLink, fontFamilyAttr);
+
+  return `You are a senior email designer + copywriter composing clean, branded HTML emails for ${profile.name}.
 
 You write like a sharp founder, not a marketing intern. Every word earns its place. The output should feel like Ro / Hims / Superhuman — confident, specific, restrained, premium.
 
@@ -223,9 +235,17 @@ HTML SCAFFOLD — copy this scaffold EXACTLY, then fill the {{slots}}. Do NOT ch
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 ${webFontName ? googleFontLink : ""}
 <title>{{TITLE — same as subject}}</title>
-<style>@media only screen and (max-width: 600px) { .px { padding-left: 24px !important; padding-right: 24px !important; } .py { padding-top: 32px !important; padding-bottom: 32px !important; } }</style>
+<style>
+  @media only screen and (max-width: 600px) {
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+    .py { padding-top: 32px !important; padding-bottom: 32px !important; }
+    .hero-h1 { font-size: 24px !important; line-height: 30px !important; }
+    .body-text { font-size: 15px !important; line-height: 24px !important; }
+    .cta { display: block !important; width: 100% !important; box-sizing: border-box !important; text-align: center !important; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${profile.font_family};color:${profile.text_color};">
+<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${fontFamilyAttr};color:${profile.text_color};">
 <div style="display:none;max-height:0;overflow:hidden;color:transparent;">{{PREHEADER}}</div>
 <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
   <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
@@ -237,24 +257,24 @@ ${webFontName ? googleFontLink : ""}
       </td></tr>
     </table>
 
-    <!-- White card -->
-    <table align="center" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:${profile.bg_color};margin:0 auto;">
+    <!-- White card — width:100% with max-width:600px so it shrinks below 600px viewports instead of clipping -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:${profile.bg_color};margin:0 auto;">
       <tr><td class="px py" style="padding:48px 40px;">
-        <h1 style="margin:0 0 16px 0;font-size:30px;line-height:36px;font-weight:700;color:${profile.text_color};letter-spacing:-0.02em;">{{HERO_H1 — max 8 words}}</h1>
-        <p style="margin:0;font-size:16px;line-height:26px;color:${profile.text_color};">{{HERO_LEAD — one sharp sentence}}</p>
+        <h1 class="hero-h1" style="margin:0 0 16px 0;font-size:30px;line-height:36px;font-weight:700;color:${profile.text_color};letter-spacing:-0.02em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_H1 — max 8 words}}</h1>
+        <p class="body-text" style="margin:0;font-size:16px;line-height:26px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">{{HERO_LEAD — one sharp sentence}}</p>
       </td></tr>
 
-      {{BODY_SECTIONS — 1 to 3 sections max, each is a <tr><td> with padding 0 40px 32px 40px, body copy 15px/26px ${profile.text_color}. Section headlines: h2 18px/24px font-weight 600 ${profile.text_color}, margin 0 0 12px 0. Use a single hero stat OR a quickchart image OR sharp copy — never three generic stat boxes.}}
+      {{BODY_SECTIONS — 1 to 3 sections max, each is a <tr><td class="px"> with padding 0 40px 32px 40px, body copy class="body-text" 15px/26px ${profile.text_color} with word-wrap:break-word;overflow-wrap:break-word;. Section headlines: h2 18px/24px font-weight 600 ${profile.text_color}, margin 0 0 12px 0, word-wrap:break-word;.}}
 
-      <!-- CTA -->
+      <!-- CTA — .cta class makes it full-width below 600px so the button never clips -->
       <tr><td align="center" class="px" style="padding:8px 40px 48px 40px;">
-        <a href="{{CTA_URL}}" style="display:inline-block;padding:14px 28px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;font-family:${profile.font_family};">{{CTA_LABEL — 2-4 words}}</a>
+        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:14px 28px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words}}</a>
       </td></tr>
     </table>
 
-    <!-- Footer -->
-    <table align="center" width="600" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
-      <tr><td align="center" style="padding:24px 40px 40px 40px;">
+    <!-- Footer — also width:100% max:600 for the same reason -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
+      <tr><td align="center" class="px" style="padding:24px 40px 40px 40px;">
         <p style="margin:0 0 8px 0;font-size:12px;color:#9CA3AF;line-height:18px;">${profile.footer_text || profile.name}</p>
         <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;"><a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a></p>
       </td></tr>
@@ -270,16 +290,15 @@ SCAFFOLD RULES (no exceptions):
 - The frame chrome colors are LOCKED. Do not introduce #000000 / #0a0a0a / #111 / #1a1a1a anywhere in the email. The only dark surface is the logo band (${profile.accent_color || '#0A1628'}).
 - Body bg = ${profile.page_bg_color}. Card bg = ${profile.bg_color}. Both literal — do not substitute.
 - ONE primary CTA. Secondary text-only link is allowed inside body copy.
-- Mobile-responsive uses the @media query in <style>; otherwise all CSS inline.
+- RESPONSIVE: PRESERVE the .px / .py / .hero-h1 / .body-text / .cta class names on the elements they appear in the scaffold. The <style> @media query targets those classes; removing them breaks mobile. When adding new body sections, give the cells class="px" and the body copy class="body-text".
+- NEVER use width="600" on a table — use width="100%" with style="max-width:600px" so the card shrinks under 600px viewports.
 - NEVER include script, form, or iframe tags.
 - Keep total HTML under 80KB.
-${isMinimal
-  ? "MINIMAL mode override: inside the white card, NO decorative graphics, NO gradients, NO charts. Just clean text in the brand font with the primary color used sparingly for the CTA. Drop the scaffold's hero stat language — use plain text sections only."
-  : `BODY CONTENT (inside the white card):
+BODY CONTENT (inside the white card):
 - ONE visual focal point per email. Either a quickchart (real data only), a single high-contrast stat block with a REAL number (not "New insights" placeholder text), or a navy/sky accent strip. Never three generic stat boxes in a row.
 - CHARTS: only when the user provides real data or the email is inherently measurable. Format: <img src="https://quickchart.io/chart?w=600&h=300&bkg=white&c={URL-encoded Chart.js v3 JSON}" width="600" height="300" alt="..." style="display:block;max-width:100%;height:auto;" /> — primary color ${profile.primary_color} for bars/lines. NEVER fabricate numbers.
 - DIVIDERS: 1px <hr style="border:0;border-top:1px solid #E5E7EB;margin:32px 0;"> between sections.
-- Sectioning: 1-3 body sections inside the card. Whitespace > density.`}
+- Sectioning: 1-3 body sections inside the card. Whitespace > density.
 
 PERSONALIZATION (Klaviyo tokens — use unless the user explicitly says no):
 - Use {{ first_name|default:"there" }} for greeting (only when a greeting is needed — don't bolt one on if the email opens with a real sentence).
@@ -303,6 +322,170 @@ LENGTH BUDGET (branded mode):
 - Section headlines: 6 words max.
 - Body paragraphs: 2-3 sentences each.
 - Conclusion: drop the email at the CTA. Don't write "thank you" / "we appreciate you" closers.`;
+}
+
+// ─── Branded editorial system prompt ─────────────────────────────
+//
+// "Top notch" mode: editorial magazine style. Hero image (Unsplash source
+// URL — no API key needed), optional nav strip, serif display headlines
+// (Playfair Display Google Font), multiple image+text sections, more
+// breathing room. Still outputs editable CODE-template HTML for Klaviyo
+// (drag-drop isn't writable via the templates API — only CODE is).
+
+function buildBrandedEditorialPrompt(
+  profile: BrandProfile,
+  voice: string,
+  webFontName: string | null,
+  googleFontLink: string,
+  fontFamilyAttr: string,
+): string {
+  // Two Google Font links — body sans + display serif. Sans falls back to
+  // the profile font_family stack; serif uses Playfair Display.
+  const playfairLink = `<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />`;
+  const fontHead = `${googleFontLink}\n${playfairLink}`;
+  void webFontName; // included via googleFontLink
+
+  return `You are a senior editorial email designer composing PREMIUM magazine-style branded emails for ${profile.name}.
+
+Reference standard: the editorial emails from brands like Apartamento, Cereal, Monocle, or a luxury travel magazine — full-bleed photography, serif display headlines, restrained color, generous whitespace.
+
+You write like a senior editor + designer, not a marketing intern. Every word and every visual element earns its place.
+
+Output FORMAT — EVERY response, EVERY turn, must contain ALL FOUR blocks below in this exact order. Never omit CHANGES, even on refinement turns. No preamble:
+
+=== SUBJECT ===
+<short subject line, under 50 chars, no emojis, no salesy cliches>
+=== PREHEADER ===
+<inbox preview line, under 90 chars, complementary new info — never restate the subject>
+=== CHANGES ===
+<MANDATORY block. For the FIRST draft: "Initial draft.". For refinements: 2-5 verb-led bullets (Cut / Added / Rewrote / Shortened / Replaced / Tightened / Removed). Be specific about the section.>
+=== HTML ===
+<full <!DOCTYPE html>...</html> document>
+
+Brand profile (use EXACTLY these values):
+- Primary color (CTA): ${profile.primary_color}
+- Accent / dark surface: ${profile.accent_color || '#0A1628'}
+- Body text: ${profile.text_color}
+- Card bg: ${profile.bg_color}
+- Page bg: ${profile.page_bg_color}
+- Body font stack (use in style attributes — note single quotes around web fonts to avoid colliding with style="..." attribute quotes): ${fontFamilyAttr}
+- Display font (use in style attributes): 'Playfair Display', Georgia, 'Times New Roman', serif  (serif, editorial)
+- Google Fonts links (BOTH must appear in <head>):
+${fontHead}
+${profile.logo_url ? `- Logo: ${profile.logo_url} (width ${profile.logo_width}px) — white-on-transparent; ALWAYS sits on the navy band` : ""}
+${profile.footer_text ? `- Footer line: ${profile.footer_text}` : ""}
+
+HTML SCAFFOLD — copy this exactly, fill the {{slots}}. Do NOT change colors, do NOT change table widths, do NOT remove the responsive class names. Only edit content inside the slots.
+
+\`\`\`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+${googleFontLink}
+${playfairLink}
+<title>{{TITLE — same as subject}}</title>
+<style>
+  @media only screen and (max-width: 600px) {
+    .px { padding-left: 24px !important; padding-right: 24px !important; }
+    .py { padding-top: 28px !important; padding-bottom: 28px !important; }
+    .hero-display { font-size: 30px !important; line-height: 36px !important; }
+    .section-h2 { font-size: 22px !important; line-height: 28px !important; }
+    .body-text { font-size: 15px !important; line-height: 25px !important; }
+    .nav-strip { font-size: 11px !important; letter-spacing: 1.5px !important; }
+    .cta { display: block !important; width: 100% !important; box-sizing: border-box !important; text-align: center !important; }
+    .hero-img { height: auto !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:${profile.page_bg_color};font-family:${fontFamilyAttr};color:${profile.text_color};">
+<div style="display:none;max-height:0;overflow:hidden;color:transparent;">{{PREHEADER}}</div>
+<table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.page_bg_color};">
+  <tr><td align="center" style="padding:0;background-color:${profile.page_bg_color};">
+
+    <!-- Logo band + nav strip — the dark editorial header -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="background-color:${profile.accent_color || '#0A1628'};">
+      <tr><td align="center" class="px" style="padding:36px 32px 16px 32px;background-color:${profile.accent_color || '#0A1628'};">
+        <img src="${profile.logo_url}" alt="${profile.name}" width="${profile.logo_width}" height="auto" style="display:block;margin:0 auto;max-width:${profile.logo_width}px;border:0;outline:none;" />
+      </td></tr>
+      {{NAV_STRIP — OPTIONAL: 2-3 short SECTION labels (all caps, letter-spacing). Use ONLY when the email has 2+ distinct content sections that map to navigable areas. Render as a <tr><td align="center" class="nav-strip" style="padding:0 32px 32px 32px;background-color:[accent];font-family:[body font];font-size:13px;letter-spacing:2px;color:#FFFFFF;line-height:1.8;">SECTION ONE &nbsp;&nbsp;·&nbsp;&nbsp; SECTION TWO &nbsp;&nbsp;·&nbsp;&nbsp; SECTION THREE</td></tr>. If only 1 content section, OMIT this entirely.}}
+    </table>
+
+    <!-- Hero image — full-width inside the card -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;background-color:${profile.bg_color};margin:0 auto;">
+      <tr><td style="padding:0;font-size:0;line-height:0;">
+        <img src="UNSPLASH:{{HERO_IMAGE_KEYWORDS — 2-4 lowercase keywords describing the hero visual, comma-separated. Examples: "biomarker,laboratory,blood", "morning,sunrise,fitness", "minimal,architecture,quiet", "autumn,forest,landscape". Pick keywords that match the email's tone — evocative not literal. NEVER write placeholder text here; always provide real keywords.}}" alt="{{HERO_IMAGE_ALT — short description}}" width="600" class="hero-img" style="display:block;width:100%;max-width:600px;height:auto;border:0;outline:none;" />
+      </td></tr>
+
+      <!-- Display headline — serif Playfair -->
+      <tr><td class="px py" style="padding:48px 48px 24px 48px;">
+        <h1 class="hero-display" style="margin:0 0 20px 0;font-family:'Playfair Display', Georgia, 'Times New Roman', serif;font-size:38px;line-height:44px;font-weight:700;color:${profile.text_color};letter-spacing:-0.01em;word-wrap:break-word;overflow-wrap:break-word;">{{HERO_DISPLAY_H1 — max 10 words, editorial tone}}</h1>
+        <p class="body-text" style="margin:0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">{{HERO_LEAD — 1-2 sharp sentences, the editorial standfirst}}</p>
+      </td></tr>
+
+      {{BODY_SECTIONS — 1 to 3 editorial sections. Each is a <tr><td class="px" style="padding:0 48px 32px 48px;"> containing:
+        - <h2 class="section-h2" style="margin:0 0 14px 0;font-family:'Playfair Display',Georgia,serif;font-size:26px;line-height:32px;font-weight:700;color:${profile.text_color};word-wrap:break-word;">Section title</h2>
+        - <p class="body-text" style="margin:0 0 14px 0;font-size:16px;line-height:27px;color:${profile.text_color};word-wrap:break-word;overflow-wrap:break-word;">Body copy paragraph</p>
+        Optionally include a secondary image between sections: <tr><td style="padding:8px 0 32px 0;font-size:0;line-height:0;"><img src="UNSPLASH:keywords" alt="..." width="600" class="hero-img" style="display:block;width:100%;max-width:600px;height:auto;" /></td></tr>
+        Optionally include a <hr style="border:0;border-top:1px solid #E5E7EB;margin:8px 0 32px 0;"> between sections.
+      }}
+
+      <!-- CTA — primary editorial button -->
+      <tr><td align="center" class="px" style="padding:16px 48px 56px 48px;">
+        <a href="{{CTA_URL}}" class="cta" style="display:inline-block;padding:16px 36px;background-color:${profile.primary_color};color:#FFFFFF;text-decoration:none;border-radius:4px;font-weight:600;font-size:14px;letter-spacing:1px;text-transform:uppercase;font-family:${fontFamilyAttr};">{{CTA_LABEL — 2-4 words, all caps in rendering}}</a>
+      </td></tr>
+    </table>
+
+    <!-- Footer -->
+    <table align="center" width="100%" cellpadding="0" cellspacing="0" border="0" role="presentation" style="max-width:600px;margin:0 auto;">
+      <tr><td align="center" class="px" style="padding:32px 48px 48px 48px;">
+        <p style="margin:0 0 10px 0;font-family:'Playfair Display',Georgia,serif;font-style:italic;font-size:14px;color:#6B7280;line-height:20px;">${profile.footer_text || profile.name}</p>
+        <p style="margin:0;font-size:12px;color:#9CA3AF;line-height:18px;font-family:${fontFamilyAttr};">
+          <a href="${profile.unsubscribe_text}" style="color:#9CA3AF;text-decoration:underline;">Unsubscribe</a>
+        </p>
+      </td></tr>
+    </table>
+
+  </td></tr>
+</table>
+</body>
+</html>
+\`\`\`
+
+EDITORIAL RULES:
+- Display headlines use PLAYFAIR DISPLAY serif. Section h2s use Playfair Display too. Body copy uses the sans body stack. This is the magazine contrast.
+- ALWAYS include the hero image. NEVER skip it. Pick keywords that evoke the email's mood (not literal). Use lowercase, comma-separated, 2-4 words.
+- Image-text rhythm: hero image → display headline → standfirst lead → 1-3 sections (each can include its own image) → CTA → footer.
+- Image URLs MUST use the exact pattern src="UNSPLASH:keyword1,keyword2" — the server resolves these to real Unsplash CDN URLs before render and save. NEVER write a real image URL (no http/https, no placeholder.com), NEVER use source.unsplash.com (deprecated).
+- Buttons use UPPERCASE text with letter-spacing for the editorial feel. Slight border-radius (4px), not pill-shape.
+- Whitespace > density. Section padding is 48px horizontal, 32-48px vertical.
+- Colors are LOCKED: page bg ${profile.page_bg_color}, card bg ${profile.bg_color}, accent ${profile.accent_color || '#0A1628'}, body text ${profile.text_color}, CTA ${profile.primary_color}. NO #000000 / #0a0a0a / #111 / #1a1a1a anywhere except the logo band.
+- RESPONSIVE: PRESERVE .px / .py / .hero-display / .section-h2 / .body-text / .nav-strip / .cta / .hero-img class names. The @media query targets them.
+- NEVER use width="600" on a table — always width="100%" with style="max-width:600px".
+
+PERSONALIZATION (Klaviyo tokens — use unless explicitly told not to):
+- {{ first_name|default:"there" }} for greetings (only where genuinely warranted).
+- Other Klaviyo standard fields: location.city, location.region, location.country.
+- Custom person properties: {{ person|lookup:"property_name" }} — only when the audience has that property set.
+
+VOICE — ${profile.name}:
+${voice}
+
+LENGTH BUDGET:
+- Total body copy under 220 words (editorial gets a bit more room than html mode).
+- Hero display h1: max 10 words.
+- Section h2 headlines: max 7 words.
+- Body paragraphs: 2-4 sentences each.
+- Drop the email at the CTA. No "thanks for reading" / closer fluff.
+
+ANTI-PATTERNS:
+- "We miss you" / "Come back" / "We noticed" — passive beggy openers.
+- Stat boxes with placeholder text ("New insights" / "Ready to go") — never.
+- Generic platitudes ("the science is clear") — show, don't preach.
+- Multiple competing CTAs — ONE primary button, ONE optional text link inline.
+- Em-dash openings ("So—") or "Hey there!" — startup cliche voice.
+- Skipping the hero image — the visual is the point of this mode.`;
 }
 
 // ─── Endpoints ─────────────────────────────────────────────────────
@@ -414,6 +597,47 @@ export function registerEmailComposeRoutes(app: Express) {
     }
   });
 
+  // ─── Image resolver — model emits `UNSPLASH:keywords` markers; client
+  //     batches them here and we swap in real Unsplash CDN URLs before
+  //     the preview iframe + save-to-Klaviyo see the HTML.
+  //
+  //     Recipients never hit our domain for images; the saved template
+  //     points directly at Unsplash CDN. Cached in-memory for 7 days
+  //     (per process; resets on restart).
+  app.post("/api/ops/email/resolve-images", async (req: AdminReq, res) => {
+    const queries: string[] = Array.isArray(req.body?.queries) ? req.body.queries : [];
+    if (queries.length === 0) return res.json({ results: {} });
+    const key = process.env.UNSPLASH_ACCESS_KEY;
+    if (!key) return res.status(503).json({ error: "UNSPLASH_ACCESS_KEY not configured" });
+    const unique = Array.from(new Set(queries.map((q) => String(q).trim()).filter(Boolean)));
+    const results: Record<string, string> = {};
+    await Promise.all(unique.map(async (q) => {
+      const cached = unsplashCache.get(q);
+      if (cached && Date.now() - cached.at < UNSPLASH_TTL_MS) {
+        results[q] = cached.url;
+        return;
+      }
+      try {
+        const r = await fetch(
+          `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=1&orientation=landscape&content_filter=high`,
+          { headers: { Authorization: `Client-ID ${key}` } },
+        );
+        if (!r.ok) return;
+        const j: any = await r.json();
+        const photo = j?.results?.[0];
+        // Use the regular-sized URL (1080w) — good balance of quality + weight for email.
+        const url = photo?.urls?.regular || photo?.urls?.full;
+        if (url) {
+          unsplashCache.set(q, { url, at: Date.now() });
+          results[q] = url;
+        }
+      } catch {
+        // silently fail — caller falls back to a placeholder
+      }
+    }));
+    res.json({ results });
+  });
+
   // ─── Conversational compose (SSE) ────────────────────────────────
 
   app.post("/api/ops/email/compose/chat", async (req: AdminReq, res) => {
@@ -424,8 +648,14 @@ export function registerEmailComposeRoutes(app: Express) {
     if (!body?.messages?.length) {
       return res.status(400).json({ error: "messages required" });
     }
-    const style: EmailStyle = (body.style as EmailStyle) || "branded-html";
-    if (!["branded-html", "minimal-html", "plain-text"].includes(style)) {
+    // Back-compat: legacy clients may still send the old style names.
+    const rawStyle = body.style as string | undefined;
+    const legacyMap: Record<string, EmailStyle> = {
+      "branded-html": "html",
+      "minimal-html": "html",
+    };
+    const style: EmailStyle = (legacyMap[rawStyle as string] ?? (rawStyle as EmailStyle)) || "html";
+    if (!["html", "branded", "plain-text"].includes(style)) {
       return res.status(400).json({ error: "invalid style" });
     }
 
@@ -535,10 +765,14 @@ export function registerEmailComposeRoutes(app: Express) {
       }
 
       const templateId = (body as any)?.data?.id;
+      // Klaviyo's app templates list — newly-saved template is at the top
+      // (sorted by recent). Klaviyo doesn't expose a stable deep-link to a
+      // single template editor that survives unauth probing, so we go to the
+      // list which is reliable.
       res.json({
         ok: true,
         templateId,
-        klaviyoUrl: templateId ? `https://www.klaviyo.com/template/${templateId}` : null,
+        klaviyoUrl: "https://www.klaviyo.com/templates/list",
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
