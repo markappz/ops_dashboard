@@ -409,4 +409,68 @@ The fix: only render the top KPI grid when `totalVisitors > 0`. Only render chan
 - When we add value-capable stats to a request, gate them on `conv.isRevenueMetric` — non-revenue metrics 400 on `conversion_value` / `revenue_per_recipient`. Engagement-only stat list is the safe fallback.
 - `KLAVIYO_CONVERSION_METRIC_NAME` env override skips the priority list — use it when an account has a custom event name (e.g. "Subscription Created").
 
+---
+
+## 2026-05-25 — Klaviyo DSD via NS delegation, not CNAME or Entri auto-flow
+
+**Decision:** Set up Klaviyo Dedicated Sending Domain (`send.fitscript.me`) via the manual NS-delegation flow. The four `send.fitscript.me NS → ns{1-4}.klaviyo.com` records plus the apex `klaviyo-site-verification=V3sni5` TXT record cede full DNS control of the subdomain to Klaviyo. Klaviyo manages all DKIM keys, return-path, SPF, and dmarc records internally on their nameservers — no per-record changes on our Cloudflare side.
+
+**Why this and not alternatives:**
+- **vs. Entri auto-flow** (the other option in Klaviyo's wizard): Entri auto-logs into Cloudflare via OAuth and adds the records blindly. Our `fitscript.me` apex has 2 conflicting DMARC records + an existing multi-include SPF + Mailgun MX records on `email.fitscript.me` — none of which can survive Entri's blind merge. Manual gives us full control and audit visibility.
+- **vs. CNAME-only setup**: Klaviyo's CNAME-only flow is only offered to specific accounts (the Entri auto-config uses it). Manual setup is NS-delegation regardless. Both achieve the same domain alignment; NS delegation is simpler from our DNS side.
+- **vs. keeping the previous Klaviyo setup**: The previous setup never completed verification — NS records existed but zone was empty (TXT missing). Re-adding the same NS records + the missing TXT is the completion, not a rebuild.
+
+**How to apply:**
+- Klaviyo DSD setup for any future brand (Real Peptides, Clomark, etc.) → use the manual NS-delegation flow.
+- DNS records always get comments in Cloudflare (`Klaviyo DSD - delegation N/4`, `Klaviyo domain ownership verification - account <id>`).
+- Verification email is async (Klaviyo's check runs in background, usually completes <60 min for Cloudflare DNS). Don't expect synchronous confirmation.
+
+---
+
+## 2026-05-25 — Hybrid Klaviyo + RDS search for subscribers (Klaviyo can't do partial email)
+
+**Decision:** `/email/profiles` search hybrid-resolves via RDS `users` table for partial queries. Klaviyo's profile email filter ONLY supports `equals` and `any` (no `contains` / `starts-with` / `ends-with`). To make partial search work AND surface "FitScript users not yet in Klaviyo," we search RDS first for `email ILIKE %q%`, then bulk-resolve those emails in Klaviyo via `any(email, [...])`.
+
+**Why this and not alternatives:**
+- **vs. exact-email-only** (drop partial search): operators don't always remember full email; first-name or domain-substring search is daily. Too much friction.
+- **vs. local Klaviyo profile cache** (pull all profiles into RDS, search locally): heavy sync layer, eventual-consistency risk, more code than the hybrid resolves.
+- **vs. ignoring RDS-only users**: misses an actionable ops gap — FitScript signups never pushed to Klaviyo don't receive marketing email at all. Surfacing them is the differentiator vs. Klaviyo's native UI (which can't show "exists in your DB but missing from Klaviyo").
+
+**How to apply:**
+- New "find an X in our systems" surfaces (members, leads, suppressions) should adopt the same pattern: search our DB by anything queryable, then resolve in the third-party system. Surface third-party-missing rows separately.
+- Klaviyo's `any(email, [...])` accepts up to 100 values per filter — RDS LIMIT 25 keeps us well under.
+- When partial RDS results are empty, return a clear "no FitScript users match this query" note. When RDS matches but Klaviyo doesn't, surface RDS-only as actionable (push-to-Klaviyo button).
+
+---
+
+## 2026-05-25 — DIRT tools and HTTP endpoints share handler logic; both audit to one log
+
+**Decision:** Every Klaviyo write surface added today (suppress, unsuppress, push) is callable via TWO surfaces: HTTP endpoint (used by `/email/profiles` UI) and DIRT tool (used by conversational interface). Both call into the same Klaviyo API + write to the same `ops_admin_actions` audit table with the same action_type. The DIRT call adds `metadata: { via: "dirt" }` so we can segment operator-driven actions by surface.
+
+**Why this and not alternatives:**
+- **vs. DIRT-only writes** (no UI buttons): conversational interface is great for "do this once" but bad for sweeping audit workflows ("which users are RDS-only and need push?"). Need the visual surface.
+- **vs. UI-only writes** (no DIRT tools): forces operators to context-switch from a DIRT conversation about a user to a separate UI surface to act on it. Friction.
+- **vs. separate DIRT-only audit log**: defeats the point of having one source of truth for "what changed in ops." Operators reading `/settings → Admin Log` should see every action regardless of surface.
+
+**How to apply:**
+- New write actions get BOTH surfaces from day one. Server endpoint first; DIRT tool wraps the same logic.
+- DIRT tool descriptions should explicitly mention they correspond to a UI surface (e.g. "/email/profiles → Push button") so the model can point operators at the visual flow when bulk action makes more sense.
+- The `via` metadata field distinguishes surface for analytics. Future audit-log dashboards should let you filter by `metadata.via = ui | dirt | autopilot | api`.
+
+---
+
+## 2026-05-25 — Klaviyo profile create is 409-idempotent; treat as success-with-existing
+
+**Decision:** When `/api/ops/klaviyo/profiles/push` hits Klaviyo's `POST /profiles/` and Klaviyo returns 409 with `meta.duplicate_profile_id`, our endpoint returns `{ ok: true, already_existed: true, profileId: <existing> }` instead of bubbling the 409 as an error. Push operations are blindly retryable; bulk pushes can replay without dedup logic.
+
+**Why this and not alternatives:**
+- **vs. treating 409 as failure**: makes bulk-push fragile (any single duplicate fails the whole loop) and the idempotent retry pattern impossible. Operators would need to pre-check existence before every push.
+- **vs. checking-then-creating (GET-then-POST)**: doubles API calls. Klaviyo's 409 already does the check for us on the server side; we just need to interpret it correctly.
+- **vs. swallowing 409 silently**: loses observability. Surfacing `already_existed: true` lets the client UI render `✓ Already in Klaviyo` (blue) vs `✓ Created` (green), and lets the audit log differentiate via `metadata.created` vs `metadata.existing` for analytics.
+
+**How to apply:**
+- Any future Klaviyo (or generally any third-party) `create` operation that has natural deduplication (email, external_id, etc.) should adopt the same pattern: catch 409, return success-with-existing, log differentially.
+- Audit log metadata fields like `created: true` / `existing: true` are the right way to keep one action_type (`profile.push`) but differentiate sub-cases for downstream filtering.
+- The 1.2s delay before refetching search after a push is empirically tuned for Klaviyo's eventual-consistency. Shorter and the new profile sometimes doesn't appear in the search yet.
+
 
