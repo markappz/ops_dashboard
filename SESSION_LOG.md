@@ -925,6 +925,38 @@ Klaviyo's profile email filter ONLY supports `equals` and `any` — no `contains
 - **Klaviyo DSD = NS delegation** when set up manually (CNAME-only setup is via Entri/auto-flow only). Klaviyo manages all DKIM/return-path/SPF internally on their nameservers once verified.
 - **Add comments to DNS records.** Cloudflare's Comment field shows in the DNS list. Without comments, post-hoc audits have no idea why a record exists. Should retroactively comment the existing SPF/MX/Mailgun cruft on fitscript.me apex when time permits.
 
+---
+
+## 2026-05-25 (later) — DIRT writes for Klaviyo profiles
+
+Extended today's profile-manager work to DIRT. The HTTP endpoints we built for `/email/profiles` are now also conversational tools — operator can say "suppress this user" and DIRT does it, audit-logged.
+
+### Shipped
+
+**Server (`server/dirt.ts`):**
+- Added `klaviyoPOST()` + `klaviyoGET()` helpers, refactored existing `klaviyoPATCH()` to share a `klaviyoCall()` base.
+- 2 new READ tools (now 15 total): `search_klaviyo_profile` (full or partial email, hybrid via RDS for partial — matches `/api/ops/klaviyo/profiles/search` semantics), `get_klaviyo_profile` (full detail by Klaviyo ID).
+- 2 new WRITE tools (now 11 total): `suppress_klaviyo_profile`, `unsuppress_klaviyo_profile`. Accepts profileId OR email. Audit-logged with `via: dirt` metadata + ok/failed status.
+- System prompt updated: new tools listed as reversible (execute immediately, no confirmation). Convention: prefer calling `search_klaviyo_profile` before suppress/unsuppress to confirm the right subscriber.
+
+**Client (`client/src/components/dirt/Dirt.tsx`):**
+- Footer tool-count fixed: `13 read · 9 write` → `15 read · 11 write`.
+
+### Verified live (read flow)
+
+Test prompt "Find paulclotar@gmail.com in Klaviyo and tell me their last engagement" — DIRT autonomously chained:
+1. `search_klaviyo_profile` (965ms) → returned profile ID `01KMK9WVYYPJ5AJQAD45H7R0D2`
+2. `get_klaviyo_profile` (516ms) → returned full detail
+3. Rendered structured response with engagement timeline (8 events: Clicked, Opened, Received Email across "E2E send", "Testing of Newsletter", "Lab Order Confirmed") + list memberships (Ops Test, Waitlist) + Klaviyo deep-link
+
+Write flow not manually tested before commit; code matches the read pattern + the existing `/api/ops/klaviyo/profiles/:id/suppress` HTTP endpoint that IS tested. Paul approved commit + push without write E2E.
+
+### What I'll remember
+
+- **Refactor pattern: shared `klaviyoCall()` base.** Avoids duplicating header construction across PATCH/POST/GET methods. Single source of truth for Klaviyo API style.
+- **DIRT tool footer count is hardcoded in `Dirt.tsx`.** Update it whenever READ_TOOLS or WRITE_TOOLS counts change. Future fix: compute dynamically from a `/api/ops/dirt/tools-count` endpoint to avoid this drift.
+- **DIRT tools mirror HTTP endpoints by design.** Same handler logic, same audit log entries, same Klaviyo calls. Operator can get to the same outcome via UI (`/email/profiles`) OR conversation (DIRT) — both audit to the same `ops_admin_actions` table.
+
 
 
 ### What I'll remember

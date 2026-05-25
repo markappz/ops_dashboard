@@ -72,7 +72,8 @@ How you work:
 Safety rails on writes:
 - \`cancel_subscription\` is IRREVERSIBLE for immediate cancels. ALWAYS require the operator to type CONFIRM. Pass it as the \`confirmation\` field. Prefer cancel-at-period-end (immediate=false) unless they explicitly asked to revoke access NOW.
 - \`refund_charge\` over $50 (or full-refund where amount is unknown) requires CONFIRM in the \`confirmation\` field. Ask the operator, then call again.
-- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\` are reversible — execute immediately.
+- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\` are reversible — execute immediately.
+- For \`suppress_klaviyo_profile\` / \`unsuppress_klaviyo_profile\`: prefer calling \`search_klaviyo_profile\` first to confirm you have the right subscriber. Pass profileId (preferred) or email.
 - If a write tool errors, surface the error verbatim. Don't retry silently.
 
 Today is ${new Date().toISOString().slice(0, 10)}. Be useful, be fast.`;
@@ -429,24 +430,145 @@ const READ_TOOLS: ToolDef[] = [
       }
     },
   },
+  {
+    name: "search_klaviyo_profile",
+    description: "Look up Klaviyo subscribers by email (full or partial). For full emails (containing @), returns the exact Klaviyo profile and flags if it's missing in Klaviyo but exists in our FitScript user DB. For partials, searches FitScript users + bulk-resolves in Klaviyo. Use BEFORE suppress/unsuppress to get the profile ID.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Full email (e.g. 'paulclotar@gmail.com') or partial substring (e.g. 'paul' or 'gmail.com')" },
+      },
+      required: ["query"],
+    },
+    handler: async (args: any) => {
+      const q = String(args.query || "").trim();
+      if (!q) return { error: "query required" };
+      try {
+        if (q.includes("@")) {
+          const [klaviyoData, rdsData] = await Promise.all([
+            klaviyoGET(`/profiles/?filter=${encodeURIComponent(`equals(email,"${q}")`)}&page%5Bsize%5D=10`),
+            pool.query(
+              `SELECT id, email, first_name, last_name, created_at FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+              [q],
+            ).catch(() => ({ rows: [] as any[] })),
+          ]);
+          const profiles = ((klaviyoData as any)?.data || []).map((p: any) => ({
+            id: p.id,
+            email: p.attributes?.email,
+            first_name: p.attributes?.first_name,
+            last_name: p.attributes?.last_name,
+            last_event_date: p.attributes?.last_event_date,
+            subscriptions: p.attributes?.subscriptions,
+          }));
+          const rdsUser = rdsData.rows?.[0];
+          const rdsOnly = rdsUser && profiles.length === 0 ? [{ email: rdsUser.email, fitscript_user_id: rdsUser.id }] : [];
+          return { mode: "exact", profiles, rds_only_users: rdsOnly };
+        }
+        // Partial — search RDS then resolve in Klaviyo
+        const rdsRes = await pool.query(
+          `SELECT id, email, first_name, last_name FROM users WHERE email IS NOT NULL AND email ILIKE $1 ORDER BY email LIMIT 25`,
+          [`%${q}%`],
+        );
+        const rdsRows: any[] = rdsRes.rows || [];
+        if (rdsRows.length === 0) return { mode: "partial", profiles: [], rds_only_users: [], note: "No FitScript users match." };
+        const emails = rdsRows.map((r) => (r.email || "").toLowerCase()).filter(Boolean);
+        const anyFilter = `any(email,[${emails.map((e) => `"${e}"`).join(",")}])`;
+        const klaviyoData: any = await klaviyoGET(`/profiles/?filter=${encodeURIComponent(anyFilter)}&page%5Bsize%5D=25`);
+        const profiles = ((klaviyoData as any)?.data || []).map((p: any) => ({
+          id: p.id,
+          email: p.attributes?.email,
+          first_name: p.attributes?.first_name,
+          last_name: p.attributes?.last_name,
+          last_event_date: p.attributes?.last_event_date,
+          subscriptions: p.attributes?.subscriptions,
+        }));
+        const klSet = new Set(profiles.map((p: any) => (p.email || "").toLowerCase()));
+        const rdsOnly = rdsRows.filter((r) => !klSet.has((r.email || "").toLowerCase()))
+          .map((r) => ({ email: r.email, fitscript_user_id: r.id }));
+        return { mode: "partial", profiles, rds_only_users: rdsOnly };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "get_klaviyo_profile",
+    description: "Get full Klaviyo profile detail by profile ID: attributes, subscription state, list memberships, recent 50 events. Use after search_klaviyo_profile to drill into one subscriber.",
+    input_schema: {
+      type: "object",
+      properties: {
+        profileId: { type: "string", description: "Klaviyo profile ID (e.g. '01KMK9WVYYPJ5AJQAD45H7R0D2')" },
+      },
+      required: ["profileId"],
+    },
+    handler: async (args: any) => {
+      const id = String(args.profileId || "").trim();
+      if (!id) return { error: "profileId required" };
+      try {
+        const [profileRes, listsRes, eventsRes] = await Promise.all([
+          klaviyoGET(`/profiles/${encodeURIComponent(id)}/`),
+          klaviyoGET(`/profiles/${encodeURIComponent(id)}/lists/?fields%5Blist%5D=name`).catch(() => ({ data: [] })),
+          klaviyoGET(`/events/?filter=${encodeURIComponent(`equals(profile_id,"${id}")`)}&sort=-datetime&page%5Bsize%5D=50&include=metric`).catch(() => ({ data: [], included: [] })),
+        ]);
+        const p: any = (profileRes as any)?.data;
+        if (!p) return { error: "profile not found" };
+        const a = p.attributes || {};
+        const metricMap: Record<string, string> = {};
+        for (const inc of (eventsRes as any)?.included || []) {
+          if (inc.type === "metric") metricMap[inc.id] = inc.attributes?.name || "(unnamed)";
+        }
+        const events = ((eventsRes as any)?.data || []).slice(0, 25).map((e: any) => ({
+          datetime: e.attributes?.datetime,
+          metric: metricMap[e.relationships?.metric?.data?.id] || "Unknown",
+          campaign: e.attributes?.event_properties?.["Campaign Name"] || null,
+        }));
+        const lists = ((listsRes as any)?.data || []).map((l: any) => ({ id: l.id, name: l.attributes?.name }));
+        return {
+          id,
+          email: a.email,
+          first_name: a.first_name,
+          last_name: a.last_name,
+          phone: a.phone_number,
+          location: a.location,
+          last_event_date: a.last_event_date,
+          subscriptions: a.subscriptions,
+          lists,
+          recent_events: events,
+          klaviyo_url: `https://www.klaviyo.com/profile/${id}`,
+        };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
 ];
 
 // ─── Write tools (Phase 2) ─────────────────────────────────────────
 
 async function klaviyoPATCH(path: string, body: any) {
+  return klaviyoCall("PATCH", path, body);
+}
+async function klaviyoPOST(path: string, body: any) {
+  return klaviyoCall("POST", path, body);
+}
+async function klaviyoGET(path: string) {
+  return klaviyoCall("GET", path);
+}
+async function klaviyoCall(method: string, path: string, body?: any) {
   const key = process.env.KLAVIYO_API_KEY;
   if (!key) throw new Error("Klaviyo not configured");
   const r = await fetch(`https://a.klaviyo.com/api${path}`, {
-    method: "PATCH",
+    method,
     headers: {
       Authorization: `Klaviyo-API-Key ${key}`,
       revision: "2025-04-15",
-      "content-type": "application/json",
+      ...(body ? { "content-type": "application/json" } : {}),
       accept: "application/json",
     },
-    body: JSON.stringify(body),
+    ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  const json = await r.json().catch(() => ({}));
+  const text = await r.text();
+  const json = text ? (() => { try { return JSON.parse(text); } catch { return {}; } })() : {};
   if (!r.ok) {
     const err = (json as any)?.errors?.[0]?.detail || `Klaviyo ${r.status}`;
     throw new Error(err);
@@ -680,6 +802,110 @@ const WRITE_TOOLS: ToolDef[] = [
           targetKind: "klaviyo_template",
           targetId: args.templateId,
           targetLabel: args.subject,
+          status: "failed",
+          error: e.message,
+          metadata: { via: "dirt" },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "suppress_klaviyo_profile",
+    description: "Suppress a Klaviyo profile from receiving any future marketing email. Pass profileId OR email (one of). Reversible via unsuppress_klaviyo_profile. Use when a user has complained, requested suppression, or for spam-trap cleanup.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        profileId: { type: "string", description: "Klaviyo profile ID (preferred when known)" },
+        email: { type: "string", description: "Email address (fallback when profile ID unknown)" },
+      },
+    },
+    handler: async (args: any, { adminEmail }) => {
+      let email: string | null = args.email || null;
+      let profileId: string | null = args.profileId || null;
+      try {
+        if (!email && !profileId) return { ok: false, error: "Pass profileId or email" };
+        if (!email && profileId) {
+          const p: any = await klaviyoGET(`/profiles/${encodeURIComponent(profileId)}/`);
+          email = p?.data?.attributes?.email ?? null;
+        }
+        if (!email) throw new Error("could not resolve email — refusing to suppress");
+        await klaviyoPOST("/profile-suppression-bulk-create-jobs/", {
+          data: {
+            type: "profile-suppression-bulk-create-job",
+            attributes: { profiles: { data: [{ type: "profile", attributes: { email } }] } },
+          },
+        });
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.suppress",
+          targetKind: "klaviyo_profile",
+          targetId: profileId ?? email ?? "unknown",
+          targetLabel: email,
+          status: "ok",
+          metadata: { via: "dirt" },
+        });
+        return { ok: true, email, profileId, note: "Suppression job queued in Klaviyo. Processed within seconds." };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.suppress",
+          targetKind: "klaviyo_profile",
+          targetId: profileId ?? email ?? "unknown",
+          targetLabel: email,
+          status: "failed",
+          error: e.message,
+          metadata: { via: "dirt" },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "unsuppress_klaviyo_profile",
+    description: "Remove suppression from a Klaviyo profile so it can receive marketing email again. Pass profileId OR email. Use when a user has explicitly re-opted-in.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        profileId: { type: "string", description: "Klaviyo profile ID (preferred when known)" },
+        email: { type: "string", description: "Email address (fallback when profile ID unknown)" },
+      },
+    },
+    handler: async (args: any, { adminEmail }) => {
+      let email: string | null = args.email || null;
+      let profileId: string | null = args.profileId || null;
+      try {
+        if (!email && !profileId) return { ok: false, error: "Pass profileId or email" };
+        if (!email && profileId) {
+          const p: any = await klaviyoGET(`/profiles/${encodeURIComponent(profileId)}/`);
+          email = p?.data?.attributes?.email ?? null;
+        }
+        if (!email) throw new Error("could not resolve email — refusing to unsuppress");
+        await klaviyoPOST("/profile-unsuppression-bulk-create-jobs/", {
+          data: {
+            type: "profile-unsuppression-bulk-create-job",
+            attributes: { profiles: { data: [{ type: "profile", attributes: { email } }] } },
+          },
+        });
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.unsuppress",
+          targetKind: "klaviyo_profile",
+          targetId: profileId ?? email ?? "unknown",
+          targetLabel: email,
+          status: "ok",
+          metadata: { via: "dirt" },
+        });
+        return { ok: true, email, profileId, note: "Unsuppression job queued in Klaviyo. Processed within seconds." };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.unsuppress",
+          targetKind: "klaviyo_profile",
+          targetId: profileId ?? email ?? "unknown",
+          targetLabel: email,
           status: "failed",
           error: e.message,
           metadata: { via: "dirt" },
