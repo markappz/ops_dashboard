@@ -1073,6 +1073,113 @@ export function registerKlaviyoRoutes(app: Express) {
     }
   });
 
+  // POST /profiles/push — create a Klaviyo profile from an RDS user.
+  // Used by the "FitScript users not yet in Klaviyo" amber card on
+  // /email/profiles. Idempotent: if a profile already exists for the
+  // email, Klaviyo returns it as a duplicate and we surface that as ok.
+  app.post("/api/ops/klaviyo/profiles/push", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const { fitscriptUserId, email } = req.body ?? {};
+    if (!email || typeof email !== "string") {
+      return res.status(400).json({ error: "email required" });
+    }
+    let fitscriptId: string | null = fitscriptUserId || null;
+    let firstName: string | null = null;
+    let lastName: string | null = null;
+    let phone: string | null = null;
+    // Pull canonical attrs from RDS — body fields are advisory only.
+    try {
+      const r = await pool.query(
+        `SELECT id, email, first_name, last_name, phone
+         FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+        [email],
+      );
+      if (r.rows[0]) {
+        fitscriptId = r.rows[0].id;
+        firstName = r.rows[0].first_name || null;
+        lastName = r.rows[0].last_name || null;
+        phone = r.rows[0].phone || null;
+      }
+    } catch { /* best effort — RDS lookup is enrichment, not required */ }
+
+    const attributes: any = { email };
+    if (firstName) attributes.first_name = firstName;
+    if (lastName) attributes.last_name = lastName;
+    if (phone) attributes.phone_number = phone;
+    if (fitscriptId) {
+      attributes.properties = { fitscript_user_id: fitscriptId, pushed_from: "ops_dashboard" };
+    }
+
+    try {
+      const r = await fetch(`${KLAVIYO_BASE}/profiles/`, {
+        method: "POST",
+        headers: {
+          Authorization: `Klaviyo-API-Key ${getKey()}`,
+          Accept: "application/vnd.api+json",
+          "Content-Type": "application/vnd.api+json",
+          revision: KLAVIYO_REVISION,
+        },
+        body: JSON.stringify({ data: { type: "profile", attributes } }),
+      });
+      const body: any = await r.json().catch(() => ({}));
+
+      // Klaviyo returns 409 with a "duplicate_profile" error code when a profile
+      // already exists for the email. The error's meta.duplicate_profile_id
+      // tells us which existing profile collided — return it as ok so the
+      // operator's flow continues (idempotent "push").
+      if (r.status === 409) {
+        const dupId = body?.errors?.[0]?.meta?.duplicate_profile_id ?? null;
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.push",
+          targetKind: "klaviyo_profile",
+          targetId: dupId ?? email,
+          targetLabel: email,
+          status: "ok",
+          metadata: { existing: true, fitscript_user_id: fitscriptId },
+        });
+        return res.json({
+          ok: true,
+          profileId: dupId,
+          email,
+          already_existed: true,
+        });
+      }
+
+      if (!r.ok) {
+        const detail = body?.errors?.[0]?.detail || `Klaviyo ${r.status}`;
+        throw new Error(detail);
+      }
+
+      const profileId = body?.data?.id ?? null;
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.push",
+        targetKind: "klaviyo_profile",
+        targetId: profileId ?? email,
+        targetLabel: email,
+        status: "ok",
+        metadata: { fitscript_user_id: fitscriptId, created: true },
+      });
+      console.log(
+        `[OPS][KLAVIYO] profile pushed: email=${email} klaviyo_id=${profileId} by ${adminEmail}`,
+      );
+      res.json({ ok: true, profileId, email, already_existed: false });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.push",
+        targetKind: "klaviyo_profile",
+        targetId: email,
+        targetLabel: email,
+        status: "failed",
+        error: e.message,
+        metadata: { fitscript_user_id: fitscriptId },
+      });
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/klaviyo/sends", async (_req, res) => {
     try {
       await ensureSendsTable();

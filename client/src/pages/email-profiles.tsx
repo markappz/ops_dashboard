@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { ModalPortal } from "../components/modal-portal";
 
@@ -63,9 +63,46 @@ function emailSubscriptionStatus(subs: any): {
 }
 
 export default function EmailProfiles() {
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Per-email push state. Keys: email (lowercase). Values: 'pending' | 'ok' | 'error:<msg>'.
+  const [pushState, setPushState] = useState<Record<string, string>>({});
+
+  const pushOne = async (email: string, fitscriptUserId: string) => {
+    const key = email.toLowerCase();
+    setPushState((s) => ({ ...s, [key]: "pending" }));
+    try {
+      const r = await fetch("/api/ops/klaviyo/profiles/push", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, fitscriptUserId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setPushState((s) => ({ ...s, [key]: `error:${j.error || `HTTP ${r.status}`}` }));
+        return;
+      }
+      setPushState((s) => ({ ...s, [key]: j.already_existed ? "ok:existed" : "ok:created" }));
+      // After ~1s, refetch search results so the user moves from "RDS-only"
+      // into the main Klaviyo profiles table.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["klaviyo-profile-search", debouncedQuery] });
+      }, 1200);
+    } catch (e: any) {
+      setPushState((s) => ({ ...s, [key]: `error:${e.message}` }));
+    }
+  };
+
+  const pushAll = async (users: Array<{ email: string; fitscript_user_id: string }>) => {
+    const pending = users.filter((u) => !pushState[u.email.toLowerCase()]?.startsWith("ok"));
+    if (pending.length === 0) return;
+    if (pending.length > 1 && !confirm(`Push ${pending.length} users to Klaviyo? Each becomes a new Klaviyo profile and starts receiving marketing email per the active flows.`)) return;
+    for (const u of pending) {
+      await pushOne(u.email, u.fitscript_user_id);
+    }
+  };
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query.trim()), 300);
@@ -201,13 +238,23 @@ export default function EmailProfiles() {
 
       {debouncedQuery.length >= 3 && rdsOnly.length > 0 && (
         <div className="bg-ops-surface border border-amber-500/30 rounded-xl shadow-card overflow-hidden mb-5">
-          <div className="px-4 py-3 border-b border-ops-border bg-amber-500/5 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-amber-400">
-              {rdsOnly.length} FitScript user{rdsOnly.length === 1 ? "" : "s"} not yet in Klaviyo
-            </h3>
-            <span className="text-[11px] text-ops-text-subtle">
-              exists in RDS, no Klaviyo profile — won't receive marketing email
-            </span>
+          <div className="px-4 py-3 border-b border-ops-border bg-amber-500/5 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-amber-400">
+                {rdsOnly.length} FitScript user{rdsOnly.length === 1 ? "" : "s"} not yet in Klaviyo
+              </h3>
+              <p className="text-[11px] text-ops-text-subtle">
+                exists in RDS, no Klaviyo profile — won't receive marketing email
+              </p>
+            </div>
+            {rdsOnly.length > 1 && (
+              <button
+                onClick={() => pushAll(rdsOnly)}
+                className="text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25"
+              >
+                Push all to Klaviyo
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -216,20 +263,42 @@ export default function EmailProfiles() {
                   <th className="px-4 py-2 font-semibold">Email</th>
                   <th className="px-4 py-2 font-semibold">Name</th>
                   <th className="px-4 py-2 font-semibold">FitScript signup</th>
+                  <th className="px-4 py-2 font-semibold w-0"></th>
                 </tr>
               </thead>
               <tbody>
-                {rdsOnly.map((u) => (
-                  <tr key={u.fitscript_user_id} className="border-b border-ops-border last:border-b-0">
-                    <td className="px-4 py-3 text-ops-text">{u.email}</td>
-                    <td className="px-4 py-3 text-ops-text-muted">
-                      {[u.first_name, u.last_name].filter(Boolean).join(" ") || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-ops-text-muted text-xs">
-                      {fmtRelative(u.created_at)}
-                    </td>
-                  </tr>
-                ))}
+                {rdsOnly.map((u) => {
+                  const state = pushState[u.email.toLowerCase()];
+                  return (
+                    <tr key={u.fitscript_user_id} className="border-b border-ops-border last:border-b-0">
+                      <td className="px-4 py-3 text-ops-text">{u.email}</td>
+                      <td className="px-4 py-3 text-ops-text-muted">
+                        {[u.first_name, u.last_name].filter(Boolean).join(" ") || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-ops-text-muted text-xs">
+                        {fmtRelative(u.created_at)}
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {state === "pending" ? (
+                          <span className="text-[11px] text-ops-text-subtle">Pushing…</span>
+                        ) : state === "ok:created" ? (
+                          <span className="text-[11px] text-emerald-400 font-semibold">✓ Created</span>
+                        ) : state === "ok:existed" ? (
+                          <span className="text-[11px] text-brand-blue-400 font-semibold">✓ Already in Klaviyo</span>
+                        ) : state?.startsWith("error:") ? (
+                          <span className="text-[11px] text-red-400" title={state.slice(6)}>✗ Failed</span>
+                        ) : (
+                          <button
+                            onClick={() => pushOne(u.email, u.fitscript_user_id)}
+                            className="text-[11px] font-semibold px-3 py-1 rounded bg-amber-500/15 border border-amber-500/40 text-amber-400 hover:bg-amber-500/25"
+                          >
+                            Push to Klaviyo
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

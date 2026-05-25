@@ -957,6 +957,42 @@ Write flow not manually tested before commit; code matches the read pattern + th
 - **DIRT tool footer count is hardcoded in `Dirt.tsx`.** Update it whenever READ_TOOLS or WRITE_TOOLS counts change. Future fix: compute dynamically from a `/api/ops/dirt/tools-count` endpoint to avoid this drift.
 - **DIRT tools mirror HTTP endpoints by design.** Same handler logic, same audit log entries, same Klaviyo calls. Operator can get to the same outcome via UI (`/email/profiles`) OR conversation (DIRT) — both audit to the same `ops_admin_actions` table.
 
+---
+
+## 2026-05-25 (later still) — Push RDS-only users to Klaviyo (one-click sync)
+
+Closes the loop on this morning's "RDS-only users surfacing" — operators can now turn the audit finding (FitScript signups missing from Klaviyo) into a one-click fix.
+
+### Shipped
+
+**Server (`server/klaviyo.ts`):**
+- New `POST /api/ops/klaviyo/profiles/push` endpoint. Body: `{ email, fitscriptUserId? }`.
+  - Looks up canonical user attrs from RDS `users` (first_name, last_name, phone). Body is advisory; RDS is the source of truth.
+  - Creates the Klaviyo profile with attributes + custom properties `{ fitscript_user_id, pushed_from: "ops_dashboard" }` for downstream traceability.
+  - Idempotent: Klaviyo returns 409 with `duplicate_profile_id` when the email already exists; we surface that as `{ ok: true, already_existed: true, profileId: <existing> }`. No duplicate created.
+  - Audit-logged: `profile.push` action, `metadata.created` vs `metadata.existing` flag for analytics.
+
+**Client (`client/src/pages/email-profiles.tsx`):**
+- "Push to Klaviyo" button on every RDS-only row in the amber card.
+- "Push all to Klaviyo" bulk-action button in the amber card header (when 2+ users). Confirms before pushing.
+- Per-row state machine: `Pushing…` → `✓ Created` (green) | `✓ Already in Klaviyo` (blue) | `✗ Failed` (red, hover title shows error).
+- After successful push, search results refetch ~1.2s later — the pushed user moves from the amber RDS-only card into the main Klaviyo profiles table above.
+
+### Verified end-to-end
+
+- Before: search "paul" → 2 Klaviyo + 2 RDS-only (`paul@clotarmarketing.com`, `paul@seabedee.org`).
+- Push `paul@clotarmarketing.com` → created Klaviyo profile `01KSGDYA7J5ENB5ZT8WD7XB8JB`.
+- Re-push same email (idempotency) → returned same profile ID + `already_existed: true`. No duplicate.
+- Push `paul@seabedee.org` via the UI button → created profile `01KSGEXJDF356M8FAXT1271NYT`. UI showed `Pushing…` → `✓ Created` → row vanished into top Klaviyo table.
+- Audit log `/settings → Admin Log` shows 3 `Profile Push` rows, all status OK, including the idempotent re-push.
+
+### What I'll remember
+
+- **Klaviyo profile create is 409-idempotent.** Same email → 409 with `meta.duplicate_profile_id` pointing at the existing profile. Treat 409 as success-with-existing, not failure. Means push operations are safe to retry blindly.
+- **RDS is the source of truth for user attributes during sync.** The client `push` request body is advisory only — server re-fetches first_name/last_name/phone from `users` table to avoid trusting stale UI state. Means even if the operator's browser is showing old data, the push lands the latest.
+- **`pushed_from` custom property** is a useful audit breadcrumb. Set on every operator-initiated push. Future: similar property for transactional-API pushes, signup-flow pushes, bulk-imports — lets us segment Klaviyo profiles by their provenance.
+- **Auto-refetch after write** (with ~1.2s delay so Klaviyo has time to index) is the right UX pattern. Operator sees the row move from amber card → main table without manual refresh. Apply to other write actions (suppress/unsuppress could do the same).
+
 
 
 ### What I'll remember
