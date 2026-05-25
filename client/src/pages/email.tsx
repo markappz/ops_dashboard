@@ -515,7 +515,7 @@ function Header({ canSend = false }: { canSend?: boolean }) {
       subtitle="Klaviyo campaigns, flows, and audiences — send and audit from one place."
       actions={
         canSend ? (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Link href="/email/send">
               <button className="px-4 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-90 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]">
                 Send campaign
@@ -524,6 +524,11 @@ function Header({ canSend = false }: { canSend?: boolean }) {
             <Link href="/email/compose">
               <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ops-surface border border-ops-border text-ops-text-muted hover:text-ops-text">
                 Compose with Claude
+              </button>
+            </Link>
+            <Link href="/email/profiles">
+              <button className="px-4 py-2 text-sm font-medium rounded-lg bg-ops-surface border border-ops-border text-ops-text-muted hover:text-ops-text">
+                Profiles
               </button>
             </Link>
           </div>

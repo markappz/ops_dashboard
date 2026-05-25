@@ -810,6 +810,269 @@ export function registerKlaviyoRoutes(app: Express) {
     }
   });
 
+  // ─── Profile manager ────────────────────────────────────────────
+  //
+  // Search by email, view full profile (attrs + lists + recent events +
+  // suppression status), suppress / unsuppress. All writes audit-logged.
+
+  // GET /profiles/search?q=<email>
+  //
+  // Klaviyo's profile email filter ONLY supports `equals` and `any` — no
+  // contains/starts-with/ends-with. So we hybrid:
+  //   - Full email (contains @) → direct exact Klaviyo lookup
+  //   - Partial (no @) → first search RDS `users` for emails LIKE %q%,
+  //     batch the matching emails into a Klaviyo `any(email,[...])` filter
+  //     (max 100 per Klaviyo's any() limit). Returns up to 25 profiles.
+  app.get("/api/ops/klaviyo/profiles/search", async (req, res) => {
+    const q = String(req.query.q || "").trim();
+    if (!q) return res.json({ profiles: [] });
+
+    const mapProfile = (p: any) => {
+      const a = p.attributes || {};
+      return {
+        id: p.id,
+        email: a.email ?? null,
+        first_name: a.first_name ?? null,
+        last_name: a.last_name ?? null,
+        phone_number: a.phone_number ?? null,
+        location: a.location ?? null,
+        created: a.created ?? null,
+        updated: a.updated ?? null,
+        last_event_date: a.last_event_date ?? null,
+        subscriptions: a.subscriptions ?? null,
+      };
+    };
+
+    try {
+      if (q.includes("@")) {
+        // Exact email lookup. Also check RDS so we can flag "exists in
+        // FitScript, missing in Klaviyo" — actionable for operators.
+        const [klaviyoData, rdsData] = await Promise.all([
+          klaviyoFetch<{ data: any[] }>(
+            `/profiles/?filter=${encodeURIComponent(`equals(email,"${q}")`)}&page[size]=25`,
+          ),
+          pool.query(
+            `SELECT id, email, first_name, last_name, created_at
+             FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+            [q],
+          ).catch(() => ({ rows: [] as any[] })),
+        ]);
+        const profiles = (klaviyoData.data || []).map(mapProfile);
+        const rdsUser = rdsData.rows?.[0] || null;
+        const rdsOnly = rdsUser && profiles.length === 0
+          ? [{
+              email: rdsUser.email,
+              fitscript_user_id: rdsUser.id,
+              first_name: rdsUser.first_name,
+              last_name: rdsUser.last_name,
+              created_at: rdsUser.created_at,
+            }]
+          : [];
+        return res.json({
+          profiles,
+          query: q,
+          mode: "exact",
+          rds_only_users: rdsOnly,
+        });
+      }
+
+      // Partial — search RDS users for matching emails, then bulk-resolve
+      // those emails in Klaviyo via any(email, [...]).
+      const rdsRes = await pool.query(
+        `SELECT id, email, first_name, last_name, created_at
+         FROM users
+         WHERE email IS NOT NULL AND email ILIKE $1
+         ORDER BY email ASC
+         LIMIT 25`,
+        [`%${q}%`],
+      );
+      const rdsRows: any[] = rdsRes.rows || [];
+      if (rdsRows.length === 0) {
+        return res.json({ profiles: [], query: q, mode: "partial-rds", rds_only_users: [], note: "No FitScript users match this query." });
+      }
+      const emails: string[] = rdsRows.map((r) => (r.email || "").toLowerCase()).filter(Boolean);
+      const anyFilter = `any(email,[${emails.map((e) => `"${e}"`).join(",")}])`;
+      const data = await klaviyoFetch<{ data: any[] }>(
+        `/profiles/?filter=${encodeURIComponent(anyFilter)}&page[size]=25`,
+      );
+      const profiles = (data.data || []).map(mapProfile);
+      const klaviyoEmails = new Set(profiles.map((p) => (p.email || "").toLowerCase()));
+      const rdsOnly = rdsRows
+        .filter((r) => !klaviyoEmails.has((r.email || "").toLowerCase()))
+        .map((r) => ({
+          email: r.email,
+          fitscript_user_id: r.id,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          created_at: r.created_at,
+        }));
+      res.json({
+        profiles,
+        query: q,
+        mode: "partial-rds",
+        rds_matched: rdsRows.length,
+        rds_only_users: rdsOnly,
+      });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // GET /profiles/:id — full profile detail with list memberships +
+  // recent events (last 50 across all metrics).
+  app.get("/api/ops/klaviyo/profiles/:id", async (req, res) => {
+    const id = req.params.id;
+    try {
+      const [profileRes, listsRes, eventsRes] = await Promise.all([
+        klaviyoFetch<{ data: any }>(`/profiles/${encodeURIComponent(id)}/`),
+        klaviyoFetch<{ data: any[] }>(
+          `/profiles/${encodeURIComponent(id)}/lists/?fields[list]=name,created`,
+        ).catch(() => ({ data: [] })),
+        klaviyoFetch<{ data: any[]; included?: any[] }>(
+          `/events/?filter=equals(profile_id,"${id}")&sort=-datetime&page[size]=50&include=metric`,
+        ).catch(() => ({ data: [], included: [] })),
+      ]);
+
+      const p = profileRes.data;
+      const a = p?.attributes || {};
+      const metricMap: Record<string, string> = {};
+      for (const inc of eventsRes.included || []) {
+        if (inc.type === "metric") metricMap[inc.id] = inc.attributes?.name || "(unnamed)";
+      }
+      const events = (eventsRes.data || []).map((e: any) => {
+        const props = e.attributes?.event_properties || {};
+        return {
+          id: e.id,
+          datetime: e.attributes?.datetime,
+          metric: metricMap[e.relationships?.metric?.data?.id] || "Unknown",
+          campaign_name: props["Campaign Name"] || null,
+          flow_id: props["$flow"] || null,
+          value: parseFloat(props["$value"] || "0") || 0,
+        };
+      });
+      const lists = (listsRes.data || []).map((l: any) => ({
+        id: l.id,
+        name: l.attributes?.name ?? "(unnamed)",
+        created: l.attributes?.created ?? null,
+      }));
+
+      res.json({
+        id,
+        email: a.email,
+        first_name: a.first_name,
+        last_name: a.last_name,
+        phone_number: a.phone_number,
+        location: a.location,
+        properties: a.properties || {},
+        created: a.created,
+        updated: a.updated,
+        last_event_date: a.last_event_date,
+        subscriptions: a.subscriptions,
+        predictive_analytics: a.predictive_analytics,
+        klaviyo_url: `https://www.klaviyo.com/profile/${id}`,
+        lists,
+        events,
+      });
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // POST /profiles/:id/suppress — suppress the profile from receiving any
+  // future marketing email. Klaviyo's profile-suppression-bulk-create-jobs
+  // is async; the job is queued and Klaviyo processes within seconds.
+  app.post("/api/ops/klaviyo/profiles/:id/suppress", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const id = req.params.id;
+    // Look up email for the audit row.
+    let email: string | null = null;
+    try {
+      const pre = await klaviyoFetch<{ data: any }>(`/profiles/${encodeURIComponent(id)}/`);
+      email = pre.data?.attributes?.email ?? null;
+    } catch { /* best effort */ }
+    try {
+      if (!email) throw new Error("could not resolve profile email — refusing to suppress");
+      await klaviyoFetch("/profile-suppression-bulk-create-jobs/", {
+        method: "POST",
+        body: JSON.stringify({
+          data: {
+            type: "profile-suppression-bulk-create-job",
+            attributes: {
+              profiles: { data: [{ type: "profile", attributes: { email } }] },
+            },
+          },
+        }),
+      });
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.suppress",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "ok",
+      });
+      console.log(`[OPS][KLAVIYO] profile ${id} (${email}) suppressed by ${adminEmail}`);
+      res.json({ ok: true, id, email });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.suppress",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "failed",
+        error: e.message,
+      });
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  // POST /profiles/:id/unsuppress — remove suppression. Same async pattern.
+  app.post("/api/ops/klaviyo/profiles/:id/unsuppress", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const id = req.params.id;
+    let email: string | null = null;
+    try {
+      const pre = await klaviyoFetch<{ data: any }>(`/profiles/${encodeURIComponent(id)}/`);
+      email = pre.data?.attributes?.email ?? null;
+    } catch { /* best effort */ }
+    try {
+      if (!email) throw new Error("could not resolve profile email — refusing to unsuppress");
+      await klaviyoFetch("/profile-unsuppression-bulk-create-jobs/", {
+        method: "POST",
+        body: JSON.stringify({
+          data: {
+            type: "profile-unsuppression-bulk-create-job",
+            attributes: {
+              profiles: { data: [{ type: "profile", attributes: { email } }] },
+            },
+          },
+        }),
+      });
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.unsuppress",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "ok",
+      });
+      console.log(`[OPS][KLAVIYO] profile ${id} (${email}) unsuppressed by ${adminEmail}`);
+      res.json({ ok: true, id, email });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.unsuppress",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "failed",
+        error: e.message,
+      });
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/klaviyo/sends", async (_req, res) => {
     try {
       await ensureSendsTable();

@@ -856,6 +856,75 @@ Looks correct visually. Lands in **Gmail Promotions tab** — that's expected pr
 - **Smart-sending blocks re-sends within ~16h.** For test campaigns to the same recipient, pass `smartSendingEnabled: false` in the send body or the second send will end up "Queued without Recipients".
 - **`tsx server/index.ts` does NOT hot-reload server-side changes.** Every server-side edit needs a manual kill + restart. Already noted earlier; reaffirmed this session.
 
+---
+
+## 2026-05-25 — Klaviyo deliverability DSD partial setup + profile manager v1
+
+Two threads of work, both around Klaviyo deliverability + ops surfaces.
+
+### Thread 1 — Klaviyo Dedicated Sending Domain setup (in-flight)
+
+Triggered by the prior session's finding that real emails land in Gmail Promotions tab because of no DSD + broken DMARC + no DKIM.
+
+**fitscript.me DNS audit findings:**
+- SPF includes Mailgun + Google + LeadConnector but NOT Klaviyo. Every Klaviyo "@fitscript.me" send fails SPF alignment.
+- TWO DMARC records (one `p=quarantine;` with no rua, one `p=none; rua=mailto:rua@dmarc.brevo.com`) — multiple DMARC records is INVALID per spec, so receivers treat as no DMARC at all.
+- No DKIM selectors published on the apex.
+- `send.fitscript.me` had stale NS records pointing at Klaviyo nameservers from an abandoned previous setup (zone empty when queried).
+- `email.fitscript.me` MX → Mailgun (legitimate, leave alone).
+
+**What we did:**
+1. Deleted the 4 stale NS records on `send.fitscript.me` (verified Klaviyo zone was empty before deleting — safe).
+2. Klaviyo wizard: configured DSD as `send.fitscript.me`, routing type Dynamic, set up manually.
+3. Re-added the same 4 NS records (ns1-4.klaviyo.com) — turns out Klaviyo's manual flow IS the NS delegation, the previous setup was correct but never verified.
+4. Confirmed `klaviyo-site-verification=V3sni5` TXT record already present on apex.
+5. All 5 records in Cloudflare with comments (`Klaviyo DSD - delegation N/4`, `Klaviyo domain ownership verification - account V3sni5`).
+6. Klaviyo's verification is async — they email when domain check completes. Pending.
+
+**Deferred (Paul said "skip this, proceed"):**
+- DMARC cleanup (collapse two records to one with `p=none; rua=mailto:paulc@fitscript.me; aspf=r; adkim=r; pct=100`). DNS state still has the conflicting pair. Should be revisited when Paul wants real Primary inbox placement.
+
+### Thread 2 — Klaviyo profile manager v1 (SHIPPED)
+
+Built `/email/profiles` page + four new endpoints to give operators a search-and-act surface for Klaviyo subscribers without leaving the dashboard.
+
+**Server (`server/klaviyo.ts`, +263 LOC):**
+- `GET /api/ops/klaviyo/profiles/search?q=...` — hybrid search:
+  - If `q` contains `@` → exact Klaviyo `equals(email)` lookup, also queries RDS `users` to surface "exists in FitScript but not in Klaviyo" rows.
+  - If `q` is a partial → searches RDS `users` for `email ILIKE %q%` first (up to 25), then bulk-resolves matching emails in Klaviyo via `any(email, [...])`.
+- `GET /api/ops/klaviyo/profiles/:id` — full profile detail: attributes, location, properties, subscription state, last 50 events (joined with metric names), list memberships.
+- `POST /api/ops/klaviyo/profiles/:id/suppress` — queues a `profile-suppression-bulk-create-job` in Klaviyo. Audit-logged (`profile.suppress`).
+- `POST /api/ops/klaviyo/profiles/:id/unsuppress` — symmetric `profile-unsuppression-bulk-create-job`. Audit-logged (`profile.unsuppress`).
+
+**Client (`client/src/pages/email-profiles.tsx`, +330 LOC, NEW):**
+- `PageHero` + search input (debounced 300ms, 3-char minimum).
+- Results table: email, name, subscription status badge (Subscribed / Unsubscribed / Suppressed / Never subscribed), last activity (relative time), row click → opens detail drawer.
+- **"Not yet in Klaviyo" amber-bordered card** below results when RDS-only users surface. Shows the actionable gap of FitScript signups that never made it to Klaviyo (paulclotar.org example: 2 of 4 paul-matching users in RDS have no Klaviyo profile).
+- Detail drawer (`ModalPortal`): name + email + Klaviyo ID + subscription badge + Open-in-Klaviyo link, cells for phone/location/last-event, **Suppress/Unsuppress** action button (red/green), Lists section, Events timeline (50 events), Custom properties JSON viewer.
+
+**Route + nav:**
+- New route `/email/profiles` wired in `App.tsx`.
+- Added "Profiles" button to the `/email` page header (next to Send Campaign + Compose with Claude).
+
+### Klaviyo API constraint discovered
+
+Klaviyo's profile email filter ONLY supports `equals` and `any` — no `contains`, `starts-with`, `ends-with` (HTTP 400 "'contains' is not an allowed filter operator for email"). Other attributes (first_name, properties.*, etc.) support full-text but email is locked down. Forced the hybrid RDS-fallback pattern. See [[feedback_klaviyo_email_filter_limits]].
+
+### Verified
+
+- Search `paul` (partial) → 4 RDS matches, 2 in Klaviyo (`paulc@fitscript.me`, `paulclotar@gmail.com`), 2 RDS-only surfaced as amber card.
+- Search `paulclotar@gmail.com` (exact) → 1 Klaviyo profile.
+- Search `paul@clotarmarketing.com` (exact, not in Klaviyo) → 0 profiles + 1 RDS-only row surfaced.
+- Detail endpoint: returns 16 events + 2 lists for Paul's profile.
+- Type check clean, server restarted, both routes 200.
+
+### What I'll remember
+
+- **Klaviyo profile email filter only supports `equals` and `any`** (no partial). Always hybrid via local DB when partial search is needed. See [[feedback_klaviyo_email_filter_limits]].
+- **RDS-only surfacing is the differentiator** over Klaviyo's native UI — Klaviyo can't show "users in your app DB but not in our system." Cross-checking with our RDS turns a search into an ops audit.
+- **Klaviyo DSD = NS delegation** when set up manually (CNAME-only setup is via Entri/auto-flow only). Klaviyo manages all DKIM/return-path/SPF internally on their nameservers once verified.
+- **Add comments to DNS records.** Cloudflare's Comment field shows in the DNS list. Without comments, post-hoc audits have no idea why a record exists. Should retroactively comment the existing SPF/MX/Mailgun cruft on fitscript.me apex when time permits.
+
 
 
 ### What I'll remember

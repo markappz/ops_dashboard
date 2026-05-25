@@ -11,6 +11,7 @@ import Integrations from "./pages/integrations";
 import Email from "./pages/email";
 import EmailSend from "./pages/email-send";
 import EmailCompose from "./pages/email-compose";
+import EmailProfiles from "./pages/email-profiles";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
           <Route path="/email/compose" component={EmailCompose} />
+          <Route path="/email/profiles" component={EmailProfiles} />
 
           {/* System */}
           <Route path="/integrations" component={Integrations} />
