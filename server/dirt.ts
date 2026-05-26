@@ -72,7 +72,8 @@ How you work:
 Safety rails on writes:
 - \`cancel_subscription\` is IRREVERSIBLE for immediate cancels. ALWAYS require the operator to type CONFIRM. Pass it as the \`confirmation\` field. Prefer cancel-at-period-end (immediate=false) unless they explicitly asked to revoke access NOW.
 - \`refund_charge\` over $50 (or full-refund where amount is unknown) requires CONFIRM in the \`confirmation\` field. Ask the operator, then call again.
-- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\` are reversible — execute immediately.
+- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\`, \`push_klaviyo_profile\` are reversible — execute immediately.
+- For \`push_klaviyo_profile\`: use when search_klaviyo_profile surfaces rds_only_users (FitScript users missing from Klaviyo). Idempotent — safe to retry.
 - For \`suppress_klaviyo_profile\` / \`unsuppress_klaviyo_profile\`: prefer calling \`search_klaviyo_profile\` first to confirm you have the right subscriber. Pass profileId (preferred) or email.
 - If a write tool errors, surface the error verbatim. Don't retry silently.
 
@@ -909,6 +910,105 @@ const WRITE_TOOLS: ToolDef[] = [
           status: "failed",
           error: e.message,
           metadata: { via: "dirt" },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "push_klaviyo_profile",
+    description: "Create a Klaviyo profile for an email that exists in FitScript's user DB but isn't in Klaviyo yet. Pulls canonical attrs (first_name, last_name, phone) from RDS users table. Idempotent — if the Klaviyo profile already exists, returns it without duplication. Use when search_klaviyo_profile surfaces an rds_only_users gap. Reversible (via suppress).",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Email address of the FitScript user to push" },
+        fitscriptUserId: { type: "string", description: "Optional — FitScript user UUID for traceability. If omitted, server resolves from email." },
+      },
+      required: ["email"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      const email: string = String(args.email || "").trim();
+      if (!email) return { ok: false, error: "email required" };
+      let fitscriptUserId: string | null = args.fitscriptUserId || null;
+      let firstName: string | null = null;
+      let lastName: string | null = null;
+      let phone: string | null = null;
+      try {
+        const r = await pool.query(
+          `SELECT id, email, first_name, last_name, phone FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+          [email],
+        );
+        if (r.rows[0]) {
+          fitscriptUserId = r.rows[0].id;
+          firstName = r.rows[0].first_name || null;
+          lastName = r.rows[0].last_name || null;
+          phone = r.rows[0].phone || null;
+        }
+      } catch { /* enrichment best-effort */ }
+
+      const attributes: any = { email };
+      if (firstName) attributes.first_name = firstName;
+      if (lastName) attributes.last_name = lastName;
+      if (phone) attributes.phone_number = phone;
+      if (fitscriptUserId) {
+        attributes.properties = { fitscript_user_id: fitscriptUserId, pushed_from: "dirt" };
+      }
+
+      try {
+        const key = process.env.KLAVIYO_API_KEY;
+        if (!key) throw new Error("Klaviyo not configured");
+        const r = await fetch("https://a.klaviyo.com/api/profiles/", {
+          method: "POST",
+          headers: {
+            Authorization: `Klaviyo-API-Key ${key}`,
+            Accept: "application/vnd.api+json",
+            "Content-Type": "application/vnd.api+json",
+            revision: "2025-04-15",
+          },
+          body: JSON.stringify({ data: { type: "profile", attributes } }),
+        });
+        const body: any = await r.json().catch(() => ({}));
+
+        // Klaviyo 409 with duplicate_profile_id → success-with-existing (idempotent)
+        if (r.status === 409) {
+          const dupId = body?.errors?.[0]?.meta?.duplicate_profile_id ?? null;
+          await logAdminAction({
+            adminEmail,
+            actionType: "profile.push",
+            targetKind: "klaviyo_profile",
+            targetId: dupId ?? email,
+            targetLabel: email,
+            status: "ok",
+            metadata: { existing: true, fitscript_user_id: fitscriptUserId, via: "dirt" },
+          });
+          return { ok: true, profileId: dupId, email, already_existed: true };
+        }
+        if (!r.ok) {
+          const detail = body?.errors?.[0]?.detail || `Klaviyo ${r.status}`;
+          throw new Error(detail);
+        }
+        const profileId = body?.data?.id ?? null;
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.push",
+          targetKind: "klaviyo_profile",
+          targetId: profileId ?? email,
+          targetLabel: email,
+          status: "ok",
+          metadata: { created: true, fitscript_user_id: fitscriptUserId, via: "dirt" },
+        });
+        return { ok: true, profileId, email, already_existed: false };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail,
+          actionType: "profile.push",
+          targetKind: "klaviyo_profile",
+          targetId: email,
+          targetLabel: email,
+          status: "failed",
+          error: e.message,
+          metadata: { fitscript_user_id: fitscriptUserId, via: "dirt" },
         });
         return { ok: false, error: e.message };
       }

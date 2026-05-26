@@ -993,6 +993,52 @@ Closes the loop on this morning's "RDS-only users surfacing" — operators can n
 - **`pushed_from` custom property** is a useful audit breadcrumb. Set on every operator-initiated push. Future: similar property for transactional-API pushes, signup-flow pushes, bulk-imports — lets us segment Klaviyo profiles by their provenance.
 - **Auto-refetch after write** (with ~1.2s delay so Klaviyo has time to index) is the right UX pattern. Operator sees the row move from amber card → main table without manual refresh. Apply to other write actions (suppress/unsuppress could do the same).
 
+---
+
+## 2026-05-26 — Memory hygiene + missed DIRT tool
+
+Audit triggered by Paul: "what's pending and is anything stale memory?" Followed [[feedback_verify_pending_claims]] + [[feedback_verify_already_fixed_claims]] — grep-verified every claim against the codebase before citing.
+
+### Stale memory cleanup
+
+- **`project_ops_dashboard_v1.md`** (the original, not the one I made yesterday): file was a stub with no body, MEMORY.md pointer said "7 sections working." Reality: 9+ surfaces live including DIRT + email composer + profile manager. **Action:** rewrote with the current snapshot.
+- **`project_fitscript_ops_dashboard.md`**: marked itself "superseded — see redirect" to v1 + full_map. No MEMORY.md pointer to it anymore. **Action:** deleted the file.
+- **`reference_old_ops_dashboard.md`**: referenced `~/Desktop/ops-dashboard.tar.gz` and `/tmp/ops-dashboard-old/` — both gone. Also explicitly violated [[feedback_replit_neon]] ("never mention Replit again"). **Action:** deleted file + MEMORY.md pointer.
+- **`project_ops_dashboard_may8_klaviyo.md`**: description said "Klaviyo read-only connector." Klaviyo now has 6+ write tools (suppress / unsuppress / push / flow status / content approve / blog queue / test). **Action:** demoted to "historical" with a redirect to the current-state v1.
+- **MEMORY.md duplicate pointer**: lines 67 + 83 both pointed at `project_fitscript_ops_dashboard_v1.md` with different descriptions. **Action:** removed the duplicate, single line now reflects current state.
+- **I also created `project_ops_dashboard_v1.md`** (without "fitscript" prefix) yesterday's session — that was a NEW duplicate of the canonical name. **Action:** content moved into canonical file, duplicate deleted.
+
+### Missed DIRT tool — fixed
+
+Discovered during the audit: HTTP endpoint `POST /api/ops/klaviyo/profiles/push` (shipped 2026-05-25 in commit 96f6745) had no DIRT counterpart. Operator couldn't say "push this user to Klaviyo" conversationally — only via the UI button. Violates the [[2026-05-25 — DIRT tools and HTTP endpoints share handler logic]] decision from yesterday.
+
+**Server (`server/dirt.ts`):** Added `push_klaviyo_profile` to WRITE_TOOLS (now 12 total). Mirrors the HTTP endpoint exactly — looks up RDS user attrs for enrichment, calls Klaviyo POST /profiles/, handles 409-duplicate idempotently with `already_existed: true`, audit-logs with `via: dirt` + `created: true|existing: true` metadata.
+
+**Client (`client/src/components/dirt/Dirt.tsx`):** Footer count `15 read · 11 write` → `15 read · 12 write`.
+
+**System prompt:** Added `push_klaviyo_profile` to the reversible-writes list + a hint about pairing with `search_klaviyo_profile` when rds_only_users surface.
+
+### Verified end-to-end
+
+Prompted DIRT: "Push paul@seabedee.org to Klaviyo using the push_klaviyo_profile tool" → DIRT called `push_klaviyo_profile` → result `{ ok: true, profileId: 01KSGEXJDF356M8FAXT1271NYT, already_existed: true }`. Profile ID matches yesterday's UI push, idempotency working through DIRT exactly as expected.
+
+### Pending tail (verified, not just claimed)
+
+1. **DMARC duplicate cleanup** — deferred by Paul 2026-05-25
+2. **Klaviyo DSD verification email** — async, may already have arrived
+3. **Meta Ads token** — connector built, needs `META_SYSTEM_USER_TOKEN`
+4. **Google Ads connector** — not built yet, waiting on Google developer-token approval
+5. **Klaviyo tag management** — no tag CRUD endpoints
+6. **Klaviyo segment writes** — read-only
+7. **Email composer Branded mode imagery** — deferred
+8. **Tracking pixel in prod verification** — claimed pending May 8, never confirmed
+
+### What I'll remember
+
+- **Stale memory accumulates fastest where the project moves fastest.** Ops dashboard had 5 different memory files describing it, with descriptions ranging from 4 days to 3 weeks out of date. Quarterly memory audits should be a habit — and Paul's "is anything stale?" question is the right cadence prompt.
+- **Memory naming collisions are an audit smell.** Two files with similar names (`project_ops_dashboard_v1.md` vs `project_fitscript_ops_dashboard_v1.md`) are an indicator that previous sessions didn't grep before writing. Future fix: always grep memory dir before creating a new file.
+- **"Done" claims need verification just like "pending" claims** (per [[feedback_verify_already_fixed_claims]] + [[feedback_verify_pending_claims]]). Both error in the same way — by relying on stale recollection.
+
 
 
 ### What I'll remember
