@@ -11,6 +11,7 @@
  */
 import type { Express, Request } from "express";
 import { isAIConfigured } from "./lib/bedrock";
+import { listAdminsFromDb } from "./admin-auth";
 
 interface AdminReq extends Request {
   adminEmail?: string;
@@ -22,11 +23,19 @@ function tail(value: string | undefined, n = 4): string {
 }
 
 export function registerSettingsRoutes(app: Express) {
-  app.get("/api/ops/settings", (req: AdminReq, res) => {
-    const adminEmails = (process.env.ADMIN_EMAILS || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+  app.get("/api/ops/settings", async (req: AdminReq, res) => {
+    // Pull admins from DB (DB is now the source of truth — env is just bootstrap seed).
+    let adminEmails: string[] = [];
+    try {
+      const dbAdmins = await listAdminsFromDb();
+      adminEmails = dbAdmins.map((a) => a.email);
+    } catch {
+      // Fallback to env if DB is unreachable.
+      adminEmails = (process.env.ADMIN_EMAILS || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
 
     const session = {
       email: req.adminEmail || null,

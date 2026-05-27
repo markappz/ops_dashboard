@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useState } from "react";
 import type React from "react";
@@ -40,7 +40,7 @@ interface ActionsResp {
   byKind: Array<{ target_kind: string; count: number }>;
 }
 
-type Tab = "general" | "audit";
+type Tab = "general" | "admins" | "audit";
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -86,6 +86,7 @@ export default function Settings() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "general", label: "General" },
+    { key: "admins", label: "Admins" },
     { key: "audit", label: "Admin Log" },
   ];
 
@@ -115,6 +116,7 @@ export default function Settings() {
       </div>
 
       {tab === "general" && <GeneralTab data={data} />}
+      {tab === "admins" && <AdminsTab currentAdminEmail={data?.session?.email ?? ""} />}
       {tab === "audit" && <AuditTab />}
     </div>
   );
@@ -147,27 +149,9 @@ function GeneralTab({ data }: { data: SettingsData }) {
 
       <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-5">
         <h3 className="text-sm font-semibold text-ops-text mb-1">Admin allowlist</h3>
-        <p className="text-xs text-ops-text-muted mb-3">
-          From the <code className="bg-ops-bg px-1 py-0.5 rounded">ADMIN_EMAILS</code> env var. Add another admin by appending to this list and redeploying.
+        <p className="text-xs text-ops-text-muted">
+          {data.adminEmails.length} admin{data.adminEmails.length === 1 ? "" : "s"} currently configured. Manage them in the <span className="text-brand-blue-500 font-semibold">Admins</span> tab — add or remove without touching env vars or redeploying.
         </p>
-        {data.adminEmails.length === 0 ? (
-          <div className="text-sm text-red-400">No admins configured. Anyone with a session cookie could be denied — fix this immediately.</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {data.adminEmails.map((e) => (
-              <span
-                key={e}
-                className={`text-xs font-mono px-2 py-1 rounded ${
-                  e === data.session.email
-                    ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
-                    : "bg-ops-bg text-ops-text-muted border border-ops-border"
-                }`}
-              >
-                {e}{e === data.session.email && " (you)"}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
@@ -342,6 +326,178 @@ function AuditTab() {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Admins tab ────────────────────────────────────────────────────
+
+interface AdminRow {
+  email: string;
+  added_by: string | null;
+  added_at: string;
+  note: string | null;
+}
+
+function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading, error, refetch } = useQuery<{ admins: AdminRow[] }>({
+    queryKey: ["ops-admins"],
+    queryFn: () => fetch("/api/ops/admins").then((r) => r.json()),
+  });
+  const [newEmail, setNewEmail] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [actionMsg, setActionMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+
+  const admins = data?.admins ?? [];
+  const me = currentAdminEmail.toLowerCase();
+
+  const addAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newEmail.trim().toLowerCase();
+    if (!email) return;
+    setAdding(true);
+    setActionMsg(null);
+    try {
+      const r = await fetch("/api/ops/admins", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, note: newNote.trim() || undefined }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setActionMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+      } else {
+        setActionMsg({ tone: "ok", text: `✓ Added ${email}. They can sign in now.` });
+        setNewEmail("");
+        setNewNote("");
+        queryClient.invalidateQueries({ queryKey: ["ops-admins"] });
+      }
+    } catch (err: any) {
+      setActionMsg({ tone: "bad", text: err.message });
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const removeAdmin = async (email: string) => {
+    if (!confirm(`Remove ${email} from admins? They lose dashboard access immediately.`)) return;
+    setActionMsg(null);
+    try {
+      const r = await fetch(`/api/ops/admins/${encodeURIComponent(email)}`, { method: "DELETE" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setActionMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+      } else {
+        setActionMsg({ tone: "ok", text: `✓ Removed ${email}.` });
+        refetch();
+      }
+    } catch (err: any) {
+      setActionMsg({ tone: "bad", text: err.message });
+    }
+  };
+
+  return (
+    <>
+      <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5 mb-5">
+        <h3 className="text-sm font-semibold text-ops-text mb-1">Add admin</h3>
+        <p className="text-[11px] text-ops-text-muted mb-3">
+          Anyone added here can sign in with their Google account immediately. No env or AWS edits required.
+        </p>
+        <form onSubmit={addAdmin} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="email@fitscript.me"
+            className="bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-sm text-ops-text focus:outline-none focus:border-brand-blue-500"
+            required
+            autoComplete="email"
+          />
+          <input
+            type="text"
+            value={newNote}
+            onChange={(e) => setNewNote(e.target.value)}
+            placeholder="Note (optional, e.g. role / why)"
+            className="bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-sm text-ops-text focus:outline-none focus:border-brand-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={adding || !newEmail.trim()}
+            className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95 whitespace-nowrap"
+          >
+            {adding ? "Adding…" : "Add admin"}
+          </button>
+        </form>
+        {actionMsg && (
+          <div className={`mt-3 px-3 py-2 rounded-lg text-xs ${
+            actionMsg.tone === "ok"
+              ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30"
+              : "bg-red-500/10 text-red-400 border border-red-500/30"
+          }`}>
+            {actionMsg.text}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card overflow-hidden">
+        <div className="px-4 py-3 border-b border-ops-border flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-ops-text">
+            {admins.length} admin{admins.length === 1 ? "" : "s"}
+          </h3>
+          <span className="text-[11px] text-ops-text-subtle">DB-backed · cache 60s</span>
+        </div>
+        {isLoading ? (
+          <div className="px-4 py-8 text-center text-sm text-ops-text-muted">Loading…</div>
+        ) : error ? (
+          <div className="px-4 py-8 text-center text-sm text-red-400">Failed to load admins.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-ops-text-muted border-b border-ops-border">
+                  <th className="px-4 py-2 font-semibold">Email</th>
+                  <th className="px-4 py-2 font-semibold">Added by</th>
+                  <th className="px-4 py-2 font-semibold">Added</th>
+                  <th className="px-4 py-2 font-semibold">Note</th>
+                  <th className="px-4 py-2 font-semibold w-0"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {admins.map((a) => {
+                  const isMe = a.email.toLowerCase() === me;
+                  return (
+                    <tr key={a.email} className="border-b border-ops-border last:border-b-0">
+                      <td className="px-4 py-3 text-ops-text">
+                        {a.email}
+                        {isMe && <span className="ml-2 text-[10px] font-semibold text-brand-blue-400">(you)</span>}
+                      </td>
+                      <td className="px-4 py-3 text-ops-text-muted text-xs">{a.added_by ?? "—"}</td>
+                      <td className="px-4 py-3 text-ops-text-muted text-xs">{timeAgo(a.added_at)}</td>
+                      <td className="px-4 py-3 text-ops-text-muted text-xs">{a.note ?? "—"}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {isMe ? (
+                          <span className="text-[11px] text-ops-text-subtle italic">self</span>
+                        ) : admins.length <= 1 ? (
+                          <span className="text-[11px] text-ops-text-subtle italic">only admin</span>
+                        ) : (
+                          <button
+                            onClick={() => removeAdmin(a.email)}
+                            className="text-[11px] font-semibold text-red-400 hover:text-red-300"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </>

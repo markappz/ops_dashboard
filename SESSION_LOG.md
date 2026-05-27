@@ -1039,6 +1039,69 @@ Prompted DIRT: "Push paul@seabedee.org to Klaviyo using the push_klaviyo_profile
 - **Memory naming collisions are an audit smell.** Two files with similar names (`project_ops_dashboard_v1.md` vs `project_fitscript_ops_dashboard_v1.md`) are an indicator that previous sessions didn't grep before writing. Future fix: always grep memory dir before creating a new file.
 - **"Done" claims need verification just like "pending" claims** (per [[feedback_verify_already_fixed_claims]] + [[feedback_verify_pending_claims]]). Both error in the same way — by relying on stale recollection.
 
+---
+
+## 2026-05-26 (later) — Admin management UI (DB-backed allowlist)
+
+Triggered by Paul: "add seth@fitscript.me and mm@fitscript.me as admins" → "we should be able to add admins to the dashboard as admins" (i.e. build the surface, don't keep editing AWS Secrets Manager + redeploying).
+
+### Shipped
+
+**Server (`server/admin-auth.ts`):**
+- New `ops_admins` table: `email PRIMARY KEY, added_by, added_at, note`. Auto-created via `ensureAdminTable()` on first read.
+- **Env → DB migration via boot-time seed.** `seedFromEnvIfEmpty()` runs once per boot — if the table is empty AND `ADMIN_EMAILS` env is set, seeds rows with `added_by='env-bootstrap'`. After that, DB is canonical; env is fallback only.
+- `getAllowlist()` (the auth hot-path) reads an in-process Set cache (60s TTL). Async refresh kicks in on stale read but never blocks auth — env fallback covers the gap.
+- `refreshAllowlistCache()` (synchronous): called by add/remove after the DB write so the cache is warm before the response goes out. Critical for the cache-flush bug found in testing.
+- New endpoints (all `requireAdmin`-gated):
+  - `GET /api/ops/admins` — list with metadata
+  - `POST /api/ops/admins` — add `{email, note?}` (idempotent via `ON CONFLICT DO NOTHING`)
+  - `DELETE /api/ops/admins/:email` — remove (with safety rails)
+- Safety rails: can't remove self (`Cannot remove yourself`), can't remove the only admin (`Cannot remove the only admin`).
+- Audit-logged: `admin.add` and `admin.remove` actions with target email, `via: ui` metadata.
+
+**Server (`server/settings.ts`):**
+- `/api/ops/settings.adminEmails` now reads from `listAdminsFromDb()` instead of `process.env.ADMIN_EMAILS`. Env stays as fallback if DB unreachable.
+
+**Client (`client/src/pages/settings.tsx`):**
+- New "Admins" tab between General and Admin Log.
+- `AdminsTab` component: add form (email + optional note), live table (email, added_by, added_at, note, action), per-row remove button (disabled for self / only-admin), idempotent feedback.
+- Removed the now-redundant "Admin allowlist" badges from `GeneralTab` — replaced with a one-line pointer to the new tab.
+
+### Critical bug caught during testing
+
+**The cache-flush race condition.** First implementation just set `allowlistCache = null` after writes and relied on the async `getAllowlist()` refetch to repopulate. Test caught: after `POST /admins` returned `ok`, the very next `GET /auth/me` for the new email still 403'd — because the async refetch hadn't landed yet, so `getAllowlist()` fell through to the env fallback (which didn't include the new email).
+
+Fix: `refreshAllowlistCache()` is now `async` and synchronously awaited inside `addAdminToDb()` and `removeAdminFromDb()`. By the time the POST/DELETE response goes out, the cache is already warm with the new state.
+
+### Verified
+
+Full test suite (server-side):
+
+| # | Test | Result |
+|---|------|--------|
+| 1 | mm@fitscript.me (in DB) → auth/me | 200 |
+| 2 | seth@fitscript.me (in DB) → auth/me | 200 |
+| 3 | random@notadmin.com (not in DB) | 403 |
+| 4-8 | Cache invalidation: pre-add 403, add, post-add IMMEDIATELY 200, remove, post-remove IMMEDIATELY 403 | all pass |
+| 9 | Remove self | 400 "Cannot remove yourself" |
+| 10 | Audit log captures all admin.* events | 7 rows |
+| 11 | /api/ops/settings.adminEmails reads from DB | 4 admins |
+
+### Result for the original ask
+
+- Seth + Michael are now active admins on local dev. After deploy, prod auto-seeds from env (which Paul never updated for prod), so we need to:
+  - Either: have Paul use the new UI in prod to add them
+  - Or: update the prod Secrets Manager `ADMIN_EMAILS` so the seed picks them up — but only matters on FRESH prod DB (existing prod DB will seed from whatever ADMIN_EMAILS was at first boot).
+
+Prod consideration: prod's ops_admins table will seed from prod's current `ADMIN_EMAILS` env on first boot after this deploy. That env still has only Paul + dev. Seth + Michael will need to be added via the new UI (Paul → /settings → Admins → Add) after deploy.
+
+### What I'll remember
+
+- **Async cache invalidation is a race condition trap.** "Just set cache=null and let the next read refetch" sounds clean but breaks when an env fallback path exists. Either await the refetch synchronously OR have the cache hold a Promise<value> instead of just value. The await-after-write pattern is simplest when the write surface is small (here: 2 endpoints).
+- **Env → DB migration via boot-time idempotent seed.** Pattern: check table empty → if so, copy env values in with a `from-env-bootstrap` provenance flag → then DB becomes canonical. Survives crash/restart; doesn't repeat on every boot. Apply to other env-based config that should become editable in-dashboard.
+- **Safety rails should fail loud + explain.** "Cannot remove yourself" is more useful than "400 forbidden." Same for "Cannot remove only admin." Operators see the message and understand the constraint immediately.
+- **DB-canonical config eliminates AWS Secret round-trips for ops changes.** Adding an admin used to be: edit secret JSON → save → ECS force-redeploy → wait 60s → test. Now it's: 5 seconds in the dashboard. Apply the pattern to any future config that operators need to mutate (Slack webhook URLs, default sender names, feature flags, threshold values).
+
 
 
 ### What I'll remember
