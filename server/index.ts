@@ -19,6 +19,7 @@ import { registerClomarkRoutes } from "./clomark";
 import { registerDirtRoutes, startDirtScanLoop, startDirtDailyReportLoop } from "./dirt";
 import { registerIntegrationsRoutes } from "./integrations";
 import { registerProjectRoutes } from "./projects";
+import { registerChatRoutes } from "./chat";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -61,6 +62,7 @@ registerClomarkRoutes(app);
 registerDirtRoutes(app);
 registerIntegrationsRoutes(app);
 registerProjectRoutes(app);
+registerChatRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {

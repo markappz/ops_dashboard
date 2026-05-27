@@ -1160,6 +1160,72 @@ Also renamed the table column "Owner" → "Assigned to" for clarity + table cell
 - **Assignee dropdowns should query the live admin list, not duplicate it.** Single source of truth. Future: same pattern for any "assign to person" field in other surfaces (DIRT notifications inbox already does similar via `adminEmail`).
 - **Free-text email inputs are an anti-pattern when the valid set is small + known.** Operators forget emails, mistype them, or use the wrong domain. Always prefer a constrained picker.
 
+---
+
+## 2026-05-27 (later) — Chat v1 (channels + SSE + @ mentions)
+
+Second of Paul's three Workspace asks. Chat built on the existing SSE pattern (DIRT streaming uses the same approach).
+
+### Shipped
+
+**Server (`server/chat.ts`, new):**
+- Two tables: `ops_chat_channels` (id UUID PK, name UNIQUE, description, created_by, created_at) and `ops_chat_messages` (id BIGSERIAL, channel_id FK ON DELETE CASCADE, sender_email, body, created_at, edited_at). Index on `(channel_id, id DESC)` for fast recent-messages reads.
+- Auto-seed `#general` on first boot if zero channels exist.
+- Channel-name normalization: lowercase, alphanumeric + hyphen, max 32 chars. Strips leading `#`. `"#Some Bad Name!@#"` → `some-bad-name`.
+- 7 endpoints (all opsGate'd):
+  - `GET /api/ops/chat/channels` — list with `last_message_at` + `message_count`
+  - `POST /api/ops/chat/channels` — create (409 on duplicate name)
+  - `DELETE /api/ops/chat/channels/:id` — delete with cascade. `#general` is undeletable.
+  - `GET /api/ops/chat/channels/:id/messages?since=&limit=` — fetch with optional `?since=<id>` for incremental polls
+  - `POST /api/ops/chat/channels/:id/messages` — send (8000 char limit)
+  - `DELETE /api/ops/chat/messages/:id` — author-only deletion
+  - `GET /api/ops/chat/stream` — SSE broadcast with 25s heartbeat, auto-clean on connection close
+- In-process `Set<Subscriber>` for SSE fan-out. Each new message broadcasts `{type, payload}` to all connected clients.
+- Audit log: `chat.channel.create` + `chat.channel.delete` only — individual messages NOT logged (would be too noisy at chat volume).
+
+**Client (`client/src/pages/chat.tsx`, new):**
+- Slack-lite layout: left channel sidebar (with message counts), right thread + composer.
+- Auto-selects `#general` on first load.
+- Live `EventSource` subscription on `/api/ops/chat/stream` — invalidates React Query caches on incoming events for instant updates across all open tabs.
+- Message rendering grouped by sender within 5-min windows (Slack-style).
+- Hover own message → ✕ to delete.
+- "New channel" modal with name + description (auto-normalized live).
+- Stable avatar colors per email (8-hue rotation via deterministic hash) + capital-letter initial.
+- Composer: textarea with Enter-to-send, Shift+Enter for newline, autosize up to max-h-40.
+
+### @ Mentions (added same session)
+
+Triggered by Paul: "should be able to tag members."
+
+- Composer detects `@<partial>` immediately before cursor → opens autocomplete dropdown of admin usernames (queried from `/api/ops/admins`, same source of truth as `/email/profiles` assignee picker).
+- Keyboard: ↑/↓ to navigate, Enter or Tab to insert, Esc to dismiss. Click also works.
+- Insert replaces the partial with `@<username> ` and re-focuses the textarea with cursor positioned after.
+- Render: `renderBody()` parses `@\w+` mentions and renders each as a styled chip:
+  - **Amber** if mention is yourself (so you spot the @-you)
+  - **Brand-blue** if mention matches a known admin
+  - **Grey** if username doesn't match any admin (typo / former admin)
+- No server changes — stored as raw text. The client owns parsing + rendering.
+
+### Verified end-to-end
+
+8-test smoke run, all green:
+- Auto-seed `#general` ✓
+- Create channel ✓
+- Duplicate name returns 409 ✓
+- Name normalization works ("#Some Bad Name!@#" → `some-bad-name`) ✓
+- Send messages + fetch chronological ✓
+- `#general` undeletable ✓
+- **SSE delivery confirmed live** — opened stream, posted message in parallel, received `event: message` ✓
+- Audit log captures only channel CRUD, not individual messages ✓
+
+### What I'll remember
+
+- **In-process SSE Set is fine for chat-volume**. Scales to hundreds of admins per pod. The whole pattern reused from DIRT streaming. For higher fan-out (thousands of recipients on the public app), would need Redis pub/sub. Chat for an internal team doesn't.
+- **EventSource auto-reconnects on disconnect** — no client-side retry logic needed. The server's 25s heartbeat keeps proxies from killing idle connections.
+- **Audit logs need a noise budget.** Channel CRUD = high-signal, log every one. Individual messages = high-volume, log nothing (chat history IS the audit log; it's first-class data).
+- **Mentions don't need server-side parsing for v1.** Store raw text, parse + render client-side. Mention "knowledge" lives in the admin list. Trivial to swap renderers later (e.g. link to admin profile, send notification, etc.).
+- **The avatar color hash is a simple but underrated UX touch.** 8 stable hues per email = visual identity without storing avatars. Apply to other person-shows surfaces (members table, comments, audit log).
+
 
 
 ### What I'll remember
