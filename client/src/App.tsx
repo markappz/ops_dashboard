@@ -14,6 +14,7 @@ import EmailCompose from "./pages/email-compose";
 import EmailProfiles from "./pages/email-profiles";
 import Projects from "./pages/projects";
 import Chat from "./pages/chat";
+import ContentLibrary from "./pages/content-library";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
@@ -98,6 +99,7 @@ export default function App() {
           {/* Workspace */}
           <Route path="/projects" component={Projects} />
           <Route path="/chat" component={Chat} />
+          <Route path="/content-library" component={ContentLibrary} />
 
           {/* System */}
           <Route path="/integrations" component={Integrations} />

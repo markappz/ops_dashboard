@@ -1226,6 +1226,110 @@ Triggered by Paul: "should be able to tag members."
 - **Mentions don't need server-side parsing for v1.** Store raw text, parse + render client-side. Mention "knowledge" lives in the admin list. Trivial to swap renderers later (e.g. link to admin profile, send notification, etc.).
 - **The avatar color hash is a simple but underrated UX touch.** 8 stable hues per email = visual identity without storing avatars. Apply to other person-shows surfaces (members table, comments, audit log).
 
+---
+
+## 2026-05-27 (later still) — Content storage v1 (S3 + library UI)
+
+Third and last of Paul's three Workspace asks. The big one — S3-backed file storage so Michael can upload + organize footage without leaving ops.
+
+### Architecture
+
+**Direct browser → S3** via presigned PUT URLs. Multi-GB video files never touch the Express server (would otherwise be a memory/throughput bomb).
+
+Flow:
+1. Client POST `/api/ops/content/presign` with `{filename, content_type, size_bytes}` → server validates + signs a 15-min `PutObjectCommand` URL.
+2. Browser PUTs the file directly to S3 with progress tracking via XHR.
+3. Client POST `/api/ops/content/files` with the upload metadata → server creates `ops_content_files` row.
+
+### Shipped
+
+**Server (`server/content.ts`, new):**
+- `ops_content_files` table (id UUID, s3_key UNIQUE, original_filename, content_type, size_bytes BIGINT, uploaded_by, uploaded_at, project_id REFERENCES ops_projects(id) ON DELETE SET NULL, tags TEXT[], description). Indexes on uploaded_at DESC + project_id + uploader.
+- Filename sanitization (lowercase, alphanumeric + . _ -) before S3 key construction.
+- 5 GB single-PUT cap (multipart out of scope for v1).
+- 6 endpoints (all opsGate'd):
+  - `GET    /api/ops/content/status` — checks bucket env + returns config state. UI uses this to render "not configured" banner.
+  - `POST   /api/ops/content/presign` — issues 15-min PUT URL.
+  - `POST   /api/ops/content/files` — record metadata after upload.
+  - `GET    /api/ops/content/files?project_id=&type=&q=` — list with filters (joins project name).
+  - `GET    /api/ops/content/files/:id` — detail with FRESH 15-min download URL.
+  - `PATCH  /api/ops/content/files/:id` — update project / tags / description (filename + s3_key immutable).
+  - `DELETE /api/ops/content/files/:id` — S3 delete (best-effort) + DB row removal. S3 failure still removes DB row so operator can re-upload.
+- All writes audit-logged: `content.upload`, `content.update`, `content.delete` with metadata.
+
+**Client (`client/src/pages/content-library.tsx`, new):**
+- Status probe — shows amber "Storage not configured" banner with SESSION_LOG pointer when bucket env is missing.
+- Top filter bar: search (filename + description), type filter (Video / Image / Audio / Documents / All), project filter (populated from `/api/ops/projects?includeArchived=true`).
+- Multi-file upload via hidden `<input type="file" multiple>` triggered by header button.
+- In-flight upload tray with per-file progress bars (XHR `upload.onprogress`) — queued → presigning → uploading (%) → saving → done. Errors surface with retry-able rows.
+- Grid view (2/3/4 cols responsive) with colored type chips: VIDEO purple, IMAGE sky, AUDIO emerald, PDF red, TEXT amber, FILE grey. Each card shows filename + size + relative upload time + project name.
+- Detail drawer (ModalPortal): name + metadata + presigned download button + project dropdown + tags input (comma-separated) + description + Delete + Save.
+
+**Packages:**
+- Added `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`.
+
+**Sidebar IA:**
+- Added "Content Library" under Workspace (after Chat + Projects). New `folder` icon.
+
+### Verified locally (without bucket)
+
+- `/api/ops/content/status` → `{configured: false, reason: "OPS_CONTENT_BUCKET env not set"}` ✓
+- `/api/ops/content/files` → `{files: []}` (table auto-created) ✓
+- `/api/ops/content/presign` → 503 with clear setup hint ✓
+- UI shows amber banner + disabled upload button when status is not configured ✓
+
+### AWS prereqs Paul needs to run (storage doesn't work until done)
+
+These need to happen in AWS — I can't from this session.
+
+**1. Create the S3 bucket:**
+```bash
+aws s3api create-bucket \
+  --bucket fitscript-ops-content \
+  --region us-east-1
+```
+
+**2. CORS config so browser PUTs work:**
+```bash
+cat > /tmp/cors.json <<'EOF'
+{"CORSRules":[{"AllowedOrigins":["https://ops.fitscript.me","http://localhost:5001"],"AllowedMethods":["GET","PUT","POST","DELETE","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag"],"MaxAgeSeconds":3600}]}
+EOF
+aws s3api put-bucket-cors --bucket fitscript-ops-content --cors-configuration file:///tmp/cors.json
+```
+
+**3. Block public access (defaults but be explicit):**
+```bash
+aws s3api put-public-access-block --bucket fitscript-ops-content \
+  --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+```
+
+**4. IAM policy for ECS task role** — attach to `ecsTaskExecutionRole`:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
+    "Resource": [
+      "arn:aws:s3:::fitscript-ops-content",
+      "arn:aws:s3:::fitscript-ops-content/*"
+    ]
+  }]
+}
+```
+
+**5. Set env var in two places:**
+- Local `.env`: `OPS_CONTENT_BUCKET=fitscript-ops-content`
+- Prod secrets: update `prod/ops-secrets` JSON to include `OPS_CONTENT_BUCKET` then force ECS redeploy. Same command pattern as the `KLAVIYO_API_KEY` rotation from earlier.
+
+### What I'll remember
+
+- **Direct browser → S3 with presigned URLs is the only sane pattern for large files.** Routing GB files through Express = guaranteed OOM + slow. The XHR `upload.onprogress` UX is mandatory for files > ~10 MB.
+- **CORS is the single most common gotcha** when implementing direct uploads. Always remember `ExposeHeaders: ["ETag"]` (S3 returns it on PUT, the SDK uses it for multipart-resume, missing it surfaces as cryptic errors).
+- **Bucket isn't the same as the prod-secrets pattern.** The bucket is infra; the env var is config. Bucket creation is one-time; env var update requires ECS redeploy. Both need to happen before the surface works in prod.
+- **`status` probe endpoint is a great pattern for env-gated features.** Lets the UI render a useful "not configured" state instead of just silently failing on the first action. Apply to other integrations that depend on env (Slack webhook, Klaviyo, etc.).
+- **`ON DELETE SET NULL` for project FK** lets operators delete a project without losing content. The file stays in the library, just becomes unassigned. Apply to other relational FKs where the parent is more transient than the child.
+
 
 
 ### What I'll remember

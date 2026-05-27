@@ -20,6 +20,7 @@ import { registerDirtRoutes, startDirtScanLoop, startDirtDailyReportLoop } from 
 import { registerIntegrationsRoutes } from "./integrations";
 import { registerProjectRoutes } from "./projects";
 import { registerChatRoutes } from "./chat";
+import { registerContentRoutes } from "./content";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -63,6 +64,7 @@ registerDirtRoutes(app);
 registerIntegrationsRoutes(app);
 registerProjectRoutes(app);
 registerChatRoutes(app);
+registerContentRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
