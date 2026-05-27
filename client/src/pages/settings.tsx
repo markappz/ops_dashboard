@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryError, hasApiError } from "../components/query-error";
 import { Link } from "wouter";
 import { useState } from "react";
 import type React from "react";
@@ -70,18 +71,14 @@ function timeAgo(iso: string): string {
 
 export default function Settings() {
   const [tab, setTab] = useState<Tab>("general");
-  const { data, isLoading, isError } = useQuery<SettingsData>({
+  const { data, isLoading, isError, error, refetch } = useQuery<SettingsData>({
     queryKey: ["ops-settings"],
     queryFn: () => fetch("/api/ops/settings").then((r) => r.json()),
   });
 
   if (isLoading) return <div className="text-sm text-ops-text-muted">Loading settings…</div>;
-  if (isError || !data) {
-    return (
-      <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 text-sm text-red-300">
-        Failed to load settings.
-      </div>
-    );
+  if (isError || !data || hasApiError(data)) {
+    return <QueryError context="Settings" data={data} error={error as Error | null} onRetry={() => refetch()} />;
   }
 
   const tabs: { key: Tab; label: string }[] = [

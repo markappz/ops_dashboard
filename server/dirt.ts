@@ -72,8 +72,9 @@ How you work:
 Safety rails on writes:
 - \`cancel_subscription\` is IRREVERSIBLE for immediate cancels. ALWAYS require the operator to type CONFIRM. Pass it as the \`confirmation\` field. Prefer cancel-at-period-end (immediate=false) unless they explicitly asked to revoke access NOW.
 - \`refund_charge\` over $50 (or full-refund where amount is unknown) requires CONFIRM in the \`confirmation\` field. Ask the operator, then call again.
-- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\`, \`push_klaviyo_profile\` are reversible — execute immediately.
+- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\`, \`push_klaviyo_profile\`, \`create_project\`, \`update_project_status\`, \`post_chat_message\` are reversible — execute immediately.
 - For \`push_klaviyo_profile\`: use when search_klaviyo_profile surfaces rds_only_users (FitScript users missing from Klaviyo). Idempotent — safe to retry.
+- For \`post_chat_message\`: confirm channel name with \`list_chat_channels\` if uncertain. Use @username mentions to tag admins.
 - For \`suppress_klaviyo_profile\` / \`unsuppress_klaviyo_profile\`: prefer calling \`search_klaviyo_profile\` first to confirm you have the right subscriber. Pass profileId (preferred) or email.
 - If a write tool errors, surface the error verbatim. Don't retry silently.
 
@@ -537,6 +538,93 @@ const READ_TOOLS: ToolDef[] = [
           recent_events: events,
           klaviyo_url: `https://www.klaviyo.com/profile/${id}`,
         };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "list_projects",
+    description: "List team projects from the ops dashboard's project manager. Optional status filter (active / on_hold / done / archived). Returns name, owner, due date, status.",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["active", "on_hold", "done", "archived"], description: "Filter by status (optional)" },
+        include_archived: { type: "boolean", description: "Include archived projects (default false)" },
+      },
+    },
+    handler: async (args: any) => {
+      try {
+        const sets: string[] = [];
+        const params: any[] = [];
+        if (args.status) { params.push(args.status); sets.push(`status = $${params.length}`); }
+        else if (!args.include_archived) sets.push(`status <> 'archived'`);
+        const where = sets.length ? `WHERE ${sets.join(" AND ")}` : "";
+        const r = await pool.query(
+          `SELECT id, name, status, owner_email, due_date, description
+           FROM ops_projects ${where}
+           ORDER BY
+             CASE status WHEN 'active' THEN 0 WHEN 'on_hold' THEN 1 WHEN 'done' THEN 2 ELSE 3 END,
+             due_date ASC NULLS LAST,
+             created_at DESC
+           LIMIT 50`,
+          params,
+        );
+        return { projects: r.rows, count: r.rows.length };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "list_chat_channels",
+    description: "List team chat channels with message counts. Use to look up a channel ID before posting a message.",
+    input_schema: { type: "object", properties: {} },
+    handler: async () => {
+      try {
+        const r = await pool.query(`
+          SELECT c.id, c.name, c.description,
+                 (SELECT COUNT(*)::int FROM ops_chat_messages m WHERE m.channel_id = c.id) AS message_count,
+                 (SELECT MAX(created_at) FROM ops_chat_messages m WHERE m.channel_id = c.id) AS last_message_at
+          FROM ops_chat_channels c ORDER BY c.name ASC
+        `);
+        return { channels: r.rows, count: r.rows.length };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "search_content_library",
+    description: "Search the content library (videos, images, audio uploaded by the team). Filter by project, content-type prefix (video/image/audio/application), or a search query against filename + description.",
+    input_schema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Search filename or description (case-insensitive)" },
+        type: { type: "string", enum: ["video", "image", "audio", "application"], description: "Content-type prefix filter" },
+        project_id: { type: "string", description: "Filter to a specific project UUID" },
+      },
+    },
+    handler: async (args: any) => {
+      try {
+        const where: string[] = [];
+        const params: any[] = [];
+        if (args.project_id) { params.push(args.project_id); where.push(`f.project_id = $${params.length}`); }
+        if (args.type && /^[a-z-]+$/.test(args.type)) { params.push(`${args.type}/%`); where.push(`lower(f.content_type) LIKE $${params.length}`); }
+        if (args.q) {
+          params.push(`%${String(args.q).toLowerCase()}%`);
+          where.push(`(lower(f.original_filename) LIKE $${params.length} OR lower(coalesce(f.description, '')) LIKE $${params.length})`);
+        }
+        const r = await pool.query(
+          `SELECT f.id, f.original_filename, f.content_type, f.size_bytes, f.uploaded_by, f.uploaded_at,
+                  f.tags, f.description, f.project_id, p.name AS project_name
+           FROM ops_content_files f
+           LEFT JOIN ops_projects p ON p.id = f.project_id
+           ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+           ORDER BY f.uploaded_at DESC LIMIT 25`,
+          params,
+        );
+        return { files: r.rows, count: r.rows.length };
       } catch (e: any) {
         return { error: e.message };
       }
@@ -1010,6 +1098,165 @@ const WRITE_TOOLS: ToolDef[] = [
           error: e.message,
           metadata: { fitscript_user_id: fitscriptUserId, via: "dirt" },
         });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "set_klaviyo_profile_tags",
+    description: "Set the tag list on a Klaviyo profile (replaces all existing tags). Use after get_klaviyo_profile to find the profileId. Tags are stored as a custom property and are useful for segmentation. Reversible by calling again with new tags.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        profileId: { type: "string", description: "Klaviyo profile ID" },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Complete list of tags (lowercase, a-z 0-9 _ -). Empty array clears all tags.",
+        },
+      },
+      required: ["profileId", "tags"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      const tags = Array.from(new Set(
+        (Array.isArray(args.tags) ? args.tags : [])
+          .map((t: any) => String(t).trim().toLowerCase())
+          .filter((t: string) => t && t.length <= 50 && /^[a-z0-9_-][a-z0-9_-\s]*$/.test(t))
+      )).slice(0, 30);
+      let email: string | null = null;
+      try {
+        const pre = await klaviyoGET(`/profiles/${encodeURIComponent(args.profileId)}/`);
+        email = (pre as any)?.data?.attributes?.email ?? null;
+      } catch { /* best-effort */ }
+      try {
+        await klaviyoPATCH(`/profiles/${encodeURIComponent(args.profileId)}/`, {
+          data: { type: "profile", id: args.profileId, attributes: { properties: { tags } } },
+        });
+        await logAdminAction({
+          adminEmail, actionType: "profile.tags.update", targetKind: "klaviyo_profile",
+          targetId: args.profileId, targetLabel: email, status: "ok",
+          metadata: { tags, via: "dirt" },
+        });
+        return { ok: true, profileId: args.profileId, email, tags };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "profile.tags.update", targetKind: "klaviyo_profile",
+          targetId: args.profileId, targetLabel: email, status: "failed",
+          error: e.message, metadata: { via: "dirt" },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "create_project",
+    description: "Create a new project in the team project manager. Status defaults to 'active'. owner_email is optional but recommended for ownership clarity.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Project name (e.g. 'Klaviyo Deliverability Launch')" },
+        description: { type: "string", description: "What is this project? Goals, scope, links." },
+        owner_email: { type: "string", description: "Owner email — must be an admin" },
+        due_date: { type: "string", description: "Due date in YYYY-MM-DD format (optional)" },
+        status: { type: "string", enum: ["active", "on_hold", "done"], description: "Initial status (default active)" },
+      },
+      required: ["name"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      try {
+        const name = String(args.name || "").trim();
+        if (!name) return { ok: false, error: "name required" };
+        const id = randomUUID();
+        const r = await pool.query(
+          `INSERT INTO ops_projects (id, name, description, status, owner_email, due_date, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, name, status, owner_email, due_date`,
+          [id, name, args.description?.trim() || null, args.status || "active", args.owner_email?.trim().toLowerCase() || null, args.due_date || null, adminEmail],
+        );
+        await logAdminAction({
+          adminEmail, actionType: "project.create", targetKind: "ops_project",
+          targetId: id, targetLabel: name, status: "ok", metadata: { via: "dirt" },
+        });
+        return { ok: true, project: r.rows[0] };
+      } catch (e: any) {
+        await logAdminAction({
+          adminEmail, actionType: "project.create", targetKind: "ops_project",
+          targetId: "unknown", targetLabel: args.name ?? null, status: "failed",
+          error: e.message, metadata: { via: "dirt" },
+        });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "update_project_status",
+    description: "Change a project's status. Use to mark a project done, put it on hold, archive it, or reactivate it. Pass projectId from list_projects.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        projectId: { type: "string", description: "Project UUID from list_projects" },
+        status: { type: "string", enum: ["active", "on_hold", "done", "archived"], description: "New status" },
+      },
+      required: ["projectId", "status"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      try {
+        const r = await pool.query(
+          `UPDATE ops_projects SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING name, status`,
+          [args.status, args.projectId],
+        );
+        if (r.rows.length === 0) return { ok: false, error: "Project not found" };
+        await logAdminAction({
+          adminEmail, actionType: "project.update", targetKind: "ops_project",
+          targetId: args.projectId, targetLabel: r.rows[0].name, status: "ok",
+          metadata: { changes: { status: args.status }, via: "dirt" },
+        });
+        return { ok: true, project: r.rows[0] };
+      } catch (e: any) {
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "post_chat_message",
+    description: "Post a message to a team chat channel. Pass channel by NAME (without #) or by ID. Use @username inside the body to mention an admin. Reversible only by deleting your own message in the UI.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        channel: { type: "string", description: "Channel name (e.g. 'general', 'design-feedback') or UUID" },
+        body: { type: "string", description: "Message body — supports @username mentions" },
+      },
+      required: ["channel", "body"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      try {
+        const body = String(args.body || "").trim();
+        if (!body) return { ok: false, error: "body required" };
+        if (body.length > 8000) return { ok: false, error: "body too long (max 8000 chars)" };
+        const ch = String(args.channel || "").trim().replace(/^#/, "").toLowerCase();
+        // Resolve channel: try as UUID first, then as name
+        let channelId: string | null = null;
+        let channelName: string | null = null;
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(ch)) {
+          const r = await pool.query(`SELECT id, name FROM ops_chat_channels WHERE id = $1`, [args.channel]);
+          if (r.rows[0]) { channelId = r.rows[0].id; channelName = r.rows[0].name; }
+        }
+        if (!channelId) {
+          const r = await pool.query(`SELECT id, name FROM ops_chat_channels WHERE name = $1`, [ch]);
+          if (r.rows[0]) { channelId = r.rows[0].id; channelName = r.rows[0].name; }
+        }
+        if (!channelId) return { ok: false, error: `Channel "${ch}" not found — use list_chat_channels to find it` };
+        const r = await pool.query(
+          `INSERT INTO ops_chat_messages (channel_id, sender_email, body) VALUES ($1, $2, $3)
+           RETURNING id, body, created_at`,
+          [channelId, adminEmail, body],
+        );
+        return { ok: true, message: { ...r.rows[0], channel_name: channelName }, note: `Posted to #${channelName}` };
+      } catch (e: any) {
         return { ok: false, error: e.message };
       }
     },
@@ -1508,14 +1755,18 @@ export function registerDirtRoutes(app: Express) {
 
   // ─── Proactive DIRT — notifications inbox ──────────────────────────
 
-  app.get("/api/ops/dirt/notifications", async (_req: AdminReq, res) => {
+  app.get("/api/ops/dirt/notifications", async (req: AdminReq, res) => {
     try {
       await ensureNotificationsTable();
+      const me = (req.adminEmail || "").toLowerCase();
+      // Show global notifications (target_email IS NULL) + the ones targeted at me.
       const r = await pool.query(
-        `SELECT id, kind, severity, title, body, metadata, dismissed_at, created_at
+        `SELECT id, kind, severity, title, body, metadata, target_email, dismissed_at, created_at
          FROM ops_dirt_notifications
+         WHERE target_email IS NULL OR lower(target_email) = $1
          ORDER BY (dismissed_at IS NULL) DESC, created_at DESC
          LIMIT 50`,
+        [me],
       );
       const unread = r.rows.filter((n: any) => !n.dismissed_at).length;
       res.json({ notifications: r.rows, unread });
@@ -1651,6 +1902,11 @@ async function ensureNotificationsTable() {
       ON ops_dirt_notifications (created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_dirt_notif_unread
       ON ops_dirt_notifications (dismissed_at) WHERE dismissed_at IS NULL;
+    -- target_email added later (per-user scoped notifications for @ mentions etc.).
+    -- NULL = global / visible to all admins. Backward-compatible add.
+    ALTER TABLE ops_dirt_notifications ADD COLUMN IF NOT EXISTS target_email TEXT;
+    CREATE INDEX IF NOT EXISTS idx_dirt_notif_target
+      ON ops_dirt_notifications (target_email, dismissed_at);
   `);
   notifTableEnsured = true;
 }

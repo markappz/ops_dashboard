@@ -1073,6 +1073,64 @@ export function registerKlaviyoRoutes(app: Express) {
     }
   });
 
+  // PATCH /profiles/:id/tags — set the `tags` custom profile property.
+  //
+  // Klaviyo doesn't have a per-profile tag entity (tags are for lists /
+  // segments / flows / campaigns). For Slack-style per-subscriber labels
+  // we use a custom profile property named `tags` (string array). Klaviyo
+  // PATCH properties is merge-on-write so we don't clobber other props.
+  app.patch("/api/ops/klaviyo/profiles/:id/tags", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const id = req.params.id;
+    const rawTags = Array.isArray(req.body?.tags) ? req.body.tags : null;
+    if (!rawTags) return res.status(400).json({ error: "tags array required" });
+    const tags = Array.from(new Set(
+      rawTags
+        .map((t: any) => String(t).trim().toLowerCase())
+        .filter((t: string) => t && t.length <= 50 && /^[a-z0-9_-][a-z0-9_-\s]*$/.test(t))
+    )).slice(0, 30);
+
+    let email: string | null = null;
+    try {
+      const pre = await klaviyoFetch<{ data: any }>(`/profiles/${encodeURIComponent(id)}/`);
+      email = pre.data?.attributes?.email ?? null;
+    } catch { /* best-effort */ }
+
+    try {
+      await klaviyoFetch(`/profiles/${encodeURIComponent(id)}/`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          data: {
+            type: "profile",
+            id,
+            attributes: { properties: { tags } },
+          },
+        }),
+      });
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.tags.update",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "ok",
+        metadata: { tags },
+      });
+      res.json({ ok: true, id, tags });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "profile.tags.update",
+        targetKind: "klaviyo_profile",
+        targetId: id,
+        targetLabel: email,
+        status: "failed",
+        error: e.message,
+      });
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
   // POST /profiles/push — create a Klaviyo profile from an RDS user.
   // Used by the "FitScript users not yet in Klaviyo" amber card on
   // /email/profiles. Idempotent: if a profile already exists for the

@@ -508,8 +508,10 @@ function ProfileDetailDrawer({
               )}
             </Section>
 
+            <TagsSection profileId={id} initialTags={Array.isArray((data.properties as any)?.tags) ? (data.properties as any).tags : []} onChanged={() => refetch()} />
+
             {Object.keys(data.properties || {}).length > 0 && (
-              <Section title="Custom properties">
+              <Section title="Custom properties (raw)">
                 <pre className="text-[10px] font-mono text-ops-text-muted bg-ops-bg border border-ops-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
                   {JSON.stringify(data.properties, null, 2)}
                 </pre>
@@ -519,6 +521,118 @@ function ProfileDetailDrawer({
         )}
       </div>
     </ModalPortal>
+  );
+}
+
+function TagsSection({
+  profileId,
+  initialTags,
+  onChanged,
+}: {
+  profileId: string;
+  initialTags: string[];
+  onChanged: () => void;
+}) {
+  const [tags, setTags] = useState<string[]>(initialTags);
+  const [input, setInput] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+
+  // Re-seed when parent profile data changes (e.g. refetch after add/remove)
+  const initialJoin = initialTags.join("\x00");
+  useMemo(() => {
+    setTags(initialTags);
+  }, [initialJoin]);
+
+  const persist = async (next: string[]) => {
+    setSaving(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/ops/klaviyo/profiles/${profileId}/tags`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tags: next }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+        return false;
+      }
+      setTags(j.tags ?? next);
+      onChanged();
+      return true;
+    } catch (e: any) {
+      setMsg({ tone: "bad", text: e.message });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addTag = async () => {
+    const t = input.trim().toLowerCase();
+    if (!t) return;
+    if (tags.includes(t)) {
+      setInput("");
+      return;
+    }
+    if (!/^[a-z0-9_-][a-z0-9_-\s]{0,49}$/.test(t)) {
+      setMsg({ tone: "bad", text: "Tag must be a-z 0-9 _ - (max 50 chars)" });
+      return;
+    }
+    const next = [...tags, t].slice(0, 30);
+    setInput("");
+    await persist(next);
+  };
+
+  const removeTag = async (t: string) => {
+    await persist(tags.filter((x) => x !== t));
+  };
+
+  return (
+    <Section title="Tags">
+      <div className="flex flex-wrap gap-1.5 mb-2">
+        {tags.length === 0 ? (
+          <span className="text-[11px] text-ops-text-subtle italic">No tags yet</span>
+        ) : (
+          tags.map((t) => (
+            <span key={t} className="inline-flex items-center gap-1 text-[11px] font-medium bg-brand-blue-500/15 text-brand-blue-400 border border-brand-blue-400/30 rounded px-2 py-0.5">
+              {t}
+              <button
+                onClick={() => removeTag(t)}
+                disabled={saving}
+                className="hover:text-red-400 disabled:opacity-50"
+                title="Remove tag"
+              >
+                ✕
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="flex gap-1.5">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+          placeholder="add a tag (e.g. vip, beta, churn-risk)"
+          disabled={saving || tags.length >= 30}
+          className="flex-1 bg-ops-bg border border-ops-border rounded px-2 py-1 text-[11px] text-ops-text focus:outline-none focus:border-brand-blue-500"
+        />
+        <button
+          onClick={addTag}
+          disabled={saving || !input.trim()}
+          className="text-[11px] font-semibold px-3 py-1 rounded bg-brand-blue-500/15 border border-brand-blue-400/40 text-brand-blue-500 hover:bg-brand-blue-500/25 disabled:opacity-40"
+        >
+          {saving ? "…" : "Add"}
+        </button>
+      </div>
+      {msg && (
+        <div className={`mt-1.5 text-[10px] ${msg.tone === "ok" ? "text-brand-blue-500" : "text-red-400"}`}>
+          {msg.text}
+        </div>
+      )}
+    </Section>
   );
 }
 

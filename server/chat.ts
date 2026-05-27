@@ -230,6 +230,45 @@ export function registerChatRoutes(app: Express) {
       );
       const msg = r.rows[0];
       broadcast({ type: "message", payload: msg });
+
+      // Parse @ mentions, resolve against the admin list, write per-user
+      // notification rows so the bell icon lights up for mentioned admins.
+      // Self-mentions don't create a notification (would be silly).
+      void (async () => {
+        try {
+          const mentioned = Array.from(new Set(
+            Array.from(body.matchAll(/(?:^|\s)@([a-zA-Z0-9_.+-]+)/g)).map((m) => m[1].toLowerCase()),
+          ));
+          if (mentioned.length === 0) return;
+          const adminsRes = await pool.query(`SELECT email FROM ops_admins`);
+          const adminByUsername = new Map<string, string>();
+          for (const row of adminsRes.rows) {
+            const e = String(row.email).toLowerCase();
+            adminByUsername.set(e.split("@")[0], e);
+          }
+          const channelRes = await pool.query(`SELECT name FROM ops_chat_channels WHERE id = $1`, [channelId]);
+          const channelName = channelRes.rows[0]?.name || "?";
+          const preview = body.length > 140 ? body.slice(0, 140) + "…" : body;
+          for (const username of mentioned) {
+            const targetEmail = adminByUsername.get(username);
+            if (!targetEmail) continue; // unknown @ — skip
+            if (targetEmail === adminEmail.toLowerCase()) continue; // self-mention skip
+            await pool.query(
+              `INSERT INTO ops_dirt_notifications (id, kind, severity, title, body, metadata, target_email)
+               VALUES (gen_random_uuid(), 'chat_mention', 'info', $1, $2, $3, $4)`,
+              [
+                `${adminEmail.split("@")[0]} mentioned you in #${channelName}`,
+                preview,
+                JSON.stringify({ channel_id: channelId, channel_name: channelName, message_id: msg.id, sender: adminEmail }),
+                targetEmail,
+              ],
+            );
+          }
+        } catch (e) {
+          console.warn("[OPS][CHAT] mention notification failed:", (e as Error).message);
+        }
+      })();
+
       // No audit log for individual messages — too noisy. Channel CRUD is logged.
       res.json({ message: msg });
     } catch (e: any) {

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHero } from "../components/page-hero";
+import { InlineError, hasApiError } from "../components/query-error";
 
 interface Order {
   id: string;
@@ -198,7 +199,7 @@ export default function Orders() {
     queryClient.invalidateQueries({ queryKey: ["ops-snapshot"] });
   };
 
-  const { data: rxData, isLoading: rxLoading } = useQuery<OrdersResponse>({
+  const { data: rxData, isLoading: rxLoading, error: rxError } = useQuery<OrdersResponse>({
     queryKey: ["ops-orders", page, statusFilter],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
@@ -207,12 +208,14 @@ export default function Orders() {
     },
     enabled: tab === "rx",
   });
+  const rxApiError = hasApiError(rxData);
 
-  const { data: labData, isLoading: labLoading } = useQuery<LabOrdersResponse>({
+  const { data: labData, isLoading: labLoading, error: labError } = useQuery<LabOrdersResponse>({
     queryKey: ["ops-lab-orders"],
     queryFn: () => fetch("/api/ops/lab-orders").then((r) => r.json()),
     enabled: tab === "labs",
   });
+  const labApiError = hasApiError(labData);
 
   const rxStatuses = rxData?.statuses || {};
   const totalRx = Object.values(rxStatuses).reduce((a, b) => a + b, 0);
@@ -236,6 +239,17 @@ export default function Orders() {
           Lab Orders
         </button>
       </div>
+
+      {tab === "rx" && (rxApiError || rxError) && (
+        <div className="mb-4">
+          <InlineError context="Rx orders" data={rxData} error={rxError as Error | null} />
+        </div>
+      )}
+      {tab === "labs" && (labApiError || labError) && (
+        <div className="mb-4">
+          <InlineError context="Lab orders" data={labData} error={labError as Error | null} />
+        </div>
+      )}
 
       {tab === "rx" && (
         <>

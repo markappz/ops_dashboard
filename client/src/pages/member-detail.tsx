@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useState } from "react";
 import { ModalPortal } from "../components/modal-portal";
+import { QueryError, hasApiError } from "../components/query-error";
 
 interface MemberDetailData {
   member: {
@@ -81,7 +82,7 @@ export default function MemberDetail({ id }: { id: string }) {
   const [changeTier, setChangeTier] = useState("");
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
-  const { data, isLoading } = useQuery<MemberDetailData>({
+  const { data, isLoading, error, refetch } = useQuery<MemberDetailData>({
     queryKey: ["ops-member", memberId],
     queryFn: () => fetch(`/api/ops/members/${memberId}`).then((r) => r.json()),
     enabled: !!memberId,
@@ -212,6 +213,21 @@ export default function MemberDetail({ id }: { id: string }) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="w-8 h-8 border-2 border-fitscript-green border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Surface API errors loudly instead of falling through to "Member not found"
+  if (error || hasApiError(data)) {
+    return (
+      <div className="p-8 max-w-3xl">
+        <Link href="/members" className="text-sm text-ops-text-muted hover:text-ops-text mb-4 inline-block">Back to Members</Link>
+        <QueryError
+          context={`Member ${memberId}`}
+          data={data}
+          error={error as Error | null}
+          onRetry={() => refetch()}
+        />
       </div>
     );
   }

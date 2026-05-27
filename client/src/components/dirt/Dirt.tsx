@@ -485,7 +485,7 @@ export function Dirt() {
               )}
             </form>
             <div className="text-[10px] text-ops-text-subtle mt-2 px-1 flex items-center justify-between">
-              <span>15 read tools · 12 write tools · audit-logged</span>
+              <span>18 read tools · 16 write tools · audit-logged</span>
               <span className="opacity-70">
                 {voice.error
                   ? <span className="text-red-400">mic: {voice.error}</span>

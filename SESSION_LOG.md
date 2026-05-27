@@ -1330,6 +1330,88 @@ aws s3api put-public-access-block --bucket fitscript-ops-content \
 - **`status` probe endpoint is a great pattern for env-gated features.** Lets the UI render a useful "not configured" state instead of just silently failing on the first action. Apply to other integrations that depend on env (Slack webhook, Klaviyo, etc.).
 - **`ON DELETE SET NULL` for project FK** lets operators delete a project without losing content. The file stays in the library, just becomes unassigned. Apply to other relational FKs where the parent is more transient than the child.
 
+---
+
+## 2026-05-27 (evening) — Knocked out pending audit queue (6 tasks)
+
+After Workspace tools shipped (Projects + Chat + Content Library), Paul asked to plow through the pending audit items. 6 of them; ~3 hours of mixed work. All landed locally; pushing follows.
+
+### 1. Tracking pixel prod verification (verified, no code)
+
+Queried prod via `/api/ops/leads`. Result: pixel IS recording — 5 visitor sessions in the DB, all `status: Cold, source: direct`. DIRT reported 0 visitors in last 7 days, meaning recent traffic is sparse and untagged. Infrastructure works; sparse-traffic + missing UTMs is a marketing problem, not a code problem. Moved on.
+
+### 2. DMARC duplicate cleanup (handoff to Paul)
+
+Still two records on `_dmarc.fitscript.me` (`p=none` and `p=quarantine`). I can't edit Cloudflare DNS from this session. Gave Paul concrete steps: delete the `p=quarantine` record, edit the surviving one to `v=DMARC1; p=none; rua=mailto:paulc@fitscript.me; aspf=r; adkim=r; pct=100`. Pending on his Cloudflare time.
+
+### 3. DIRT tools for Workspace surfaces (6 new tools)
+
+Added to DIRT (now **18 read + 16 write tools**, up from 15+12):
+
+**Reads:**
+- `list_projects` — by status filter, ordered by status priority then due date
+- `list_chat_channels` — with message_count + last_message_at
+- `search_content_library` — by project, content-type prefix, or search query
+
+**Writes:**
+- `create_project` — full attrs, audit-logged
+- `update_project_status` — status transition
+- `post_chat_message` — resolves channel by name OR UUID, supports @mentions
+- `set_klaviyo_profile_tags` — see task 5 below
+
+Verified each tool via SSE chat call. All 4 tested tools chained correctly. System prompt updated with new reversible-writes list + guidance on pairing list_chat_channels before post_chat_message.
+
+### 4. @ mention notifications in bell inbox
+
+Extended existing `ops_dirt_notifications` table with a nullable `target_email` column (NULL = global / visible to all admins, else scoped). `GET /api/ops/dirt/notifications` now filters by `target_email IS NULL OR target_email = current_admin`.
+
+`server/chat.ts` POST-message handler now parses `@username` mentions, looks each up against the admin list, and inserts a notification row per mentioned admin. Self-mentions skipped. Body preview capped at 140 chars. Metadata includes `channel_id`, `channel_name`, `message_id`, `sender` for jump-to-message v2.
+
+Bell UI auto-renders the new notifications via the existing 60s poll. No client changes needed.
+
+Verified by posting `@dev @seth check this out` from Paul → confirmed:
+- Paul (sender) saw no new notification ✓
+- Dev's latest unread: "paulclotar mentioned you in #general" ✓
+- Seth saw the same ✓
+- Self-mention test: Paul mentioning himself → no notification for Paul ✓
+
+### 5. Klaviyo tag management
+
+Realized mid-build: **Klaviyo doesn't support per-profile tags as a first-class entity** — tags are for objects (lists, segments, flows, campaigns). For Slack-style per-subscriber labels, the standard Klaviyo pattern is **custom profile properties**.
+
+Pivoted: a `tags` custom property storing a string array. Klaviyo `PATCH /profiles/:id/` with `attributes.properties` is merge-on-write, so we don't clobber other props.
+
+**Server:** `PATCH /api/ops/klaviyo/profiles/:id/tags` with validation (lowercase, a-z/0-9/-/_, 50-char max per tag, 30-tag max per profile). Audit-logged as `profile.tags.update`.
+
+**Client (email-profiles detail drawer):** new `Tags` section with chip UI — add via input + Enter, remove via ✕ on each chip. Validates client-side, persists immediately, refetches detail.
+
+**DIRT:** `set_klaviyo_profile_tags` tool. Setting it conversationally also works ("Clear all tags on profile X" → empty array passed).
+
+Verified: PATCH set `[vip, beta, fitscript-founder]` → confirmed on detail → DIRT cleared them → confirmed empty.
+
+### 6. QueryError rollout (3 pages)
+
+Existing `QueryError` + `InlineError` + `hasApiError` components were already in use on Members / Email / Content / Leads / Marketing. Applied to:
+
+- **Settings** — top-level useQuery now uses `QueryError` with retry button. Previous error state was a static "Failed to load settings" with no detail and no retry.
+- **Orders** — both `rxData` + `labData` queries surface errors via `InlineError` above the tab content. Stop the silent "loading…" → empty cards on auth failures.
+- **Member-detail** — primary member useQuery surfaces errors via `QueryError` with retry. Previously fell through to "Member not found" which masked actual API failures.
+
+All 3 now follow the same convention: `hasApiError(data)` checks for `{error: "..."}` envelopes in 200 responses, and the error component renders the message + a retry button.
+
+### Outstanding
+
+- **Task 19 (Project tasks)** — biggest remaining build, deferring to a fresh chunk after commit.
+- **Meta Ads token** — Paul still needs to generate `META_SYSTEM_USER_TOKEN`. No code change.
+- **Abandoned-checkout transactional email** — lives in FitScript repo, not ops.
+
+### What I'll remember
+
+- **The "knock out the queue" pattern works when the queue is verified.** I checked each item against the codebase before claiming it was pending (per [[feedback_verify_pending_claims]]). Some "pending" items turned out to be partly done; some "done" claims turned out to be stale. The audit step is what made the plow-through reliable.
+- **Custom profile properties >>> first-class tags in Klaviyo.** Their API doesn't have profile tags at all — tags are scoped to objects (lists/segments/flows/campaigns/coupons/etc.). For subscriber tagging, always use `attributes.properties` with merge-on-write PATCH.
+- **Target-scoped notifications** with NULL = global is a clean pattern. Lets old global notifications coexist with new per-user ones without a schema split. Same trick would work for any future scoped feed (DMs, task assignments, etc.).
+- **Adding error UI is a 3-line change per page** when the QueryError component is already in place. Apply to every new page from the start; never let a useQuery silently fall through to empty state.
+
 
 
 ### What I'll remember
