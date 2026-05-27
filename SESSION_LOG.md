@@ -1412,6 +1412,83 @@ All 3 now follow the same convention: `hasApiError(data)` checks for `{error: ".
 - **Target-scoped notifications** with NULL = global is a clean pattern. Lets old global notifications coexist with new per-user ones without a schema split. Same trick would work for any future scoped feed (DMs, task assignments, etc.).
 - **Adding error UI is a 3-line change per page** when the QueryError component is already in place. Apply to every new page from the start; never let a useQuery silently fall through to empty state.
 
+---
+
+## 2026-05-27 (very late) — Tech ticket system Phase 1: ops triage + AI categorization
+
+Paul wants a 3-phase tech-ticket pipeline: FitScript users tag issues live → ops triages with AI clustering → DIRT proposes auto-fix PRs. Phase 1 = ops side only (ingest + triage + UI). Phases 2 + 3 follow.
+
+### Shipped
+
+**Server (`server/tickets.ts`, new):**
+- `ops_tickets` table — id, source_url, user_note, user_email, screenshot_s3_key, console_errors JSONB, element_selector, viewport WxH, user_agent, status (8 states), category (6 buckets), severity (4 levels), cluster_id (self-FK for dedup), ai_summary, ai_suggested_fix, ai_triaged_at, assignee_email, resolution_pr_url, closed_at.
+- 7 endpoints:
+  - **PUBLIC (outside `/api/ops/*` so opsGate doesn't block):**
+    - `POST /api/tickets/screenshot-presign` — presigned S3 PUT (5 MB cap, 10-min expiry). Reuses content library bucket.
+    - `POST /api/tickets/ingest` — submit a report. Both gated by `x-ops-tickets-key` header → `OPS_TICKETS_API_KEY` env var.
+  - **ADMIN (under opsGate):**
+    - `GET    /api/ops/tickets?status=&category=&severity=&hide_duplicates=` — list with filters + status counts. Sorted by severity then recency.
+    - `GET    /api/ops/tickets/:id` — detail with fresh 15-min presigned screenshot URL + cluster's duplicate list.
+    - `PATCH  /api/ops/tickets/:id` — update status / category / severity / assignee / resolution_pr_url. Auto-sets closed_at on terminal states.
+    - `POST   /api/ops/tickets/:id/triage` — manual re-run AI triage.
+    - `POST   /api/ops/tickets/:id/cluster` — mark as duplicate of canonical (refuses chains and self-cluster).
+    - `DELETE /api/ops/tickets/:id` — hard delete.
+- **AI triage** — fire-and-forget after ingest. Bedrock FAST model takes URL + user note + console errors + viewport + UA, returns `{category, severity, summary, suggested_fix}` JSON. Cost logged to `ai_costs` with `surface=ops_ticket_triage`.
+- All admin writes audit-logged (`ticket.update`, `ticket.cluster`, `ticket.delete`).
+
+**Client (`client/src/pages/tickets.tsx`, new):**
+- PageHero with live counts: "N new" + "N critical" pill in actions area.
+- Two-row filter bar: status pills (with counts per bucket) + severity pills.
+- Sortable table: issue (with AI summary as title + source URL), category emoji-prefixed, severity badge, status badge, when, view button. Duplicate count surfaced on canonical rows.
+- 30s `refetchInterval` so triaged tickets land in the UI without manual refresh.
+- Detail drawer (`ModalPortal`):
+  - Identity block (summary + URL + reporter)
+  - 4-col picker grid (status, category, severity, assignee email) — patches inline
+  - User note in a card
+  - Screenshot (clickable → opens full-size in new tab)
+  - **AI analysis** section with "Re-run AI" button
+  - Duplicates list (when this is a canonical with clustered reports)
+  - Technical context (element CSS, viewport, UA, expandable console errors JSON)
+  - Resolution PR URL link (for Phase 3)
+  - Delete button
+
+**DIRT (now 20 read + 17 write tools):**
+- `list_tickets` — filter by status/category/severity, severity-sorted
+- `get_ticket` — full detail
+- `update_ticket_status` — change status / severity / category / assignee
+- Updated system prompt with the new reversible writes.
+
+**Sidebar IA:**
+- "Tech Tickets" added to Workspace section (between Projects and Content Library). New bug icon.
+
+**Infrastructure:**
+- New env var `OPS_TICKETS_API_KEY` generated locally (random 32-byte url-safe).
+- Reuses `OPS_CONTENT_BUCKET` for screenshot storage.
+
+### Verified end-to-end locally
+
+1. Ingest without API key → 401 ✓
+2. Ingest with key → ticket created + AI triage fired ✓
+3. After 8s wait, ticket shows `status: triaged`, `category: bug`, `severity: high`, real AI summary ("Order Lab Panel button greyed out; API eligibility check returns 500 error"), and detailed fix hypothesis pointing at `/api/labs/eligibility` 500 ✓
+4. List filter `?status=triaged` returns the row ✓
+5. PATCH → approved + assigned ✓
+6. Submit duplicate ticket ✓
+7. Cluster duplicate onto canonical via `/cluster` endpoint ✓
+8. Canonical now shows `duplicate_count: 1` + duplicate body in detail ✓
+
+### Pending (Phase 2 + 3 next)
+
+- **Phase 2:** FitScript-side reporter widget. Lives in `markappz/Humn-Health` repo (separate). Floating button or hotkey → screenshot via html2canvas → element selector overlay → user note → POST to ops `/api/tickets/ingest`.
+- **Phase 3:** DIRT auto-fix-via-PR. Approved ticket → DIRT generates a code change → opens GitHub PR (no auto-merge) → admin reviews + merges → status transitions to `merged`.
+
+### What I'll remember
+
+- **Public-vs-admin endpoint paths matter for middleware routing.** Put admin endpoints under `/api/ops/*` so opsGate gates them automatically. Put external-caller endpoints OUTSIDE that prefix (e.g. `/api/tickets/ingest`) so the gate's `req.path.startsWith("/api/ops/")` check lets them through. Cleaner than carving exceptions in the gate.
+- **API-key middleware as a tiny standalone fn.** `requireIngestKey(req, res, next)` is 5 lines and re-usable across any external-caller surface. Header name `x-ops-tickets-key` is purpose-tagged so other future API-key surfaces don't collide.
+- **AI triage fire-and-forget keeps ingest fast.** The ingest endpoint returns in <100ms with `status: new`; the background triage updates to `triaged` ~3s later. UI 30s poll picks it up. Don't ever await an LLM call on a hot ingest path.
+- **Cluster-of-tickets as a dedup pattern.** Use self-FK `cluster_id` pointing at the canonical. Canonical has `cluster_id IS NULL`; duplicates point at it. Refuse chains (cluster A → cluster B → cluster C); if target is itself a duplicate, return error telling the operator to cluster onto its canonical. Simple and avoids tree traversal.
+- **Reusing the content library bucket** for ticket screenshots saves an IAM policy + bucket setup. Just namespace the prefix (`tickets/screenshots/...` vs `content/...`). One bucket, same CORS, same policy.
+
 
 
 ### What I'll remember

@@ -72,7 +72,7 @@ How you work:
 Safety rails on writes:
 - \`cancel_subscription\` is IRREVERSIBLE for immediate cancels. ALWAYS require the operator to type CONFIRM. Pass it as the \`confirmation\` field. Prefer cancel-at-period-end (immediate=false) unless they explicitly asked to revoke access NOW.
 - \`refund_charge\` over $50 (or full-refund where amount is unknown) requires CONFIRM in the \`confirmation\` field. Ask the operator, then call again.
-- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\`, \`push_klaviyo_profile\`, \`create_project\`, \`update_project_status\`, \`post_chat_message\` are reversible — execute immediately.
+- \`pause_subscription\`, \`resume_subscription\`, \`change_tier\`, \`set_klaviyo_flow_status\`, \`approve_content_draft\`, \`queue_blog_topic\`, \`suppress_klaviyo_profile\`, \`unsuppress_klaviyo_profile\`, \`push_klaviyo_profile\`, \`create_project\`, \`update_project_status\`, \`post_chat_message\`, \`update_ticket_status\`, \`set_klaviyo_profile_tags\` are reversible — execute immediately.
 - For \`push_klaviyo_profile\`: use when search_klaviyo_profile surfaces rds_only_users (FitScript users missing from Klaviyo). Idempotent — safe to retry.
 - For \`post_chat_message\`: confirm channel name with \`list_chat_channels\` if uncertain. Use @username mentions to tag admins.
 - For \`suppress_klaviyo_profile\` / \`unsuppress_klaviyo_profile\`: prefer calling \`search_klaviyo_profile\` first to confirm you have the right subscriber. Pass profileId (preferred) or email.
@@ -538,6 +538,59 @@ const READ_TOOLS: ToolDef[] = [
           recent_events: events,
           klaviyo_url: `https://www.klaviyo.com/profile/${id}`,
         };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "list_tickets",
+    description: "List tech tickets (bug reports from FitScript users). Filter by status / category / severity. Returns the canonical ticket only (duplicates are clustered).",
+    input_schema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["new", "triaged", "approved", "pr_open", "merged", "closed", "wontfix", "duplicate"] },
+        category: { type: "string", enum: ["bug", "ux", "performance", "feature", "question", "unknown"] },
+        severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+      },
+    },
+    handler: async (args: any) => {
+      try {
+        const where: string[] = ["t.cluster_id IS NULL"];
+        const params: any[] = [];
+        if (args.status) { params.push(args.status); where.push(`t.status = $${params.length}`); }
+        if (args.category) { params.push(args.category); where.push(`t.category = $${params.length}`); }
+        if (args.severity) { params.push(args.severity); where.push(`t.severity = $${params.length}`); }
+        const r = await pool.query(
+          `SELECT t.id, t.source_url, t.user_note, t.user_email, t.status, t.category, t.severity,
+                  t.ai_summary, t.ai_triaged_at, t.assignee_email, t.created_at,
+                  (SELECT COUNT(*)::int FROM ops_tickets d WHERE d.cluster_id = t.id) AS duplicate_count
+           FROM ops_tickets t
+           WHERE ${where.join(" AND ")}
+           ORDER BY CASE t.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                    t.created_at DESC
+           LIMIT 25`,
+          params,
+        );
+        return { tickets: r.rows, count: r.rows.length };
+      } catch (e: any) {
+        return { error: e.message };
+      }
+    },
+  },
+  {
+    name: "get_ticket",
+    description: "Get full detail for a specific tech ticket (URL, user note, AI analysis, console errors, screenshot key). Use after list_tickets to drill in.",
+    input_schema: {
+      type: "object",
+      properties: { ticketId: { type: "string", description: "Ticket UUID" } },
+      required: ["ticketId"],
+    },
+    handler: async (args: any) => {
+      try {
+        const r = await pool.query(`SELECT * FROM ops_tickets WHERE id = $1`, [args.ticketId]);
+        if (r.rows.length === 0) return { error: "Not found" };
+        return { ticket: r.rows[0] };
       } catch (e: any) {
         return { error: e.message };
       }
@@ -1145,6 +1198,50 @@ const WRITE_TOOLS: ToolDef[] = [
           targetId: args.profileId, targetLabel: email, status: "failed",
           error: e.message, metadata: { via: "dirt" },
         });
+        return { ok: false, error: e.message };
+      }
+    },
+  },
+  {
+    name: "update_ticket_status",
+    description: "Update a tech ticket's status, severity, category, or assignee. Use to approve, close, or reroute tickets surfaced by list_tickets. Reversible.",
+    write: true,
+    input_schema: {
+      type: "object",
+      properties: {
+        ticketId: { type: "string" },
+        status: { type: "string", enum: ["new", "triaged", "approved", "pr_open", "merged", "closed", "wontfix"], description: "New status (omit to leave unchanged)" },
+        severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+        category: { type: "string", enum: ["bug", "ux", "performance", "feature", "question", "unknown"] },
+        assignee_email: { type: "string", description: "Admin email to assign — pass empty string to unassign" },
+      },
+      required: ["ticketId"],
+    },
+    handler: async (args: any, { adminEmail }) => {
+      try {
+        const sets: string[] = []; const params: any[] = []; const changes: Record<string, unknown> = {};
+        if (args.status) { params.push(args.status); sets.push(`status = $${params.length}`); changes.status = args.status; }
+        if (args.severity) { params.push(args.severity); sets.push(`severity = $${params.length}`); changes.severity = args.severity; }
+        if (args.category) { params.push(args.category); sets.push(`category = $${params.length}`); changes.category = args.category; }
+        if (args.assignee_email !== undefined) {
+          const ae = args.assignee_email ? String(args.assignee_email).toLowerCase() : null;
+          params.push(ae); sets.push(`assignee_email = $${params.length}`); changes.assignee_email = ae;
+        }
+        if (sets.length === 0) return { ok: false, error: "No fields to update" };
+        sets.push("updated_at = NOW()");
+        params.push(args.ticketId);
+        const r = await pool.query(
+          `UPDATE ops_tickets SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING ai_summary, status`,
+          params,
+        );
+        if (r.rows.length === 0) return { ok: false, error: "Ticket not found" };
+        await logAdminAction({
+          adminEmail, actionType: "ticket.update", targetKind: "ops_ticket",
+          targetId: args.ticketId, targetLabel: r.rows[0].ai_summary, status: "ok",
+          metadata: { changes, via: "dirt" },
+        });
+        return { ok: true, ticket: r.rows[0] };
+      } catch (e: any) {
         return { ok: false, error: e.message };
       }
     },

@@ -15,6 +15,7 @@ import EmailProfiles from "./pages/email-profiles";
 import Projects from "./pages/projects";
 import Chat from "./pages/chat";
 import ContentLibrary from "./pages/content-library";
+import Tickets from "./pages/tickets";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
@@ -100,6 +101,7 @@ export default function App() {
           <Route path="/projects" component={Projects} />
           <Route path="/chat" component={Chat} />
           <Route path="/content-library" component={ContentLibrary} />
+          <Route path="/tickets" component={Tickets} />
 
           {/* System */}
           <Route path="/integrations" component={Integrations} />
