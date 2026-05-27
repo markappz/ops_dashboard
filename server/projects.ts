@@ -41,8 +41,29 @@ async function ensureProjectsTable() {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_status ON ops_projects (status);
     CREATE INDEX IF NOT EXISTS idx_projects_owner ON ops_projects (owner_email);
+
+    CREATE TABLE IF NOT EXISTS ops_project_tasks (
+      id UUID PRIMARY KEY,
+      project_id UUID NOT NULL REFERENCES ops_projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      assignee_email TEXT,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON ops_project_tasks (project_id, sort_order ASC, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_project_tasks_assignee ON ops_project_tasks (assignee_email) WHERE assignee_email IS NOT NULL;
   `);
   tableEnsured = true;
+}
+
+const VALID_TASK_STATUSES = ["todo", "doing", "done"] as const;
+type TaskStatus = (typeof VALID_TASK_STATUSES)[number];
+function isValidTaskStatus(s: any): s is TaskStatus {
+  return typeof s === "string" && (VALID_TASK_STATUSES as readonly string[]).includes(s);
 }
 
 function isValidStatus(s: any): s is ProjectStatus {
@@ -197,6 +218,144 @@ export function registerProjectRoutes(app: Express) {
         targetKind: "ops_project",
         targetId: id,
         targetLabel: r.rows[0].name,
+        status: "ok",
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Project tasks (subtasks) ──────────────────────────────────
+
+  // List tasks for a project (default sort: status order then sort_order then created_at)
+  app.get("/api/ops/projects/:projectId/tasks", async (req, res) => {
+    try {
+      await ensureProjectsTable();
+      const r = await pool.query(
+        `SELECT id, project_id, title, status, assignee_email, sort_order,
+                created_by, created_at, updated_at, completed_at
+         FROM ops_project_tasks
+         WHERE project_id = $1
+         ORDER BY
+           CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 WHEN 'done' THEN 2 ELSE 3 END,
+           sort_order ASC,
+           created_at ASC`,
+        [req.params.projectId],
+      );
+      res.json({ tasks: r.rows });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Create a task in a project
+  app.post("/api/ops/projects/:projectId/tasks", async (req: AdminReq, res) => {
+    try {
+      await ensureProjectsTable();
+      const adminEmail = req.adminEmail || "unknown";
+      const projectId = req.params.projectId;
+      const { title, status, assignee_email } = req.body ?? {};
+      const t = String(title || "").trim();
+      if (!t) return res.status(400).json({ error: "title required" });
+      const s = isValidTaskStatus(status) ? status : "todo";
+      const id = randomUUID();
+      // Verify project exists
+      const proj = await pool.query(`SELECT id FROM ops_projects WHERE id = $1`, [projectId]);
+      if (proj.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+      const r = await pool.query(
+        `INSERT INTO ops_project_tasks (id, project_id, title, status, assignee_email, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [id, projectId, t, s, assignee_email?.trim().toLowerCase() || null, adminEmail],
+      );
+      await logAdminAction({
+        adminEmail,
+        actionType: "task.create",
+        targetKind: "ops_project_task",
+        targetId: id,
+        targetLabel: t,
+        status: "ok",
+        metadata: { project_id: projectId, task_status: s },
+      });
+      res.json({ task: r.rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Update a task — any subset of {title, status, assignee_email}
+  app.patch("/api/ops/projects/:projectId/tasks/:taskId", async (req: AdminReq, res) => {
+    try {
+      await ensureProjectsTable();
+      const adminEmail = req.adminEmail || "unknown";
+      const taskId = req.params.taskId;
+      const b = req.body ?? {};
+      const sets: string[] = [];
+      const params: any[] = [];
+      const changes: Record<string, unknown> = {};
+      if (typeof b.title === "string") {
+        const t = b.title.trim();
+        if (!t) return res.status(400).json({ error: "title cannot be empty" });
+        params.push(t);
+        sets.push(`title = $${params.length}`);
+        changes.title = t;
+      }
+      if (b.status !== undefined) {
+        if (!isValidTaskStatus(b.status)) return res.status(400).json({ error: "invalid status" });
+        params.push(b.status);
+        sets.push(`status = $${params.length}`);
+        changes.status = b.status;
+        // Auto-set completed_at when moving to done; clear when moving away.
+        if (b.status === "done") sets.push("completed_at = COALESCE(completed_at, NOW())");
+        else sets.push("completed_at = NULL");
+      }
+      if (b.assignee_email !== undefined) {
+        const ae = (b.assignee_email || "").trim().toLowerCase() || null;
+        params.push(ae);
+        sets.push(`assignee_email = $${params.length}`);
+        changes.assignee_email = ae;
+      }
+      if (sets.length === 0) return res.status(400).json({ error: "No fields to update" });
+      sets.push("updated_at = NOW()");
+      params.push(taskId);
+      const r = await pool.query(
+        `UPDATE ops_project_tasks SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING *`,
+        params,
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: "Task not found" });
+      await logAdminAction({
+        adminEmail,
+        actionType: "task.update",
+        targetKind: "ops_project_task",
+        targetId: taskId,
+        targetLabel: r.rows[0].title,
+        status: "ok",
+        metadata: { changes },
+      });
+      res.json({ task: r.rows[0] });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Delete a task
+  app.delete("/api/ops/projects/:projectId/tasks/:taskId", async (req: AdminReq, res) => {
+    try {
+      await ensureProjectsTable();
+      const adminEmail = req.adminEmail || "unknown";
+      const taskId = req.params.taskId;
+      const r = await pool.query(
+        `DELETE FROM ops_project_tasks WHERE id = $1 RETURNING title`,
+        [taskId],
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: "Task not found" });
+      await logAdminAction({
+        adminEmail,
+        actionType: "task.delete",
+        targetKind: "ops_project_task",
+        targetId: taskId,
+        targetLabel: r.rows[0].title,
         status: "ok",
       });
       res.json({ ok: true });

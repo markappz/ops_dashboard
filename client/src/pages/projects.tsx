@@ -381,6 +381,10 @@ function ProjectEditModal({
           </div>
         </div>
 
+        {!isNew && project && (
+          <TasksSection projectId={project.id} ownerOptions={ownerOptions} />
+        )}
+
         {error && (
           <div className="mt-4 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-400">
             {error}
@@ -427,6 +431,165 @@ function Field({ label, required, children }: { label: string; required?: boolea
         {label}{required && <span className="text-red-400 ml-1">*</span>}
       </label>
       {children}
+    </div>
+  );
+}
+
+// ─── Project tasks section ────────────────────────────────────────
+
+type TaskStatus = "todo" | "doing" | "done";
+
+interface ProjectTask {
+  id: string;
+  project_id: string;
+  title: string;
+  status: TaskStatus;
+  assignee_email: string | null;
+  sort_order: number;
+  created_at: string;
+  completed_at: string | null;
+}
+
+const TASK_STATUS_META: Record<TaskStatus, { label: string; tone: string }> = {
+  todo: { label: "To do", tone: "bg-ops-bg text-ops-text-muted border-ops-border" },
+  doing: { label: "Doing", tone: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+  done: { label: "Done", tone: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
+};
+
+function TasksSection({ projectId, ownerOptions }: { projectId: string; ownerOptions: string[] }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery<{ tasks: ProjectTask[] }>({
+    queryKey: ["project-tasks", projectId],
+    queryFn: () => fetch(`/api/ops/projects/${projectId}/tasks`).then((r) => r.json()),
+  });
+  const tasks = data?.tasks ?? [];
+  const [newTitle, setNewTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["project-tasks", projectId] });
+
+  const addTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = newTitle.trim();
+    if (!title) return;
+    setAdding(true);
+    try {
+      await fetch(`/api/ops/projects/${projectId}/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setNewTitle("");
+      invalidate();
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const patchTask = async (taskId: string, body: Partial<{ title: string; status: TaskStatus; assignee_email: string | null }>) => {
+    await fetch(`/api/ops/projects/${projectId}/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    invalidate();
+  };
+
+  const deleteTask = async (taskId: string) => {
+    if (!confirm("Delete this task?")) return;
+    await fetch(`/api/ops/projects/${projectId}/tasks/${taskId}`, { method: "DELETE" });
+    invalidate();
+  };
+
+  const counts = useMemo(() => {
+    const c = { todo: 0, doing: 0, done: 0 };
+    for (const t of tasks) c[t.status] = (c[t.status] ?? 0) + 1;
+    return c;
+  }, [tasks]);
+  const total = tasks.length;
+  const pctDone = total === 0 ? 0 : Math.round((counts.done / total) * 100);
+
+  return (
+    <div className="mt-6 pt-5 border-t border-ops-border">
+      <div className="flex items-baseline justify-between mb-3">
+        <h4 className="text-sm font-semibold text-ops-text">
+          Tasks {total > 0 && <span className="text-[11px] font-normal text-ops-text-muted ml-1">({counts.done}/{total} · {pctDone}%)</span>}
+        </h4>
+        {total > 0 && (
+          <span className="text-[10px] text-ops-text-subtle">{counts.doing} doing · {counts.todo} todo</span>
+        )}
+      </div>
+
+      {total > 0 && (
+        <div className="h-1.5 bg-ops-bg rounded-full overflow-hidden mb-3">
+          <div className="h-full bg-gradient-to-r from-brand-blue-500 to-emerald-500 transition-all" style={{ width: `${pctDone}%` }} />
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="text-xs text-ops-text-muted py-3">Loading tasks…</div>
+      ) : (
+        <ul className="space-y-1.5 mb-3">
+          {tasks.map((t) => (
+            <li key={t.id} className="flex items-center gap-2 group">
+              <button
+                onClick={() => patchTask(t.id, { status: t.status === "done" ? "todo" : t.status === "todo" ? "doing" : "done" })}
+                title={`Toggle status (currently ${TASK_STATUS_META[t.status].label})`}
+                className={`shrink-0 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold transition-colors ${
+                  t.status === "done"
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                    : t.status === "doing"
+                      ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                      : "bg-ops-bg border-ops-border text-ops-text-muted hover:border-brand-blue-500/50"
+                }`}
+              >
+                {t.status === "done" ? "✓" : t.status === "doing" ? "•" : ""}
+              </button>
+              <span className={`flex-1 text-sm ${t.status === "done" ? "text-ops-text-muted line-through" : "text-ops-text"}`}>
+                {t.title}
+              </span>
+              {t.assignee_email && (
+                <span className="text-[10px] text-ops-text-subtle shrink-0">{t.assignee_email.split("@")[0]}</span>
+              )}
+              <select
+                value={t.assignee_email ?? ""}
+                onChange={(e) => patchTask(t.id, { assignee_email: e.target.value || null })}
+                className="opacity-0 group-hover:opacity-100 text-[10px] bg-ops-bg border border-ops-border rounded px-1 py-0.5 text-ops-text-muted focus:outline-none focus:border-brand-blue-500 transition-opacity shrink-0"
+                title="Assign"
+              >
+                <option value="">—</option>
+                {ownerOptions.map((email) => (
+                  <option key={email} value={email}>{email.split("@")[0]}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => deleteTask(t.id)}
+                className="opacity-0 group-hover:opacity-100 text-[10px] text-red-400 hover:text-red-300 px-1 transition-opacity"
+                title="Delete"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={addTask} className="flex gap-1.5">
+        <input
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder="+ Add a task"
+          disabled={adding}
+          className="flex-1 bg-ops-bg border border-ops-border rounded px-2 py-1 text-xs text-ops-text focus:outline-none focus:border-brand-blue-500"
+        />
+        <button
+          type="submit"
+          disabled={adding || !newTitle.trim()}
+          className="text-xs font-semibold px-3 py-1 rounded bg-brand-blue-500/15 border border-brand-blue-400/40 text-brand-blue-500 hover:bg-brand-blue-500/25 disabled:opacity-40"
+        >
+          {adding ? "…" : "Add"}
+        </button>
+      </form>
     </div>
   );
 }
