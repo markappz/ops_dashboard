@@ -1102,6 +1102,64 @@ Prod consideration: prod's ops_admins table will seed from prod's current `ADMIN
 - **Safety rails should fail loud + explain.** "Cannot remove yourself" is more useful than "400 forbidden." Same for "Cannot remove only admin." Operators see the message and understand the constraint immediately.
 - **DB-canonical config eliminates AWS Secret round-trips for ops changes.** Adding an admin used to be: edit secret JSON → save → ECS force-redeploy → wait 60s → test. Now it's: 5 seconds in the dashboard. Apply the pattern to any future config that operators need to mutate (Slack webhook URLs, default sender names, feature flags, threshold values).
 
+---
+
+## 2026-05-27 — Project management v1 + new "Workspace" sidebar section
+
+Paul asked for three new team tools: chat, project management, and content storage. Picked project management first because it's the fastest to ship (pure CRUD, no real-time, no file uploads). Chat + content come in follow-ups.
+
+### Shipped
+
+**Server (`server/projects.ts`, new):**
+- New table `ops_projects` (id UUID PK, name, description, status, owner_email, due_date, created_by, created_at, updated_at). Auto-created via `ensureProjectsTable()` on first read.
+- Status values: `active`, `on_hold`, `done`, `archived`. Validated server-side.
+- 4 endpoints (all `opsGate`-gated):
+  - `GET /api/ops/projects?status=&includeArchived=` — list with sort (active → on_hold → done → archived, then due_date ASC nulls last, then created_at DESC)
+  - `POST /api/ops/projects` — create
+  - `PATCH /api/ops/projects/:id` — partial update with field-by-field normalization
+  - `DELETE /api/ops/projects/:id` — hard delete (soft-archive is preferred via PATCH status='archived')
+- All writes audit-logged: `project.create`, `project.update`, `project.delete` with target_label = project name + metadata containing the change set.
+
+**Client (`client/src/pages/projects.tsx`, new):**
+- `PageHero` + "+ New project" CTA in the top-right.
+- Filter pills (All / Active / On hold / Done) with live counts + "Include archived" toggle.
+- Table: Name (with description preview), Status badge, Assigned to (with "Unassigned" italic for null), Due (red+bold if overdue), Updated relative time, Edit row click.
+- `ProjectEditModal` (uses `ModalPortal`): name + description + status + assigned-to dropdown (populated from `/api/ops/admins`) + due date. Create or edit modes share the same form. Edit mode shows a red Delete button.
+- Empty state with "Create the first project" CTA.
+- Loading + error states.
+
+**Sidebar IA — new "Workspace" section:**
+- Per the existing IA decision ([[2026-05-20 — Sidebar IA: 4 grouped sections]]) — new top-level pages must slot into an existing section, OR a new section needs an explicit decision. Three internal team tools (chat, projects, content) don't fit Overview/Customers/Growth/System. New section "Workspace" is the explicit answer.
+- Currently holds: Projects (new). Chat + Content will join here when shipped.
+- New clipboard icon for the Projects item.
+
+### Assigned-to UX polish (same session)
+
+Initial design used a free-text email input for `owner_email` — operators would need to type the exact admin email. Paul flagged: "should be able to assign it to someone." Swapped to a `<select>` dropdown populated from the live admins list (`/api/ops/admins`), with "Unassigned" as the empty option. Stays in sync as `/settings → Admins` changes (same query key, 5-min staleTime).
+
+Fallback: if the saved `owner_email` doesn't match any current admin (admin removed or renamed), the option is preserved in the dropdown so we don't silently drop the assignment.
+
+Also renamed the table column "Owner" → "Assigned to" for clarity + table cell renders "Unassigned" italic when null.
+
+### Verified
+
+8-step smoke test, all green:
+1. Create project A (Klaviyo Deliverability Launch, due 2026-06-01)
+2. Create project B (Content Library v1, on_hold, assigned to Michael)
+3. List → 2 projects, correct sort (active first)
+4. PATCH project A status → `done`
+5. List filtered to status=active → 0
+6. DELETE project A → ok
+7. Audit log shows 4 `project.*` rows (create A, create B, update A, delete A)
+8. Final list shows only Content Library v1
+
+### What I'll remember
+
+- **Pure-CRUD features ship fast when you reuse existing infra.** This whole feature took ~1 hr because: pool.query for DB, opsGate for auth, logAdminAction for audit, ModalPortal for the modal, PageHero for the header, useQuery for fetching, useQueryClient for cache invalidation. New file count: 2. Build pattern: 1 server file + 1 page + 1 sidebar entry.
+- **"Workspace" section is now the home for internal team tools.** Apply when chat + content storage land. Don't fork into separate IA sections for each.
+- **Assignee dropdowns should query the live admin list, not duplicate it.** Single source of truth. Future: same pattern for any "assign to person" field in other surfaces (DIRT notifications inbox already does similar via `adminEmail`).
+- **Free-text email inputs are an anti-pattern when the valid set is small + known.** Operators forget emails, mistype them, or use the wrong domain. Always prefer a constrained picker.
+
 
 
 ### What I'll remember
