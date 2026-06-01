@@ -1489,6 +1489,68 @@ Paul wants a 3-phase tech-ticket pipeline: FitScript users tag issues live → o
 - **Cluster-of-tickets as a dedup pattern.** Use self-FK `cluster_id` pointing at the canonical. Canonical has `cluster_id IS NULL`; duplicates point at it. Refuse chains (cluster A → cluster B → cluster C); if target is itself a duplicate, return error telling the operator to cluster onto its canonical. Simple and avoids tree traversal.
 - **Reusing the content library bucket** for ticket screenshots saves an IAM policy + bucket setup. Just namespace the prefix (`tickets/screenshots/...` vs `content/...`). One bucket, same CORS, same policy.
 
+---
+
+## 2026-06-01 — Tech tickets Phase 2 (FitScript widget) + Phase 3 (AI auto-fix PR)
+
+Completed the 3-phase tech ticket pipeline. Phase 1 (ops triage + AI categorization) shipped 2026-05-27. Phase 2 + 3 finished today.
+
+### Phase 2 — FitScript reporter widget (separate repo: markappz/Humn-Health)
+
+**Client (`client/src/components/report-issue-widget.tsx`, new):**
+- Floating dark-themed button bottom-left (FitScript green `#0EA57A` accent, SVG icons only per FitScript CLAUDE.md).
+- Click → popover with note textarea + "+ Tag an element" button.
+- Element picker: full-page overlay with brand-green outline on hover; click captures CSS path + outerHTML; Esc cancels.
+- Console error ring buffer (10 most recent) installed on mount: console.error override + window.onerror + onunhandledrejection.
+- Captures: URL, viewport, UA, console errors, element selector + snippet.
+- "Sending…" → success state with SVG checkmark, auto-closes after 2.5s.
+- Mounted globally in App.tsx (alongside Toaster).
+
+**Server (`server/routes.ts`):**
+- POST `/api/internal/report-issue` proxy endpoint.
+- Attaches Cognito identity (req.cognitoUser.sub + email) when logged in; anonymous reports also accepted.
+- Forwards to `OPS_TICKETS_INGEST_URL` (defaults to `https://ops.fitscript.me/api/tickets/ingest`) with `OPS_TICKETS_API_KEY` in `x-ops-tickets-key` header.
+- Returns `{ok, ticket_id}`.
+
+**Env (FitScript .env):**
+- `OPS_TICKETS_API_KEY` — shared with ops dashboard
+- `OPS_TICKETS_INGEST_URL` — `http://localhost:5001/api/tickets/ingest` (dev) or `https://ops.fitscript.me/api/tickets/ingest` (prod)
+
+**Committed to markappz/Humn-Health at `4168a73b` (LOCAL ONLY — not pushed).**
+
+### Phase 3 — AI auto-fix via PR (ops repo)
+
+The bold one. Approved ticket → AI generates structured fix proposal → opens a real DRAFT PR on FitScript repo with proposal as markdown file. Human reviewer writes the actual code on that branch.
+
+**Server (`server/tickets.ts`):**
+- New endpoint `POST /api/ops/tickets/:id/open-fix-pr`.
+- Step 1: Claude Bedrock HIGH_IQ generates structured JSON: `{pr_title, branch_name, target_files[], diagnosis, proposed_change, test_plan, open_questions}` with FitScript repo structure overview as context.
+- Step 2: GitHub REST API (PAT-authed) creates branch from main → writes `.ops/fix-proposals/ticket-<short_id>.md` containing the proposal → opens DRAFT PR (draft to avoid auto-merge/notifications spam).
+- Step 3: Updates ticket — status `pr_open`, `resolution_pr_url` populated.
+- All audit-logged as `ticket.open_fix_pr` with metadata (pr_url, pr_number, branch, target_files).
+- Cost logged to `ai_costs` as `surface=ops_ticket_fix_proposal`.
+
+**Client (`client/src/pages/tickets.tsx`):**
+- "🤖 Auto-fix via PR" purple button appears on `approved` or `triaged` tickets without an existing PR.
+- Confirm dialog: explains the PR is draft + contains proposal markdown only, not auto-generated code.
+- On success: shows "✓ Draft PR opened: <url>" + refreshes ticket detail (status → pr_open + PR URL section renders).
+
+**Required env (ops dashboard):**
+- `GITHUB_PAT_FITSCRIPT_FIX` — fine-grained PAT, scope: contents:write + pull-requests:write on markappz/Humn-Health
+- `GITHUB_REPO_OWNER` — default "markappz"
+- `GITHUB_REPO_NAME` — default "Humn-Health"
+- `GITHUB_BASE_BRANCH` — default "main"
+
+Until Paul generates the PAT, the endpoint returns 503 cleanly + the UI button shows the error inline.
+
+### What I'll remember
+
+- **AI proposes, human writes** is the safe v1 of auto-fix. Letting AI ship code directly to prod is a high-risk move. The draft PR with a structured markdown proposal is high-value scaffolding without the risk: the AI does the diagnostic + scoping work, the human writes the actual change.
+- **Draft PRs are the right default for AI-generated PRs.** No auto-merge, no review notifications, no CI fired prematurely (some workflows skip drafts). Mark ready-for-review when the human has filled in actual code.
+- **GitHub REST API via fetch** is simpler than @octokit for a 3-endpoint flow (get ref → create branch → put file → create PR). Less to install + audit.
+- **The pipeline is fully wired but env-gated.** Phase 3 endpoint compiles + smoke-tests with 503 fallback. Real activation needs Paul's PAT. Same pattern as other env-gated features (Content Library S3, Klaviyo, Slack webhook).
+- **Reporter widget as a single file with inline styles** avoids Tailwind purge concerns + makes it portable to any React app. Inline-style trade-off: no dark/light theme adaptation, but a fixed floating widget doesn't need it.
+
 
 
 ### What I'll remember

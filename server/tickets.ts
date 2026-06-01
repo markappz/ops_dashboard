@@ -462,6 +462,259 @@ export function registerTicketRoutes(app: Express) {
     }
   });
 
+  // ─── Phase 3: AI auto-fix via PR ───────────────────────────────
+  //
+  // POST /api/ops/tickets/:id/open-fix-pr
+  // Generates a structured fix proposal via Claude, then opens a real
+  // PR on the FitScript repo with the proposal as a markdown file.
+  // Human reviewer writes the actual code change on that branch.
+  //
+  // Required env:
+  //   GITHUB_PAT_FITSCRIPT_FIX  — fine-grained PAT, contents:write +
+  //                               pull-requests:write on markappz/Humn-Health
+  //   GITHUB_REPO_OWNER         — default "markappz"
+  //   GITHUB_REPO_NAME          — default "Humn-Health"
+  //   GITHUB_BASE_BRANCH        — default "main"
+  app.post("/api/ops/tickets/:id/open-fix-pr", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const ticketId = req.params.id;
+    const pat = process.env.GITHUB_PAT_FITSCRIPT_FIX;
+    const owner = process.env.GITHUB_REPO_OWNER || "markappz";
+    const repo = process.env.GITHUB_REPO_NAME || "Humn-Health";
+    const baseBranch = process.env.GITHUB_BASE_BRANCH || "main";
+
+    if (!pat) return res.status(503).json({ error: "GITHUB_PAT_FITSCRIPT_FIX not configured" });
+    if (!isAIConfigured()) return res.status(503).json({ error: "AI not configured" });
+
+    try {
+      await ensureTicketsTable();
+      const tRes = await pool.query(`SELECT * FROM ops_tickets WHERE id = $1`, [ticketId]);
+      if (tRes.rows.length === 0) return res.status(404).json({ error: "Ticket not found" });
+      const ticket = tRes.rows[0];
+      if (ticket.resolution_pr_url) {
+        return res.status(400).json({ error: `Ticket already has a PR: ${ticket.resolution_pr_url}` });
+      }
+
+      // ── 1. Generate fix proposal via Claude ──
+      const proposalPrompt = `You are a senior FitScript engineer. A bug report came in. Write a fix proposal a teammate can act on.
+
+Ticket:
+- URL: ${ticket.source_url}
+- User note: ${ticket.user_note || "(none)"}
+- Element CSS: ${ticket.element_selector || "(none)"}
+- Console errors: ${ticket.console_errors ? JSON.stringify(ticket.console_errors).slice(0, 600) : "(none)"}
+- Category: ${ticket.category}
+- Severity: ${ticket.severity}
+- AI summary (from initial triage): ${ticket.ai_summary || "(none)"}
+- AI suggested-fix (from initial triage): ${ticket.ai_suggested_fix || "(none)"}
+
+FitScript repo high-level structure:
+- client/src/                 — React 18 + Tailwind + wouter (TS)
+  - App.tsx                   — routes + providers
+  - pages/                    — 65 route components
+  - components/dashboard/     — body map, daily protocol, atlas card
+  - components/labs/          — lab result components
+  - components/ui/            — Shadcn primitives
+  - lib/rating-system.ts      — Health Score calculation
+  - hooks/                    — useAuth etc.
+- server/
+  - routes.ts                 — ALL 116 API endpoints (7000+ lines)
+  - storage.ts                — DatabaseStorage CRUD
+  - services/                 — protocol-engine, biomarker-knowledge, etc.
+- shared/schema.ts            — Drizzle schema (60 tables)
+
+Return ONLY JSON in this exact shape, no preamble, no markdown fences:
+{
+  "pr_title": "<one-line title under 72 chars, conventional-commits style>",
+  "branch_name": "<kebab-case, prefix with fix/ for bugs, ux/ for UX, perf/ for performance, e.g. fix/labs-order-button-disabled>",
+  "target_files": ["<best-guess file path>", ...],
+  "diagnosis": "<2-3 paragraph technical analysis: what's failing, why, what to verify>",
+  "proposed_change": "<step-by-step description of the code change, with file paths and pseudo-code or unified-diff style snippets if helpful>",
+  "test_plan": "<how the reviewer should verify the fix>",
+  "open_questions": "<list any uncertainties that the human needs to resolve before writing the code, or empty string>"
+}
+
+Rules:
+- Be specific. Name actual likely file paths (e.g. client/src/pages/labs.tsx, server/routes.ts:5234).
+- If the issue is ambiguous, populate open_questions and keep proposed_change conservative.
+- target_files should be 1-4 likely files, not a wholesale list.
+- Do NOT write fabricated file content. Describe the change; the human writes it.`;
+
+      let proposal: any;
+      try {
+        const r: any = await (anthropic as any).messages.create({
+          model: BEDROCK_MODELS.HIGH_IQ,
+          max_tokens: 2000,
+          messages: [{ role: "user", content: proposalPrompt }],
+        });
+        const text = r?.content?.[0]?.text ?? "";
+        const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+        proposal = JSON.parse(cleaned);
+        logAiCost({
+          userId: null,
+          surface: "ops_ticket_fix_proposal",
+          model: BEDROCK_MODELS.HIGH_IQ,
+          inputTokens: r?.usage?.input_tokens ?? 0,
+          outputTokens: r?.usage?.output_tokens ?? 0,
+          metadata: { ticket_id: ticketId },
+        }).catch(() => {});
+      } catch (e: any) {
+        return res.status(500).json({ error: `AI proposal generation failed: ${e.message}` });
+      }
+
+      const safeBranch = String(proposal.branch_name || `fix/ticket-${ticketId.slice(0, 8)}`)
+        .toLowerCase().replace(/[^a-z0-9/_-]/g, "-").slice(0, 80);
+      const prTitle = String(proposal.pr_title || `Fix: ${ticket.ai_summary || ticketId}`).slice(0, 200);
+
+      // ── 2. GitHub API: branch → file → PR ──
+      const gh = async (path: string, init: RequestInit = {}) => {
+        const r = await fetch(`https://api.github.com${path}`, {
+          ...init,
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            ...(init.headers || {}),
+          },
+        });
+        const json = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const msg = (json as any)?.message || `GitHub ${r.status}`;
+          throw new Error(`GitHub: ${msg}`);
+        }
+        return json;
+      };
+
+      // 2a. Look up the base branch's HEAD SHA
+      const baseRef: any = await gh(`/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`);
+      const baseSha = baseRef.object?.sha;
+      if (!baseSha) throw new Error(`Could not resolve ${baseBranch} HEAD SHA`);
+
+      // 2b. Create new branch from base
+      try {
+        await gh(`/repos/${owner}/${repo}/git/refs`, {
+          method: "POST",
+          body: JSON.stringify({ ref: `refs/heads/${safeBranch}`, sha: baseSha }),
+        });
+      } catch (e: any) {
+        // 422 means branch already exists — that's fine, we'll commit on top of it
+        if (!String(e.message).includes("Reference already exists")) throw e;
+      }
+
+      // 2c. Write FIX_PROPOSAL.md with the AI plan
+      const proposalMd = [
+        `# Fix proposal — ticket ${ticketId}`,
+        ``,
+        `**Source URL:** ${ticket.source_url}`,
+        `**Reporter note:** ${ticket.user_note || "(none)"}`,
+        `**Category:** ${ticket.category} · **Severity:** ${ticket.severity}`,
+        ``,
+        `## Diagnosis`,
+        proposal.diagnosis || "(none)",
+        ``,
+        `## Target files`,
+        ...(Array.isArray(proposal.target_files) ? proposal.target_files.map((f: string) => `- \`${f}\``) : ["(none specified)"]),
+        ``,
+        `## Proposed change`,
+        proposal.proposed_change || "(none)",
+        ``,
+        `## Test plan`,
+        proposal.test_plan || "(none)",
+        ``,
+        `## Open questions`,
+        proposal.open_questions || "(none)",
+        ``,
+        `---`,
+        `_Generated by ops.fitscript.me ticket triage. Reviewer: write the actual code on this branch, push, and request review._`,
+      ].join("\n");
+
+      const fixFilePath = `.ops/fix-proposals/ticket-${ticketId.slice(0, 8)}.md`;
+      await gh(`/repos/${owner}/${repo}/contents/${encodeURIComponent(fixFilePath)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `chore(tickets): proposal for ${ticketId.slice(0, 8)} — ${prTitle.slice(0, 60)}`,
+          content: Buffer.from(proposalMd, "utf8").toString("base64"),
+          branch: safeBranch,
+        }),
+      });
+
+      // 2d. Open the PR
+      const prBody = [
+        `**Ticket:** \`${ticketId}\``,
+        `**Status:** Fix proposal generated by ops.fitscript.me ticket triage.`,
+        ``,
+        `## Diagnosis`,
+        proposal.diagnosis || "(none)",
+        ``,
+        `## Proposed change`,
+        proposal.proposed_change || "(none)",
+        ``,
+        `## Target files`,
+        ...(Array.isArray(proposal.target_files) ? proposal.target_files.map((f: string) => `- \`${f}\``) : ["(none)"]),
+        ``,
+        `## Test plan`,
+        proposal.test_plan || "(none)",
+        ``,
+        proposal.open_questions ? `## Open questions\n${proposal.open_questions}` : "",
+        ``,
+        `---`,
+        `🤖 Generated from [ops ticket ${ticketId.slice(0, 8)}](https://ops.fitscript.me/tickets) · approved by ${adminEmail}`,
+      ].join("\n");
+
+      const pr: any = await gh(`/repos/${owner}/${repo}/pulls`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: prTitle,
+          head: safeBranch,
+          base: baseBranch,
+          body: prBody,
+          draft: true, // Open as DRAFT so it doesn't trigger auto-merge or notifications
+        }),
+      });
+
+      const prUrl = pr.html_url;
+      const prNumber = pr.number;
+
+      // ── 3. Update ticket: status pr_open + PR URL ──
+      await pool.query(
+        `UPDATE ops_tickets SET status = 'pr_open', resolution_pr_url = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [prUrl, ticketId],
+      );
+
+      await logAdminAction({
+        adminEmail,
+        actionType: "ticket.open_fix_pr",
+        targetKind: "ops_ticket",
+        targetId: ticketId,
+        targetLabel: prTitle,
+        status: "ok",
+        metadata: { pr_url: prUrl, pr_number: prNumber, branch: safeBranch, target_files: proposal.target_files },
+      });
+
+      res.json({
+        ok: true,
+        pr_url: prUrl,
+        pr_number: prNumber,
+        branch: safeBranch,
+        proposal,
+      });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "ticket.open_fix_pr",
+        targetKind: "ops_ticket",
+        targetId: ticketId,
+        targetLabel: null,
+        status: "failed",
+        error: e.message,
+      });
+      console.error("[OPS][TICKETS] open-fix-pr failed:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.delete("/api/ops/tickets/:id", async (req: AdminReq, res) => {
     try {
       await ensureTicketsTable();

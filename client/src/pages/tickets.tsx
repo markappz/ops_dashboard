@@ -285,6 +285,23 @@ function TicketDetailDrawer({
     } finally { setTriaging(false); }
   };
 
+  const [opening, setOpening] = useState(false);
+  const openFixPr = async () => {
+    if (!confirm("Generate an AI fix proposal and open a draft PR on the FitScript repo?\n\nThe PR will contain a markdown spec — a human still writes the actual code.")) return;
+    setOpening(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/ops/tickets/${id}/open-fix-pr`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); return; }
+      onChanged();
+      refetch();
+      setMsg({ tone: "ok", text: `✓ Draft PR opened: ${j.pr_url}` });
+    } catch (e: any) {
+      setMsg({ tone: "bad", text: e.message });
+    } finally { setOpening(false); }
+  };
+
   const del = async () => {
     if (!confirm("Delete this ticket permanently?")) return;
     const r = await fetch(`/api/ops/tickets/${id}`, { method: "DELETE" });
@@ -398,10 +415,25 @@ function TicketDetailDrawer({
             </Section>
 
             {t.resolution_pr_url && (
-              <Section title="Resolution">
-                <a href={t.resolution_pr_url} target="_blank" rel="noreferrer" className="text-xs text-brand-blue-500 hover:text-brand-blue-600 underline">
+              <Section title="Resolution PR">
+                <a href={t.resolution_pr_url} target="_blank" rel="noreferrer" className="text-xs text-brand-blue-500 hover:text-brand-blue-600 underline break-all">
                   {t.resolution_pr_url}
                 </a>
+              </Section>
+            )}
+
+            {!t.resolution_pr_url && (t.status === "approved" || t.status === "triaged") && (
+              <Section title="AI auto-fix">
+                <p className="text-xs text-ops-text-muted mb-2">
+                  Generate a structured fix proposal + open a <strong>draft PR</strong> on the FitScript repo. The PR contains a markdown plan — a human writes the actual code.
+                </p>
+                <button
+                  onClick={openFixPr}
+                  disabled={opening}
+                  className="text-[11px] font-semibold px-3 py-1.5 rounded bg-gradient-to-r from-purple-500/15 to-purple-500/15 border border-purple-500/40 text-purple-400 hover:bg-purple-500/25 disabled:opacity-50"
+                >
+                  {opening ? "Generating proposal + opening PR…" : "🤖 Auto-fix via PR"}
+                </button>
               </Section>
             )}
 
