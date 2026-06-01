@@ -34,7 +34,9 @@ Running history of every development session. Autom reads this at the start of e
 3. **Bucket regex is FitScript-specific** — when Paul launches Real Peptides reporting, this will need a multi-tenant override.
 4. **Sub revenue is estimate only** — for real numbers, would need Stripe `charges` API or a webhook-fed `stripe_payments` table.
 
-**Not committed / not pushed:** Per `[[feedback_dont_push_without_approval]]` + `[[feedback_local_first_then_push]]`. Awaiting Paul's review in browser.
+**Shipped to prod:** Committed as `1e52a6f`, pushed to `markappz/ops_dashboard`, GitHub Actions run `26776959239` deployed to ECS in ~5 min. Bundle hash `index-By1lWpEe.js` verified live on `ops.fitscript.me` per the silent-deploy lesson.
+
+**Tasks completed this session:** #29 (Email), #31 (Site Traffic), #32 (Conversions), #33 (Sales). Tech-tickets prod-runbook tasks (#23-28) still pending Paul's GitHub PAT + AWS admin steps.
 
 ---
 

@@ -474,3 +474,24 @@ The fix: only render the top KPI grid when `totalVisitors > 0`. Only render chan
 - The 1.2s delay before refetching search after a push is empirically tuned for Klaviyo's eventual-consistency. Shorter and the new profile sometimes doesn't appear in the search yet.
 
 
+
+---
+
+## 2026-06-01 — Reports section: one module, four endpoints, FitScript-only v1
+
+**Decision:** Built `/reports/email`, `/reports/traffic`, `/reports/conversions`, `/reports/sales` as four sibling endpoints inside a single `server/reports.ts`. All take `?days=7|30|90|365`, return `{ window_days, generated_at, ...domain }`. Scoped to FitScript only — no multi-tenant routing in v1.
+
+**Why this and not alternatives:**
+- **vs. four separate route modules:** They share `kFetch` (Klaviyo), `getAuthenticatedClient` (GA4), bucket regex (traffic + conversions), and `Days` enum. Splitting would copy the shared pieces or force shared-util files.
+- **vs. multi-brand from day one:** Paul confirmed FitScript-only v1 via AskUserQuestion. Brand picker can be retrofitted later by parameterizing the SQL `from users` and the URL bucket regex.
+- **vs. inferring revenue from Stripe charges API:** `lab_orders` is a clean local ledger with `paid_at`, `refunded_at`, `discount_cents` — fast SQL, no rate-limit risk. Subscription MRR shown as estimate (tier list × active sub count) since FitScript has no `stripe_payments` table.
+- **vs. RDS-only subscriber count:** For EMAIL, Klaviyo could in theory return total subscribers, but `/profiles/?filter=equals(consent,SUBSCRIBED)` requires paginating up to 5k profiles. RDS `count(*) from users where email <> ''` is one query and authoritative.
+
+**How to apply:**
+- New report → new endpoint in `server/reports.ts`, follow `{ window_days, generated_at }` envelope, parallelize external calls with `Promise.all`.
+- Window selector belongs in `PageHero actions`, not the body — keeps the report dense.
+- Tone-color stat cards (good/warn/bad) by published rate thresholds. Don't editorialize.
+- When data is missing, show `—` + an inline hint on what to wire (e.g. "Fire add_to_cart GA4 event"). Never fabricate a number.
+- Bucket regex (`PAGE_BUCKETS` in `server/reports.ts`) is FitScript URL-specific. Multi-tenant rework = parameterize by brand.
+- MRR estimate uses `TIER_MONTHLY_PRICE` lookup keyed to `users.subscription_tier`. Update both when pricing changes (per `[[project_fitscript_pricing_arc_may25]]`).
+
