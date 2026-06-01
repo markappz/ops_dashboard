@@ -22,6 +22,7 @@ import { registerProjectRoutes } from "./projects";
 import { registerChatRoutes } from "./chat";
 import { registerContentRoutes } from "./content";
 import { registerTicketRoutes } from "./tickets";
+import { registerReportsRoutes } from "./reports";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -67,6 +68,7 @@ registerProjectRoutes(app);
 registerChatRoutes(app);
 registerContentRoutes(app);
 registerTicketRoutes(app);
+registerReportsRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {

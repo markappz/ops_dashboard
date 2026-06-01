@@ -16,6 +16,10 @@ import Projects from "./pages/projects";
 import Chat from "./pages/chat";
 import ContentLibrary from "./pages/content-library";
 import Tickets from "./pages/tickets";
+import ReportsEmail from "./pages/reports-email";
+import ReportsTraffic from "./pages/reports-traffic";
+import ReportsConversions from "./pages/reports-conversions";
+import ReportsSales from "./pages/reports-sales";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
@@ -96,6 +100,12 @@ export default function App() {
           <Route path="/email/send" component={EmailSend} />
           <Route path="/email/compose" component={EmailCompose} />
           <Route path="/email/profiles" component={EmailProfiles} />
+
+          {/* Reports */}
+          <Route path="/reports/email" component={ReportsEmail} />
+          <Route path="/reports/traffic" component={ReportsTraffic} />
+          <Route path="/reports/conversions" component={ReportsConversions} />
+          <Route path="/reports/sales" component={ReportsSales} />
 
           {/* Workspace */}
           <Route path="/projects" component={Projects} />

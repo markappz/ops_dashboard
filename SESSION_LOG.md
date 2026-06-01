@@ -4,6 +4,40 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-06-01 — Reports section (4 dashboards)
+
+**Worked on:** Paul asked for ops dashboards covering site traffic, conversion rates, email, and sales. Scoped to FitScript-only v1, started with EMAIL (Klaviyo already wired) and progressed through all four.
+
+**Shipped locally (uncommitted at session end):**
+- New `Reports` sidebar section between Growth and Workspace
+- `server/reports.ts` — one module, four endpoints, all in parallel where possible
+- `/reports/email` — Klaviyo engagement + RDS subscriber count + RDS new-signup count. Klaviyo's "Unsubscribed from Email Marketing" for losses. Falls back from Klaviyo conversion-revenue to engagement-only when no revenue metric exists (FitScript Klaviyo has none).
+- `/reports/traffic` — GA4 sessions/users/pageviews + URL-bucket grouping (landing / signup / product / checkout / confirmation) + popup-event count (tries 5 event-name variants).
+- `/reports/conversions` — 5 funnels (signup, popup, product→cart, cart→checkout, checkout→purchase). GA4 ecommerce events combined with RDS new-user count for the signup leg.
+- `/reports/sales` — Lab-order revenue, customer counts, AOV, repeat-buy rate, LTV, time-to-first-purchase from `lab_orders` + `users` + tier-pricing MRR estimate from `users.subscription_tier`.
+
+**Key implementation notes:**
+- `server/google-auth.ts` — exported `getAuthenticatedClient` + `getConnection` so reports.ts can reuse the same OAuth flow.
+- All four reports take `?days=7|30|90|365`; client has window-pill in PageHero actions.
+- Tone-colored stat cards (good/warn/bad) by industry-standard rate thresholds.
+- Sales endpoint uses raw `pool.query` (per `[[feedback_ops_raw_sql]]`); the lifetime CTE joins per_customer summary with `users.created_at` for time-to-first-purchase.
+
+**Real numbers (30-day window, today):**
+- EMAIL: 34 active subs, 6 new, 4 unsubs (+2 net, 6.25% growth), 31.29% open rate, 9.67% bounce (flagged red), 0% click rate, no revenue metric configured.
+- TRAFFIC: 56 sessions / 49 users / 62 pageviews; bucket split: 49 landing / 5 signup / 1 checkout / 0 product / 0 confirmation; 0 popup events; 66% bounce, 48s avg session.
+- CONVERSIONS: signup conversion shows 120% (5 GA4 signup-page views → 6 RDS new users — bucket regex misses real signup paths pre-launch); all other funnels at 0/null pending events.
+- SALES: $0 lab-order revenue, 0 paying customers, $495/mo MRR estimate (5 active "protocol" subs at $99/mo list).
+
+**Followups Paul will want:**
+1. **9.67% bounce rate is bad** — ties to the still-pending DMARC fix in Cloudflare. Show this in EMAIL report tone-colored red so it nags.
+2. **No revenue attribution in Klaviyo** — needs a "Placed Order" or "Lab Order Placed" metric with `conversion_value` to populate the Revenue cards. Probably wire from FitScript ingest side.
+3. **Bucket regex is FitScript-specific** — when Paul launches Real Peptides reporting, this will need a multi-tenant override.
+4. **Sub revenue is estimate only** — for real numbers, would need Stripe `charges` API or a webhook-fed `stripe_payments` table.
+
+**Not committed / not pushed:** Per `[[feedback_dont_push_without_approval]]` + `[[feedback_local_first_then_push]]`. Awaiting Paul's review in browser.
+
+---
+
 ## 2026-05-06 — Admin auth gate + project memory scaffolds
 
 **Worked on:** P0 security fix — every `/api/ops/*` route was wide open to the public.

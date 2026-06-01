@@ -53,12 +53,12 @@ async function ensureTables() {
 
 // ─── Token management ──────────────────────────────────────────────
 
-async function getConnection() {
+export async function getConnection() {
   const result = await pool.query("SELECT * FROM ops_google_connection ORDER BY created_at DESC LIMIT 1");
   return result.rows[0] || null;
 }
 
-async function getAuthenticatedClient() {
+export async function getAuthenticatedClient() {
   const conn = await getConnection();
   if (!conn) return null;
 
