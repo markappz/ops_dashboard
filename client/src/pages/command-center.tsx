@@ -45,6 +45,18 @@ function MetricCard({ label, value, sub, accent }: { label: string; value: strin
   );
 }
 
+function GrowthCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl p-4 shadow-card hover:border-brand-blue-400/40 hover:bg-ops-surface-hover transition-colors cursor-pointer h-full">
+      <div className="text-[10px] text-ops-text-subtle font-semibold uppercase tracking-[0.14em] mb-1.5">
+        {label}
+      </div>
+      <div className="text-xl font-bold tracking-tight text-ops-text tabular-nums">{value}</div>
+      {sub && <div className="text-[10.5px] text-ops-text-muted mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
 function ActivityFeed({ items }: { items: ActivityItem[] }) {
   return (
     <div className="bg-ops-surface border border-ops-border rounded-xl">
@@ -136,6 +148,38 @@ export default function CommandCenter() {
     refetchInterval: 60_000 * 5,
   });
 
+  // Growth Overview — pulls top-line metrics from each report. 30d window.
+  const { data: trafficSummary } = useQuery<{
+    overview?: { sessions: number; users: number; page_views: number };
+  }>({
+    queryKey: ["growth-traffic"],
+    queryFn: () => fetch("/api/ops/reports/traffic?days=30").then((r) => r.json()),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: emailSummary } = useQuery<{
+    engagement?: { open_rate: number | null };
+    subscribers?: { total: number | null; new_in_window: number | null };
+  }>({
+    queryKey: ["growth-email"],
+    queryFn: () => fetch("/api/ops/reports/email?days=30").then((r) => r.json()),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: salesSummary } = useQuery<{
+    window?: { revenue_usd: number; orders: number };
+    lifetime?: { repeat_rate_pct: number | null; avg_ltv_usd: number | null };
+  }>({
+    queryKey: ["growth-sales"],
+    queryFn: () => fetch("/api/ops/reports/sales?days=30").then((r) => r.json()),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: adsSummary } = useQuery<{
+    meta?: { connected: boolean; spend_usd: number; roas: number | null };
+  }>({
+    queryKey: ["growth-ads"],
+    queryFn: () => fetch("/api/ops/reports/ads?days=30").then((r) => r.json()),
+    refetchInterval: 5 * 60_000,
+  });
+
   if (isLoading || !snapshot) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -190,6 +234,93 @@ export default function CommandCenter() {
           ) : undefined
         }
       />
+
+      {/* Growth Overview — top-line from the Reports section */}
+      <div className="mb-6">
+        <div className="flex items-baseline justify-between mb-3">
+          <div className="text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
+            Growth Overview · 30 days
+          </div>
+          <Link href="/reports/traffic">
+            <span className="text-[11px] text-ops-text-muted hover:text-brand-blue-500 cursor-pointer">
+              See all reports →
+            </span>
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+          <Link href="/reports/traffic">
+            <GrowthCard
+              label="Site sessions"
+              value={
+                trafficSummary?.overview
+                  ? trafficSummary.overview.sessions.toLocaleString()
+                  : "—"
+              }
+              sub={
+                trafficSummary?.overview
+                  ? `${trafficSummary.overview.users.toLocaleString()} users`
+                  : undefined
+              }
+            />
+          </Link>
+          <Link href="/reports/conversions">
+            <GrowthCard
+              label="New signups"
+              value={
+                emailSummary?.subscribers?.new_in_window != null
+                  ? emailSummary.subscribers.new_in_window.toLocaleString()
+                  : "—"
+              }
+              sub={
+                emailSummary?.subscribers?.total != null
+                  ? `${emailSummary.subscribers.total.toLocaleString()} total`
+                  : undefined
+              }
+            />
+          </Link>
+          <Link href="/reports/email">
+            <GrowthCard
+              label="Email open rate"
+              value={
+                emailSummary?.engagement?.open_rate != null
+                  ? `${emailSummary.engagement.open_rate.toFixed(1)}%`
+                  : "—"
+              }
+              sub="Engagement"
+            />
+          </Link>
+          <Link href="/reports/sales">
+            <GrowthCard
+              label="Lab revenue"
+              value={
+                salesSummary?.window?.revenue_usd != null
+                  ? formatCurrency(salesSummary.window.revenue_usd)
+                  : "—"
+              }
+              sub={
+                salesSummary?.window?.orders != null
+                  ? `${salesSummary.window.orders} orders`
+                  : undefined
+              }
+            />
+          </Link>
+          <Link href="/reports/ads">
+            <GrowthCard
+              label="Ad ROAS"
+              value={
+                adsSummary?.meta?.connected && adsSummary.meta.roas != null
+                  ? `${adsSummary.meta.roas.toFixed(2)}×`
+                  : "—"
+              }
+              sub={
+                adsSummary?.meta?.connected
+                  ? `${formatCurrency(adsSummary.meta.spend_usd)} spend`
+                  : "Connect Meta"
+              }
+            />
+          </Link>
+        </div>
+      </div>
 
       {/* Revenue Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
