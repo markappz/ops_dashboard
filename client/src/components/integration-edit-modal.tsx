@@ -35,7 +35,16 @@ export function IntegrationEditModal({
   onClose,
   onSaved,
 }: {
-  integration: "klaviyo" | "slack" | "meta-ads" | "clomark";
+  integration:
+    | "klaviyo"
+    | "slack"
+    | "meta-ads"
+    | "clomark"
+    | "google-ads"
+    | "hyros"
+    | "campaign-refiners"
+    | "ops-tickets"
+    | "github-pat-fitscript-fix";
   title: string;
   onClose: () => void;
   onSaved: () => void;

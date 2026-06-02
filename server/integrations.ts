@@ -166,11 +166,144 @@ const CLOMARK: IntegrationSpec = {
   },
 };
 
+// ─── Ads / attribution connectors (June 2 — Paul flagged "nowhere to connect")
+
+const GOOGLE_ADS: IntegrationSpec = {
+  name: "google-ads",
+  fields: [
+    { envKey: "GOOGLE_ADS_DEVELOPER_TOKEN", label: "Developer Token", placeholder: "From Google Ads → API Center", secret: true },
+    { envKey: "GOOGLE_ADS_CUSTOMER_ID", label: "Customer ID", placeholder: "10-digit number (no dashes)", secret: false },
+  ],
+  test: async () => {
+    const token = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+    const customerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
+    if (!token) return { ok: false, error: "Developer token missing" };
+    if (!customerId) return { ok: false, error: "Customer ID missing" };
+    // OAuth is shared with GA4/GSC connector — we can't test the API directly
+    // without that token. Confirm both creds are present and well-formed.
+    if (!/^\d{10}$/.test(customerId.replace(/-/g, ""))) {
+      return { ok: false, error: "Customer ID should be 10 digits" };
+    }
+    return { ok: true, detail: `Customer ${customerId} · token configured · OAuth shares the GA4/GSC connection` };
+  },
+};
+
+const HYROS: IntegrationSpec = {
+  name: "hyros",
+  fields: [
+    { envKey: "HYROS_API_KEY", label: "API Key", placeholder: "From Hyros → Settings → API", secret: true },
+  ],
+  test: async () => {
+    const key = process.env.HYROS_API_KEY;
+    if (!key) return { ok: false, error: "HYROS_API_KEY not set" };
+    try {
+      const r = await fetch("https://api.hyros.com/v1/api/v1.0/leads/info", {
+        headers: { "API-Key": key, accept: "application/json" },
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, error: j?.message || `Hyros ${r.status}` };
+      return { ok: true, detail: "API key verified" };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  },
+};
+
+const CAMPAIGN_REFINERS: IntegrationSpec = {
+  name: "campaign-refiners",
+  fields: [
+    { envKey: "CAMPAIGN_REFINERS_API_KEY", label: "API Key", placeholder: "From Campaign Refiners dashboard", secret: true },
+  ],
+  test: async () => {
+    // Campaign Refiners doesn't expose a public health endpoint yet. Just
+    // confirm the key is present + well-formed (non-empty trimmed string).
+    const key = (process.env.CAMPAIGN_REFINERS_API_KEY || "").trim();
+    if (!key) return { ok: false, error: "CAMPAIGN_REFINERS_API_KEY not set" };
+    return { ok: true, detail: `Key configured (${key.length} chars) — connector waits on first attribution event` };
+  },
+};
+
+// ─── Ops infrastructure (June 2 — fills the two gaps surfaced by the
+//     tickets system: shared API key with FitScript + GitHub PAT for
+//     Claude auto-fix PRs)
+
+const OPS_TICKETS: IntegrationSpec = {
+  name: "ops-tickets",
+  fields: [
+    {
+      envKey: "OPS_TICKETS_API_KEY",
+      label: "Shared API Key",
+      placeholder: "Generate a 32-byte hex; paste the SAME value on both ops + FitScript",
+      secret: true,
+    },
+  ],
+  test: async () => {
+    const key = (process.env.OPS_TICKETS_API_KEY || "").trim();
+    if (!key) return { ok: false, error: "OPS_TICKETS_API_KEY not set" };
+    if (key.length < 32) return { ok: false, error: `Key seems short (${key.length} chars) — recommend 32+ bytes hex` };
+    return { ok: true, detail: `Key configured (${key.length} chars). Set the same value on the FitScript server.` };
+  },
+};
+
+const GITHUB_PAT_FIX: IntegrationSpec = {
+  name: "github-pat-fitscript-fix",
+  fields: [
+    {
+      envKey: "GITHUB_PAT_FITSCRIPT_FIX",
+      label: "GitHub PAT",
+      placeholder: "ghp_… or github_pat_… (must have repo scope on markappz/Humn-Health)",
+      secret: true,
+    },
+    {
+      envKey: "GITHUB_REPO_OWNER",
+      label: "Repo Owner",
+      placeholder: "markappz",
+      secret: false,
+    },
+    {
+      envKey: "GITHUB_REPO_NAME",
+      label: "Repo Name",
+      placeholder: "Humn-Health",
+      secret: false,
+    },
+  ],
+  test: async () => {
+    const pat = process.env.GITHUB_PAT_FITSCRIPT_FIX;
+    const owner = process.env.GITHUB_REPO_OWNER || "markappz";
+    const repo = process.env.GITHUB_REPO_NAME || "Humn-Health";
+    if (!pat) return { ok: false, error: "GITHUB_PAT_FITSCRIPT_FIX not set" };
+    try {
+      const r = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          Authorization: `Bearer ${pat}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        return { ok: false, error: j?.message || `GitHub ${r.status} — check PAT scope (needs repo) and repo path` };
+      }
+      const perms = j?.permissions;
+      const canPush = !!(perms?.push || perms?.admin);
+      if (!canPush) return { ok: false, error: "PAT can read repo but not push — auto-fix needs push access" };
+      return { ok: true, detail: `${j.full_name} · push access verified` };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  },
+};
+
 const SPECS: Record<string, IntegrationSpec> = {
   klaviyo: KLAVIYO,
   slack: SLACK,
   "meta-ads": META_ADS,
   clomark: CLOMARK,
+  "google-ads": GOOGLE_ADS,
+  hyros: HYROS,
+  "campaign-refiners": CAMPAIGN_REFINERS,
+  "ops-tickets": OPS_TICKETS,
+  "github-pat-fitscript-fix": GITHUB_PAT_FIX,
 };
 
 // ─── Routes ────────────────────────────────────────────────────────

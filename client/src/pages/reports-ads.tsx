@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PageHero } from "../components/page-hero";
 import { InlineError, hasApiError } from "../components/query-error";
+import { IntegrationEditModal } from "../components/integration-edit-modal";
+
+type IntegrationKey = Parameters<typeof IntegrationEditModal>[0]["integration"];
 
 type Days = 7 | 30 | 90 | 365;
 const WINDOWS: Array<{ days: Days; label: string }> = [
@@ -123,7 +126,41 @@ function SectionTitle({ children, subtitle }: { children: React.ReactNode; subti
   );
 }
 
-function ConnectorBadge({ stub, name }: { stub: ConnectorStub; name: string }) {
+function MetaConnectPanel({ hint }: { hint: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-[12px] text-amber-500 min-w-0">{hint}</div>
+        <button
+          onClick={() => setOpen(true)}
+          className="text-[11px] font-semibold px-3 py-1.5 rounded-md bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)] transition-opacity flex-shrink-0"
+        >
+          Connect Meta Ads
+        </button>
+      </div>
+      {open && (
+        <IntegrationEditModal
+          integration="meta-ads"
+          title="Meta Ads"
+          onClose={() => setOpen(false)}
+          onSaved={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+function ConnectorBadge({
+  stub,
+  name,
+  integration,
+}: {
+  stub: ConnectorStub;
+  name: string;
+  integration?: IntegrationKey;
+}) {
+  const [open, setOpen] = useState(false);
   return (
     <div className="rounded-xl border border-ops-border bg-ops-surface p-4">
       <div className="flex items-center justify-between gap-3 mb-1">
@@ -141,6 +178,22 @@ function ConnectorBadge({ stub, name }: { stub: ConnectorStub; name: string }) {
         </div>
       </div>
       <div className="text-[11.5px] text-ops-text-muted">{stub.hint}</div>
+      {integration && !stub.connected && (
+        <button
+          onClick={() => setOpen(true)}
+          className="mt-2.5 text-[11px] font-semibold px-3 py-1.5 rounded-md bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95 shadow-[0_2px_8px_-2px_rgba(46,91,255,0.4)] transition-opacity"
+        >
+          Connect
+        </button>
+      )}
+      {integration && open && (
+        <IntegrationEditModal
+          integration={integration}
+          title={name}
+          onClose={() => setOpen(false)}
+          onSaved={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -233,18 +286,16 @@ export default function ReportsAds() {
               />
             </div>
           ) : (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 text-[12px] text-amber-500">
-              {meta?.error || meta?.hint || "Meta Ads not connected"}
-            </div>
+            <MetaConnectPanel hint={meta?.error || meta?.hint || "Meta Ads not connected"} />
           )}
 
           <SectionTitle subtitle="Other ad platforms — scaffolded, waiting on credentials">
             Other platforms
           </SectionTitle>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
-            <ConnectorBadge stub={r.google_ads} name="Google Ads" />
-            <ConnectorBadge stub={r.hyros} name="Hyros" />
-            <ConnectorBadge stub={r.campaign_refiners} name="Campaign Refiners" />
+            <ConnectorBadge stub={r.google_ads} name="Google Ads" integration="google-ads" />
+            <ConnectorBadge stub={r.hyros} name="Hyros" integration="hyros" />
+            <ConnectorBadge stub={r.campaign_refiners} name="Campaign Refiners" integration="campaign-refiners" />
           </div>
 
           <SectionTitle subtitle={fp?.note}>First-party attribution</SectionTitle>

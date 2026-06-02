@@ -239,9 +239,45 @@ export default function Settings() {
         <MetaAdsManagedCard />
         <ClomarkManagedCard />
 
+        {/* Ads / attribution connectors — Paul flagged that there was no
+            way to actually connect these from the dashboard (June 2). */}
+        <SpecDrivenCard
+          integration="google-ads"
+          title="Google Ads"
+          offDetail="Search ad spend, conversions, ROAS. Needs developer token + customer ID; OAuth shares the GA4/GSC connection."
+          okDetail="Token + customer ID configured. Connector pulls into /reports/ads."
+        />
+        <SpecDrivenCard
+          integration="hyros"
+          title="Hyros"
+          offDetail="First-party attribution beyond ad-platform reporting. Just needs the API key."
+          okDetail="API key configured. Attribution feed live on /reports/ads."
+        />
+        <SpecDrivenCard
+          integration="campaign-refiners"
+          title="Campaign Refiners"
+          offDetail="Optional refiner that scores ad creatives. Drop in API key if Campaign Refiners is in your stack."
+          okDetail="Key configured."
+        />
+
+        {/* Ops infrastructure — covers gaps that surfaced from the
+            user-report ticket system (OPS_TICKETS_API_KEY shared with
+            FitScript, GITHUB_PAT_FITSCRIPT_FIX for Claude auto-fix PRs). */}
+        <SpecDrivenCard
+          integration="ops-tickets"
+          title="User report tickets — Shared API key"
+          offDetail="Shared between this server and FitScript's report-issue proxy. Without it the widget submissions fail silently."
+          okDetail="Shared API key set. FitScript widget can submit tickets to /api/tickets/ingest."
+        />
+        <SpecDrivenCard
+          integration="github-pat-fitscript-fix"
+          title="Claude auto-fix — GitHub PAT"
+          offDetail="GitHub PAT (repo scope) used by Approve & fix to open PRs on markappz/Humn-Health. Without it the button is greyed out."
+          okDetail="GitHub PAT verified — push access confirmed."
+        />
+
         {/* Coming Soon */}
         {[
-          { name: "Google Ads", desc: "Search ad spend, conversions, ROAS" },
           { name: "TikTok Ads", desc: "TikTok ad spend, conversions" },
         ].map((s) => (
           <div key={s.name} className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
@@ -274,7 +310,16 @@ function ManagedIntegrationCard({
   extraStatus,
 }: {
   title: string;
-  integration: "klaviyo" | "slack" | "meta-ads" | "clomark";
+  integration:
+    | "klaviyo"
+    | "slack"
+    | "meta-ads"
+    | "clomark"
+    | "google-ads"
+    | "hyros"
+    | "campaign-refiners"
+    | "ops-tickets"
+    | "github-pat-fitscript-fix";
   status: ManagedStatus;
   onUpdated: () => void;
   extraActions?: React.ReactNode;
@@ -479,6 +524,53 @@ function ClomarkManagedCard() {
           : { kind: "off", text: c?.configured ? "Business ID pending" : "Not configured", detail: "Powers /content (keyword research, AI drafts, bulk publish)." }
       }
       onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-settings"] })}
+    />
+  );
+}
+
+/**
+ * Generic, spec-driven integration card. Derives configured/not status
+ * from the /spec endpoint (which reports a `currentTail` per field —
+ * null when env var is unset, otherwise `…XXXX`).
+ *
+ * Used for integrations that don't (yet) have a richer status endpoint
+ * — Google Ads, Hyros, Campaign Refiners, Ops Tickets, GitHub PAT.
+ */
+function SpecDrivenCard({
+  integration,
+  title,
+  offDetail,
+  okDetail,
+}: {
+  integration: Parameters<typeof IntegrationEditModal>[0]["integration"];
+  title: string;
+  offDetail: string;
+  okDetail: string;
+}) {
+  const queryClient = useQueryClient();
+  const { data } = useQuery<{
+    name: string;
+    fields: Array<{ envKey: string; secret: boolean; currentTail: string | null }>;
+    managedBy: string;
+  }>({
+    queryKey: ["ops-integration-spec", integration],
+    queryFn: () => fetch(`/api/ops/integrations/${integration}/spec`).then((r) => r.json()),
+  });
+
+  const secretFields = data?.fields.filter((f) => f.secret) ?? [];
+  const configured = secretFields.length > 0 && secretFields.every((f) => !!f.currentTail);
+  const tails = secretFields.map((f) => `${f.envKey} ${f.currentTail || "·"}`).join(" · ");
+
+  return (
+    <ManagedIntegrationCard
+      title={title}
+      integration={integration}
+      status={
+        configured
+          ? { kind: "ok", text: "Configured", detail: tails || okDetail }
+          : { kind: "off", text: "Not connected", detail: offDetail }
+      }
+      onUpdated={() => queryClient.invalidateQueries({ queryKey: ["ops-integration-spec", integration] })}
     />
   );
 }
