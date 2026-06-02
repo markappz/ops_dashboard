@@ -287,6 +287,18 @@ export function registerTicketRoutes(app: Express) {
 
   // ─── ADMIN routes (under opsGate) ────────────────────────────────
 
+  // Feature-detect endpoint — UI uses this to hide auto-fix buttons when the
+  // GitHub PAT isn't wired into the env. Without this the UI shows a red
+  // "GITHUB_PAT_FITSCRIPT_FIX not configured" banner every time the admin
+  // clicks the button.
+  app.get("/api/ops/tickets/config", async (_req, res) => {
+    res.json({
+      github_pat_configured: !!process.env.GITHUB_PAT_FITSCRIPT_FIX,
+      ai_configured: isAIConfigured(),
+      github_repo: `${process.env.GITHUB_REPO_OWNER || "markappz"}/${process.env.GITHUB_REPO_NAME || "Humn-Health"}`,
+    });
+  });
+
   app.get("/api/ops/tickets", async (req, res) => {
     try {
       await ensureTicketsTable();
@@ -306,6 +318,7 @@ export function registerTicketRoutes(app: Express) {
         SELECT t.id, t.source_url, t.user_note, t.user_email, t.screenshot_s3_key,
                t.element_selector, t.status, t.category, t.severity, t.cluster_id,
                t.ai_summary, t.ai_triaged_at, t.assignee_email, t.created_at, t.updated_at,
+               t.resolution_pr_url,
                (SELECT COUNT(*)::int FROM ops_tickets d WHERE d.cluster_id = t.id) AS duplicate_count
         FROM ops_tickets t
         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}

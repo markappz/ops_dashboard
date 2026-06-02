@@ -4,6 +4,62 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-06-02 (PM) — Tickets row-level Approve / Deny + PAT-missing UX cleanup
+
+Paul flagged two issues after the Step 2 ship:
+1. The drawer surfaced the raw `GITHUB_PAT_FITSCRIPT_FIX not configured` error as a red banner every time the admin clicked the auto-fix button — leaking server config into the UI.
+2. The 2-step workflow inside the drawer felt heavy. He wanted simple **Approve & fix** / **Deny** buttons right on the ticket list rows.
+
+### What shipped
+
+**Server (`server/tickets.ts`)**
+- Added feature-detect endpoint `GET /api/ops/tickets/config` → `{ github_pat_configured, ai_configured, github_repo }`. UI reads this once on mount and uses it to disable buttons when prod env is missing the PAT, instead of letting the failure render as a red banner.
+- Added `resolution_pr_url` to the list-view SELECT (was only in the detail query). Lets the row know whether to skip Step 1.
+
+**Client (`client/src/pages/tickets.tsx`)**
+- New `<TicketRowActions>` component rendered in the right cell of every row. Two buttons:
+  - **Approve & fix** (emerald) — chains PATCH `status=approved` → POST `/open-fix-pr` (if no PR yet) → POST `/auto-implement`. Inline progress messages: "Promoting…" → "Opening PR…" → "Claude editing files…". Errors stay in the row for 6 sec then clear.
+  - **Deny** (muted) — PATCH `status=wontfix`.
+- Buttons hide when ticket is in a terminal status (`pr_implemented`, `merged`, `closed`, `wontfix`, `duplicate`) — replaced by a label (✓ Fixed, ✓ Merged, Closed, Denied, Duplicate).
+- Approve button is greyed + tooltipped when `autoFixEnabled === false` (PAT or AI missing) instead of failing on click.
+- Removed the two-step "Step 1: Open fix proposal PR" + "Step 2: Approve & implement" sections from the drawer — the entire flow moved to row-level. Drawer is now a read-only detail view.
+
+**E2E test (`scripts/e2e-ticket-test.ts`, new)**
+- Submits a real test ticket via ingest, waits for AI triage, signs an admin session cookie locally with `OPS_SESSION_SECRET`, runs the full chain. Used to validate the auto-implement flow — produced real PR #30 on Humn-Health (`fix(ux): update homepage FAQ pricing from $27/mo Health to $20/mo Protocol`, surgical 1-line Claude edit).
+
+### Two prod-env gaps still open
+
+The UI now gracefully degrades when these are missing, but they need to be set on the ops ECS task def before the auto-fix flow can run in prod:
+
+| Env var | What | Why |
+|---|---|---|
+| `OPS_TICKETS_API_KEY` | Shared secret with FitScript's report-issue proxy | Without it the ingest endpoint returns 503 — widget submissions fail silently |
+| `GITHUB_PAT_FITSCRIPT_FIX` | GitHub PAT with `repo` scope on `markappz/Humn-Health` | Without it the Approve & fix button is greyed out with a tooltip explaining the gap |
+
+---
+
+## 2026-06-02 (later) — Reports follow-up: Ads, Growth Overview, FitScript GA4 events
+
+**Worked on:** Paul asked to "continue everything" then "handle whatever you can do yourself." Four things shipped:
+
+1. **5th report: Ads & Attribution** (`/reports/ads`). Meta from the existing connector (renders "Not connected" until token set). Google Ads + Hyros + Campaign Refiners as connection-state-aware stub cards. First-party attribution from `visitor_sessions` + `touchpoints` (channel mix + top utm_source breakdown) — same data Hyros would surface.
+2. **Conversion rate clamp.** Funnels showing >100% (signup leg was 120% pre-launch because GA4 page-views miss some signup paths that RDS counts) now display 100% with an amber "≈" badge and an inline note explaining the measurement gap.
+3. **Growth Overview strip on Command Center.** 5-card row above the existing Revenue Row: sessions, new signups, email open rate, lab revenue, ad ROAS. Each card links to its full report. 5-minute refetch.
+4. **GA4 event wiring on FitScript** (separate repo). New `client/src/lib/analytics.ts` thin gtag wrapper. Fires `add_to_cart` from `useLabOrderFlow.handleContinue`, `begin_checkout` on `/labs/order/:slug` mount, `purchase` on `/labs/order/confirmed` (ref-guarded against the 30s poll). Unblocks 3 of the 4 yellow funnel cards. Popup events helpers exist but un-wired until a signup popup is built.
+
+**Shipped:**
+- ops-dashboard: commits `6d88c5c` (Ads + clamp), `c9e0e31` (Growth Overview) on `origin/main` via Actions runs `26846548304`, `26848250868`. Bundle hash `index-B4Iiu7cO.js` verified live on `ops.fitscript.me`.
+- fitscript: commit `377bd7cc` (rebased onto Paul's dev's 382-commit /new-3 stream — no conflicts since none of his files overlapped mine) via Actions run `26848677614`.
+
+**Pending — Paul's punchlist:**
+1. Generate Meta `ads_read` system-user token + paste `META_SYSTEM_USER_TOKEN` and `META_AD_ACCOUNT_ID` into ops `prod/ops-secrets`. Then `/reports/ads` lights up.
+2. (Optional) Hyros API key into `HYROS_API_KEY` if you want Hyros alongside the first-party attribution.
+3. DMARC fix in Cloudflare to bring the 9.67% email bounce rate down.
+4. Klaviyo: configure or wire a "Placed Order" metric with `conversion_value` so Revenue/RPS cards populate.
+5. Tech-tickets prod activation (separate runbook from yesterday — tasks #23-28).
+
+---
+
 ## 2026-06-02 — Tickets: Step 2 (Claude auto-implements code on the existing fix PR)
 
 Closed the loop on the user-report → ops-ticket → Claude-writes-the-code flow. Paul flagged that the existing `open-fix-pr` endpoint only generates a proposal — a human still had to write the actual diff. Now admins can approve → Claude edits files on the branch via tool-use.

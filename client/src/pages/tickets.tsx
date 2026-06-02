@@ -21,6 +21,7 @@ interface TicketRow {
   ai_summary: string | null;
   ai_triaged_at: string | null;
   assignee_email: string | null;
+  resolution_pr_url: string | null;
   created_at: string;
   updated_at: string;
   duplicate_count: number;
@@ -94,6 +95,92 @@ export default function Tickets() {
   });
   const tickets = data?.tickets ?? [];
   const counts = data?.status_counts ?? {};
+
+  // Feature-detect: hide auto-fix buttons when prod env is missing the PAT.
+  // Otherwise every approve click renders a red "not configured" banner.
+  const { data: config } = useQuery<{ github_pat_configured: boolean; ai_configured: boolean; github_repo: string }>({
+    queryKey: ["ops-tickets-config"],
+    queryFn: () => fetch("/api/ops/tickets/config").then((r) => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+  const autoFixEnabled = !!(config?.github_pat_configured && config?.ai_configured);
+
+  // Per-row action state: tickets currently being approved or denied.
+  // Map: ticketId → { kind: "approving" | "denying", message?: string }
+  const [rowState, setRowState] = useState<Record<string, { kind: "approving" | "denying"; message?: string }>>({});
+
+  // Run the full Approve flow atomically in three sequential calls:
+  //   1. PATCH status → 'approved' (if not already)
+  //   2. POST /open-fix-pr (creates branch + DRAFT PR with the proposal)
+  //   3. POST /auto-implement (Claude writes the actual diff + commits)
+  // If any step fails, surface the message in the row and stop.
+  async function handleApprove(t: TicketRow) {
+    setRowState((s) => ({ ...s, [t.id]: { kind: "approving", message: "Promoting…" } }));
+    try {
+      if (t.status !== "approved" && t.status !== "pr_open" && t.status !== "pr_implemented") {
+        const r = await fetch(`/api/ops/tickets/${t.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "approved" }),
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      }
+      let prUrl: string | null = t.resolution_pr_url ?? null;
+      if (!prUrl) {
+        setRowState((s) => ({ ...s, [t.id]: { kind: "approving", message: "Opening PR…" } }));
+        const r1 = await fetch(`/api/ops/tickets/${t.id}/open-fix-pr`, { method: "POST" });
+        const j1 = await r1.json().catch(() => ({}));
+        if (!r1.ok) throw new Error(j1.error || `HTTP ${r1.status}`);
+        prUrl = j1.pr_url;
+      }
+      setRowState((s) => ({ ...s, [t.id]: { kind: "approving", message: "Claude editing files…" } }));
+      const r2 = await fetch(`/api/ops/tickets/${t.id}/auto-implement`, { method: "POST" });
+      const j2 = await r2.json().catch(() => ({}));
+      if (!r2.ok) throw new Error(j2.error || `HTTP ${r2.status}`);
+      queryClient.invalidateQueries({ queryKey: ["ops-tickets"] });
+      setRowState((s) => {
+        const next = { ...s };
+        delete next[t.id];
+        return next;
+      });
+    } catch (e: any) {
+      setRowState((s) => ({ ...s, [t.id]: { kind: "approving", message: `Error: ${e.message}` } }));
+      setTimeout(() => {
+        setRowState((s) => {
+          const next = { ...s };
+          delete next[t.id];
+          return next;
+        });
+      }, 6000);
+    }
+  }
+
+  async function handleDeny(t: TicketRow) {
+    setRowState((s) => ({ ...s, [t.id]: { kind: "denying", message: "Denying…" } }));
+    try {
+      const r = await fetch(`/api/ops/tickets/${t.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "wontfix" }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      queryClient.invalidateQueries({ queryKey: ["ops-tickets"] });
+      setRowState((s) => {
+        const next = { ...s };
+        delete next[t.id];
+        return next;
+      });
+    } catch (e: any) {
+      setRowState((s) => ({ ...s, [t.id]: { kind: "denying", message: `Error: ${e.message}` } }));
+      setTimeout(() => {
+        setRowState((s) => {
+          const next = { ...s };
+          delete next[t.id];
+          return next;
+        });
+      }, 6000);
+    }
+  }
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const newCount = counts["new"] ?? 0;
@@ -212,8 +299,14 @@ export default function Tickets() {
                         <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${stm.tone}`}>{stm.label}</span>
                       </td>
                       <td className="px-4 py-3 text-xs text-ops-text-subtle whitespace-nowrap">{fmtRelative(t.created_at)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-[11px] text-brand-blue-500 font-semibold">View →</span>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <TicketRowActions
+                          t={t}
+                          autoFixEnabled={autoFixEnabled}
+                          rowState={rowState[t.id]}
+                          onApprove={() => handleApprove(t)}
+                          onDeny={() => handleDeny(t)}
+                        />
                       </td>
                     </tr>
                   );
@@ -231,6 +324,76 @@ export default function Tickets() {
           onChanged={() => queryClient.invalidateQueries({ queryKey: ["ops-tickets"] })}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Row-level Approve / Deny actions. Replaces the legacy "View →" link so
+ * the admin can act on a ticket without opening the drawer.
+ *
+ * Hides itself for tickets already in terminal states. Greys out when the
+ * GitHub PAT isn't configured on the server (we already gated this via the
+ * /api/ops/tickets/config feature-detect to keep the UX clean instead of
+ * surfacing a red error banner per click).
+ */
+function TicketRowActions({
+  t,
+  autoFixEnabled,
+  rowState,
+  onApprove,
+  onDeny,
+}: {
+  t: TicketRow;
+  autoFixEnabled: boolean;
+  rowState: { kind: "approving" | "denying"; message?: string } | undefined;
+  onApprove: () => void;
+  onDeny: () => void;
+}) {
+  // Terminal states get a label instead of buttons.
+  const TERMINAL: Status[] = ["pr_implemented", "merged", "closed", "wontfix", "duplicate"];
+  if (TERMINAL.includes(t.status)) {
+    const labelMap: Partial<Record<Status, string>> = {
+      pr_implemented: "✓ Fixed",
+      merged: "✓ Merged",
+      closed: "Closed",
+      wontfix: "Denied",
+      duplicate: "Duplicate",
+    };
+    const tone = t.status === "pr_implemented" || t.status === "merged"
+      ? "text-emerald-400"
+      : "text-ops-text-subtle";
+    return <span className={`text-[11px] font-semibold ${tone}`}>{labelMap[t.status]}</span>;
+  }
+
+  if (rowState) {
+    const isError = rowState.message?.startsWith("Error:");
+    return (
+      <span className={`text-[11px] ${isError ? "text-red-400" : "text-ops-text-muted"}`}>
+        {rowState.message}
+      </span>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={onApprove}
+        disabled={!autoFixEnabled}
+        title={autoFixEnabled
+          ? "Open PR + let Claude write the fix on the existing draft branch"
+          : "GITHUB_PAT_FITSCRIPT_FIX missing on the ops server — configure to enable"}
+        className="text-[11px] font-semibold px-2.5 py-1 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        Approve & fix
+      </button>
+      <button
+        onClick={onDeny}
+        title="Mark as won't fix"
+        className="text-[11px] font-semibold px-2.5 py-1 rounded border border-ops-border bg-ops-bg text-ops-text-muted hover:bg-ops-surface-hover hover:text-ops-text transition-colors"
+      >
+        Deny
+      </button>
     </div>
   );
 }
@@ -286,49 +449,8 @@ function TicketDetailDrawer({
     } finally { setTriaging(false); }
   };
 
-  const [opening, setOpening] = useState(false);
-  const openFixPr = async () => {
-    if (!confirm("Generate an AI fix proposal and open a draft PR on the FitScript repo?\n\nThe PR will contain a markdown spec — a human still writes the actual code.")) return;
-    setOpening(true);
-    setMsg(null);
-    try {
-      const r = await fetch(`/api/ops/tickets/${id}/open-fix-pr`, { method: "POST" });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); return; }
-      onChanged();
-      refetch();
-      setMsg({ tone: "ok", text: `✓ Draft PR opened: ${j.pr_url}` });
-    } catch (e: any) {
-      setMsg({ tone: "bad", text: e.message });
-    } finally { setOpening(false); }
-  };
-
-  const [autoImplementing, setAutoImplementing] = useState(false);
-  const autoImplement = async () => {
-    if (!confirm(
-      "Let Claude write the actual code on the existing draft PR branch?\n\n" +
-      "Claude reads target files, generates a real diff, commits to the branch, and updates the PR.\n\n" +
-      "Safety bounds: max 6 files, max 800 LOC change, max 12 tool turns.\n" +
-      "The PR stays DRAFT — you still review + flip it to ready-for-review.",
-    )) return;
-    setAutoImplementing(true);
-    setMsg(null);
-    try {
-      const r = await fetch(`/api/ops/tickets/${id}/auto-implement`, { method: "POST" });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); return; }
-      onChanged();
-      refetch();
-      if (j.no_op) {
-        setMsg({ tone: "bad", text: `Claude made no changes. ${j.summary || ""}`.trim() });
-      } else {
-        const files = (j.files_modified || []).join(", ");
-        setMsg({ tone: "ok", text: `✓ ${files.length ? files : (j.iterations + ' iterations')} — diff committed. PR ${j.pr_url}` });
-      }
-    } catch (e: any) {
-      setMsg({ tone: "bad", text: e.message });
-    } finally { setAutoImplementing(false); }
-  };
+  // Auto-fix flow (Step 1 + Step 2) moved to row-level Approve buttons on the
+  // list view. The drawer is now read-only for that surface.
 
   const del = async () => {
     if (!confirm("Delete this ticket permanently?")) return;
@@ -450,38 +572,9 @@ function TicketDetailDrawer({
               </Section>
             )}
 
-            {!t.resolution_pr_url && (t.status === "approved" || t.status === "triaged") && (
-              <Section title="AI auto-fix — step 1 of 2">
-                <p className="text-xs text-ops-text-muted mb-2">
-                  Generate a structured fix proposal + open a <strong>draft PR</strong> on the FitScript repo with the plan. After this lands, you'll see a second button to let Claude write the actual code.
-                </p>
-                <button
-                  onClick={openFixPr}
-                  disabled={opening}
-                  className="text-[11px] font-semibold px-3 py-1.5 rounded bg-gradient-to-r from-purple-500/15 to-purple-500/15 border border-purple-500/40 text-purple-400 hover:bg-purple-500/25 disabled:opacity-50"
-                >
-                  {opening ? "Generating proposal + opening PR…" : "🤖 Step 1: Open fix proposal PR"}
-                </button>
-              </Section>
-            )}
-
-            {t.resolution_pr_url && t.status !== "pr_implemented" && t.status !== "closed" && (
-              <Section title="AI auto-implement — step 2 of 2">
-                <p className="text-xs text-ops-text-muted mb-2">
-                  Let Claude write the <strong>actual code</strong> on the existing PR branch using read_file / edit_file tools. Diff lands as commits on the branch; PR stays DRAFT for your review.
-                </p>
-                <p className="text-[10px] text-ops-text-muted mb-2 opacity-70">
-                  Bounds: ≤ 6 files · ≤ 800 LOC delta · ≤ 12 tool turns · path allowlist (no .git, .github, node_modules, package*, .env, migrations).
-                </p>
-                <button
-                  onClick={autoImplement}
-                  disabled={autoImplementing}
-                  className="text-[11px] font-semibold px-3 py-1.5 rounded bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-50"
-                >
-                  {autoImplementing ? "Claude is editing files…" : "🤖 Step 2: Approve & implement"}
-                </button>
-              </Section>
-            )}
+            {/* The drawer used to have a 2-step "Open PR" / "Approve & implement"
+                pair. That moved to row-level Approve & fix buttons on the list.
+                Here we just surface the linked PR when one exists. */}
 
             {msg && (
               <div className={`px-3 py-2 rounded-lg text-xs ${msg.tone === "ok" ? "bg-brand-blue-500/10 text-brand-blue-500 border border-brand-blue-400/30" : "bg-red-500/10 text-red-400 border border-red-500/30"}`}>
