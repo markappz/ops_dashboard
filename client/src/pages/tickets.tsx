@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { ModalPortal } from "../components/modal-portal";
 
-type Status = "new" | "triaged" | "approved" | "pr_open" | "merged" | "closed" | "wontfix" | "duplicate";
+type Status = "new" | "triaged" | "approved" | "pr_open" | "pr_implemented" | "merged" | "closed" | "wontfix" | "duplicate";
 type Category = "bug" | "ux" | "performance" | "feature" | "question" | "unknown";
 type Severity = "critical" | "high" | "medium" | "low";
 
@@ -41,6 +41,7 @@ const STATUS_META: Record<Status, { label: string; tone: string }> = {
   triaged: { label: "Triaged", tone: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
   approved: { label: "Approved", tone: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
   pr_open: { label: "PR open", tone: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
+  pr_implemented: { label: "PR coded", tone: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
   merged: { label: "Merged", tone: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
   closed: { label: "Closed", tone: "bg-ops-bg text-ops-text-muted border-ops-border" },
   wontfix: { label: "Won't fix", tone: "bg-ops-bg text-ops-text-muted border-ops-border" },
@@ -302,6 +303,33 @@ function TicketDetailDrawer({
     } finally { setOpening(false); }
   };
 
+  const [autoImplementing, setAutoImplementing] = useState(false);
+  const autoImplement = async () => {
+    if (!confirm(
+      "Let Claude write the actual code on the existing draft PR branch?\n\n" +
+      "Claude reads target files, generates a real diff, commits to the branch, and updates the PR.\n\n" +
+      "Safety bounds: max 6 files, max 800 LOC change, max 12 tool turns.\n" +
+      "The PR stays DRAFT — you still review + flip it to ready-for-review.",
+    )) return;
+    setAutoImplementing(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`/api/ops/tickets/${id}/auto-implement`, { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); return; }
+      onChanged();
+      refetch();
+      if (j.no_op) {
+        setMsg({ tone: "bad", text: `Claude made no changes. ${j.summary || ""}`.trim() });
+      } else {
+        const files = (j.files_modified || []).join(", ");
+        setMsg({ tone: "ok", text: `✓ ${files.length ? files : (j.iterations + ' iterations')} — diff committed. PR ${j.pr_url}` });
+      }
+    } catch (e: any) {
+      setMsg({ tone: "bad", text: e.message });
+    } finally { setAutoImplementing(false); }
+  };
+
   const del = async () => {
     if (!confirm("Delete this ticket permanently?")) return;
     const r = await fetch(`/api/ops/tickets/${id}`, { method: "DELETE" });
@@ -423,16 +451,34 @@ function TicketDetailDrawer({
             )}
 
             {!t.resolution_pr_url && (t.status === "approved" || t.status === "triaged") && (
-              <Section title="AI auto-fix">
+              <Section title="AI auto-fix — step 1 of 2">
                 <p className="text-xs text-ops-text-muted mb-2">
-                  Generate a structured fix proposal + open a <strong>draft PR</strong> on the FitScript repo. The PR contains a markdown plan — a human writes the actual code.
+                  Generate a structured fix proposal + open a <strong>draft PR</strong> on the FitScript repo with the plan. After this lands, you'll see a second button to let Claude write the actual code.
                 </p>
                 <button
                   onClick={openFixPr}
                   disabled={opening}
                   className="text-[11px] font-semibold px-3 py-1.5 rounded bg-gradient-to-r from-purple-500/15 to-purple-500/15 border border-purple-500/40 text-purple-400 hover:bg-purple-500/25 disabled:opacity-50"
                 >
-                  {opening ? "Generating proposal + opening PR…" : "🤖 Auto-fix via PR"}
+                  {opening ? "Generating proposal + opening PR…" : "🤖 Step 1: Open fix proposal PR"}
+                </button>
+              </Section>
+            )}
+
+            {t.resolution_pr_url && t.status !== "pr_implemented" && t.status !== "closed" && (
+              <Section title="AI auto-implement — step 2 of 2">
+                <p className="text-xs text-ops-text-muted mb-2">
+                  Let Claude write the <strong>actual code</strong> on the existing PR branch using read_file / edit_file tools. Diff lands as commits on the branch; PR stays DRAFT for your review.
+                </p>
+                <p className="text-[10px] text-ops-text-muted mb-2 opacity-70">
+                  Bounds: ≤ 6 files · ≤ 800 LOC delta · ≤ 12 tool turns · path allowlist (no .git, .github, node_modules, package*, .env, migrations).
+                </p>
+                <button
+                  onClick={autoImplement}
+                  disabled={autoImplementing}
+                  className="text-[11px] font-semibold px-3 py-1.5 rounded bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25 disabled:opacity-50"
+                >
+                  {autoImplementing ? "Claude is editing files…" : "🤖 Step 2: Approve & implement"}
                 </button>
               </Section>
             )}

@@ -4,6 +4,57 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-06-02 — Tickets: Step 2 (Claude auto-implements code on the existing fix PR)
+
+Closed the loop on the user-report → ops-ticket → Claude-writes-the-code flow. Paul flagged that the existing `open-fix-pr` endpoint only generates a proposal — a human still had to write the actual diff. Now admins can approve → Claude edits files on the branch via tool-use.
+
+### What shipped
+
+**Server (`server/tickets.ts`)** — new endpoint `POST /api/ops/tickets/:id/auto-implement`:
+1. Requires `resolution_pr_url` already set (step 1 must run first to create the draft branch + proposal)
+2. Re-prompts Claude with the bug context + repo structure, but with `read_file` / `edit_file` / `write_file` tools wired into a multi-turn tool-use loop
+3. In-memory file cache: fetches target files from GitHub Contents API on first read, tracks SHA per-file for write-back
+4. Iterates until `stop_reason !== "tool_use"` OR safety bound hit:
+   - Max 6 files modified
+   - Max 800 LOC delta
+   - Max 12 tool turns
+   - Path allowlist: blocks `.git/`, `.github/`, `node_modules/`, `package*.json`, `.env*`, `*.lock`, `scripts/migrations/` (DB changes need separate review)
+5. Commits each modified file via PUT `/contents/<path>` to the existing branch
+6. Appends an "Auto-implementation" section to the PR body with: approving admin, files modified, LOC delta, tool call stats, Claude's closing summary
+7. PR stays DRAFT — admin must manually flip to ready-for-review
+8. Updates ticket status to `pr_implemented`; logs to `logAdminAction` with full metadata
+9. Costs logged to shared `ai_costs` table under surface `ops_ticket_auto_implement`
+
+**Edit-file tool semantics:** uniqueness-enforced. If `find` matches 0 times → error; if it matches > 1 times → error asking Claude to make it unique. Same pattern as the Claude Code Edit tool to prevent silent misreplacements.
+
+**No-op handling:** if Claude decides not to modify anything (e.g. it can't reproduce the bug from the report), endpoint returns `{ no_op: true, summary }` and audit logs `outcome: "no_op"` — no commits, no PR updates.
+
+**Client (`client/src/pages/tickets.tsx`)**:
+- Added new `Status` value `pr_implemented` (PR has Claude-written code, awaiting human review)
+- Split the existing AI-fix section into a two-step flow:
+  - **Step 1 — Open fix proposal PR** (existing): purple button, shows only when ticket has no PR yet
+  - **Step 2 — Approve & implement** (new): emerald button, shows only after step 1 has created a `resolution_pr_url` and ticket is not yet `pr_implemented`/`closed`
+- Step 2 confirmation modal calls out the safety bounds explicitly so the admin knows what Claude is allowed to touch
+
+### Environment requirements
+- `GITHUB_PAT_FITSCRIPT_FIX` — same PAT as `open-fix-pr` (already in prod env)
+- `GITHUB_REPO_OWNER` (default `markappz`)
+- `GITHUB_REPO_NAME` (default `Humn-Health`)
+- AI creds (Bedrock or `ANTHROPIC_API_KEY`)
+
+### Type check
+- 0 new errors in `server/tickets.ts` or `client/src/pages/tickets.tsx`
+- Status enum + STATUS_META extended to include `pr_implemented`
+- `logAdminAction` status field is `"ok" | "failed"` only — no-op uses `ok` + `metadata.outcome = "no_op"` (not a separate status)
+
+### What's still open
+- **No tests yet** for the auto-implement endpoint. Should add a fixture-based test that mocks GitHub + anthropic and verifies safety bounds.
+- **Dirt tool**: could expose `auto_implement_ticket` as a Dirt tool so it can be invoked from chat. Reserved for a follow-up.
+- **Auto-promote draft → ready**: currently always stays draft. Could add a per-admin toggle.
+- **Conflict handling**: if a write conflicts (GitHub 409 — file SHA changed since read), endpoint errors. Should add retry-with-fresh-read.
+
+---
+
 ## 2026-06-01 — Reports section (4 dashboards)
 
 **Worked on:** Paul asked for ops dashboards covering site traffic, conversion rates, email, and sales. Scoped to FitScript-only v1, started with EMAIL (Klaviyo already wired) and progressed through all four.

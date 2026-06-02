@@ -51,7 +51,7 @@ function getS3(): S3Client {
   return s3Client;
 }
 
-const VALID_STATUSES = ["new", "triaged", "approved", "pr_open", "merged", "closed", "wontfix", "duplicate"] as const;
+const VALID_STATUSES = ["new", "triaged", "approved", "pr_open", "pr_implemented", "merged", "closed", "wontfix", "duplicate"] as const;
 const VALID_CATEGORIES = ["bug", "ux", "performance", "feature", "question", "unknown"] as const;
 const VALID_SEVERITIES = ["critical", "high", "medium", "low"] as const;
 
@@ -731,6 +731,451 @@ Rules:
       });
       res.json({ ok: true });
     } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ─── Auto-implement (close the loop: Claude writes the actual code) ───
+  //
+  // Builds on /open-fix-pr (which generates a proposal + opens a DRAFT PR
+  // with just the FIX_PROPOSAL.md file). This endpoint runs a Claude
+  // tool-use agent on the existing PR branch:
+  //   1. Read target files from GitHub (via Contents API)
+  //   2. Feed Claude the proposal + file contents
+  //   3. Claude iterates with read_file / edit_file / write_file tools
+  //   4. Commit the final file state to the branch
+  //   5. Update the PR body with the implementation summary
+  //
+  // Safety bounds (defensive — easier to relax than to apologize for):
+  //   - Must be Peak-/admin-gated (opsGate already covers this at mount time)
+  //   - Max 6 files modified
+  //   - Max 800 LOC delta
+  //   - Max 12 tool iterations
+  //   - Path allowlist (no .git, .github, node_modules, package*.json, .env*)
+  //   - PR stays DRAFT (admin must manually flip to ready-for-review)
+  //   - Branch must already exist (so open-fix-pr must run first)
+  //
+  // Audit: logAdminAction with full metadata (files touched, LOC delta,
+  // token cost, success/fail).
+  app.post("/api/ops/tickets/:id/auto-implement", async (req: AdminReq, res) => {
+    const adminEmail = req.adminEmail || "unknown";
+    const ticketId = req.params.id;
+    const pat = process.env.GITHUB_PAT_FITSCRIPT_FIX;
+    const owner = process.env.GITHUB_REPO_OWNER || "markappz";
+    const repo = process.env.GITHUB_REPO_NAME || "Humn-Health";
+
+    if (!pat) return res.status(503).json({ error: "GITHUB_PAT_FITSCRIPT_FIX not configured" });
+    if (!isAIConfigured()) return res.status(503).json({ error: "AI not configured" });
+
+    try {
+      await ensureTicketsTable();
+      const tRes = await pool.query(`SELECT * FROM ops_tickets WHERE id = $1`, [ticketId]);
+      if (tRes.rows.length === 0) return res.status(404).json({ error: "Ticket not found" });
+      const ticket = tRes.rows[0];
+      if (!ticket.resolution_pr_url) {
+        return res.status(400).json({
+          error: "No fix PR yet for this ticket. Run /open-fix-pr first to create the branch + proposal.",
+        });
+      }
+
+      // Extract PR number + branch from the existing PR URL
+      const prNumberMatch = String(ticket.resolution_pr_url).match(/\/pull\/(\d+)/);
+      if (!prNumberMatch) return res.status(400).json({ error: "Could not parse PR number from resolution_pr_url" });
+      const prNumber = parseInt(prNumberMatch[1], 10);
+
+      // ── GitHub helper (same shape as open-fix-pr) ──
+      const gh = async (path: string, init: RequestInit = {}) => {
+        const r = await fetch(`https://api.github.com${path}`, {
+          ...init,
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            ...(init.headers || {}),
+          },
+        });
+        const json = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          const msg = (json as any)?.message || `GitHub ${r.status}`;
+          throw new Error(`GitHub: ${msg}`);
+        }
+        return json;
+      };
+
+      // 1. Fetch PR detail to get the branch name + base
+      const pr: any = await gh(`/repos/${owner}/${repo}/pulls/${prNumber}`);
+      const branch = pr.head.ref;
+      const baseBranch = pr.base.ref;
+
+      // 2. Read the FIX_PROPOSAL.md from the branch to recover the proposal JSON
+      //    (Stored as markdown, not JSON — we'll regenerate the structured plan
+      //    from the ticket since the markdown is human-readable, not parseable.)
+      //    Easier path: re-prompt Claude with the same proposal structure used
+      //    in open-fix-pr, but with INSTRUCTIONS to actually write code via tools.
+      const planPrompt = `You are a senior FitScript engineer applying a fix for a user-reported bug. You have read_file, edit_file, and write_file tools to modify files on the fix branch. Make the minimum change that resolves the bug.
+
+Bug context:
+- URL: ${ticket.source_url}
+- User note: ${ticket.user_note || "(none)"}
+- Element CSS: ${ticket.element_selector || "(none)"}
+- Console errors: ${ticket.console_errors ? JSON.stringify(ticket.console_errors).slice(0, 600) : "(none)"}
+- Category: ${ticket.category}
+- Severity: ${ticket.severity}
+- Initial AI triage: ${ticket.ai_summary || "(none)"}
+- Suggested-fix direction: ${ticket.ai_suggested_fix || "(none)"}
+
+FitScript repo structure (markappz/Humn-Health):
+- client/src/                 — React 18 + Tailwind + wouter (TS)
+  - App.tsx                   — routes + providers
+  - pages/                    — 65 route components
+  - components/dashboard/     — dashboard surfaces
+  - components/ui/            — Shadcn primitives
+  - lib/, hooks/              — utilities
+- server/
+  - routes.ts                 — ALL API endpoints
+  - storage.ts                — DatabaseStorage CRUD
+  - services/                 — protocol-engine, biomarker-knowledge, atlas, etc.
+- shared/schema.ts            — Drizzle schema
+
+Working on branch: ${branch} (PR #${prNumber}, draft).
+
+CONSTRAINTS:
+- Modify at most 6 files total
+- Keep total LOC delta under 800
+- Do NOT touch: .git/**, .github/**, node_modules/**, package.json, package-lock.json, .env*, *.lock, scripts/migrations/** (DB changes need a separate migration review)
+- Match existing code style. Use existing patterns. Don't introduce new dependencies.
+- If you find the bug is more involved than expected (touching > 6 files or > 800 LOC), STOP, do NOT make changes, and reply with a one-paragraph explanation of why — that will get logged for human review.
+- When you're done, just stop emitting tool calls — your final assistant message should be a 2-3 sentence summary of what you changed and why.
+
+Start by reading the most likely target file based on the bug report.`;
+
+      // ── Tool definitions ──
+      const tools = [
+        {
+          name: "read_file",
+          description: "Read a file from the fix branch. Returns the file contents as a string. Caches in memory so subsequent reads are free.",
+          input_schema: {
+            type: "object",
+            properties: {
+              path: { type: "string", description: "Repo-relative path, e.g. 'client/src/pages/labs.tsx'" },
+            },
+            required: ["path"],
+          },
+        },
+        {
+          name: "edit_file",
+          description: "Edit a file by string replacement. find must be EXACT and unique in the file. Returns success + lines changed. Use this for surgical edits. To create a new file, use write_file instead.",
+          input_schema: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              find: { type: "string", description: "Exact text to find. Must be unique in the file." },
+              replace: { type: "string", description: "Replacement text." },
+            },
+            required: ["path", "find", "replace"],
+          },
+        },
+        {
+          name: "write_file",
+          description: "Full-overwrite a file (or create new). Avoid for existing files unless the change is sweeping — prefer edit_file.",
+          input_schema: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+              content: { type: "string" },
+            },
+            required: ["path", "content"],
+          },
+        },
+      ];
+
+      // Path allowlist (deny anything matching the deny patterns)
+      const PATH_DENY = [
+        /^\.git\//,
+        /^\.github\//,
+        /^node_modules\//,
+        /^dist\//,
+        /^package(-lock)?\.json$/,
+        /^\.env/,
+        /\.lock$/,
+        /^scripts\/migrations\//,
+      ];
+      const isAllowed = (p: string) => !PATH_DENY.some((re) => re.test(p));
+
+      // File working set (read from GitHub on demand, cached in memory)
+      const fileCache: Record<string, { content: string; originalSha: string | null; original: string; modified: boolean }> = {};
+      const STAT = { reads: 0, edits: 0, writes: 0, totalLOCDelta: 0 };
+      const MAX_FILES = 6;
+      const MAX_LOC = 800;
+      const MAX_ITERS = 12;
+
+      async function fetchFile(path: string): Promise<{ content: string; sha: string | null }> {
+        if (!isAllowed(path)) throw new Error(`Path not allowed: ${path}`);
+        try {
+          const r: any = await gh(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${branch}`);
+          const content = Buffer.from(r.content, "base64").toString("utf8");
+          return { content, sha: r.sha };
+        } catch (e: any) {
+          // 404 means file doesn't exist (new file) — return empty + no SHA
+          if (String(e.message).includes("404") || String(e.message).includes("Not Found")) {
+            return { content: "", sha: null };
+          }
+          throw e;
+        }
+      }
+
+      async function executeTool(name: string, input: any): Promise<string> {
+        if (name === "read_file") {
+          const path: string = String(input.path);
+          if (!isAllowed(path)) return JSON.stringify({ error: `path denied: ${path}` });
+          if (!fileCache[path]) {
+            const { content, sha } = await fetchFile(path);
+            fileCache[path] = { content, originalSha: sha, original: content, modified: false };
+          }
+          STAT.reads++;
+          return fileCache[path].content || "(empty file)";
+        }
+        if (name === "edit_file") {
+          const path: string = String(input.path);
+          if (!isAllowed(path)) return JSON.stringify({ error: `path denied: ${path}` });
+          if (!fileCache[path]) {
+            const { content, sha } = await fetchFile(path);
+            fileCache[path] = { content, originalSha: sha, original: content, modified: false };
+          }
+          const entry = fileCache[path];
+          const find = String(input.find ?? "");
+          const replace = String(input.replace ?? "");
+          if (!find) return JSON.stringify({ error: "find must be non-empty" });
+          const occurrences = entry.content.split(find).length - 1;
+          if (occurrences === 0) return JSON.stringify({ error: "find not present in file — read_file to inspect current contents" });
+          if (occurrences > 1) return JSON.stringify({ error: `find matches ${occurrences} times — make it unique` });
+          const before = entry.content.split("\n").length;
+          entry.content = entry.content.replace(find, replace);
+          entry.modified = entry.original !== entry.content;
+          const after = entry.content.split("\n").length;
+          STAT.edits++;
+          STAT.totalLOCDelta += Math.abs(after - before);
+          return JSON.stringify({ ok: true, lines_changed: Math.abs(after - before), occurrences_replaced: 1 });
+        }
+        if (name === "write_file") {
+          const path: string = String(input.path);
+          if (!isAllowed(path)) return JSON.stringify({ error: `path denied: ${path}` });
+          const content = String(input.content ?? "");
+          if (!fileCache[path]) {
+            const { content: existing, sha } = await fetchFile(path);
+            fileCache[path] = { content: existing, originalSha: sha, original: existing, modified: false };
+          }
+          const entry = fileCache[path];
+          const before = entry.content.split("\n").length;
+          entry.content = content;
+          entry.modified = entry.original !== entry.content;
+          const after = entry.content.split("\n").length;
+          STAT.writes++;
+          STAT.totalLOCDelta += Math.abs(after - before);
+          return JSON.stringify({ ok: true, lines_changed: Math.abs(after - before), kind: entry.originalSha ? "overwrite" : "create" });
+        }
+        return JSON.stringify({ error: `unknown tool: ${name}` });
+      }
+
+      // ── 3. Run the Claude tool-use loop ──
+      const messages: any[] = [{ role: "user", content: planPrompt }];
+      let iterations = 0;
+      let usageTotals = { input: 0, output: 0 };
+      let lastSummary = "";
+
+      while (iterations < MAX_ITERS) {
+        const r: any = await (anthropic as any).messages.create({
+          model: BEDROCK_MODELS.HIGH_IQ,
+          max_tokens: 4096,
+          tools,
+          messages,
+        });
+        usageTotals.input += r?.usage?.input_tokens ?? 0;
+        usageTotals.output += r?.usage?.output_tokens ?? 0;
+
+        const toolUseBlocks = (r.content || []).filter((b: any) => b.type === "tool_use");
+        const textBlocks = (r.content || []).filter((b: any) => b.type === "text");
+        if (textBlocks.length > 0) lastSummary = textBlocks.map((b: any) => b.text).join("\n");
+
+        if (r.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
+          // Claude stopped — break the loop. lastSummary holds its closing message.
+          break;
+        }
+
+        // Enforce file-count guardrail
+        const modifiedFileCount = Object.values(fileCache).filter((f) => f.modified).length;
+        if (modifiedFileCount >= MAX_FILES) {
+          messages.push({ role: "assistant", content: r.content });
+          messages.push({
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: toolUseBlocks[0].id,
+                content: `Halted: file-edit cap reached (${MAX_FILES} files). Stop making changes and summarize what you've done so far.`,
+                is_error: true,
+              },
+            ],
+          });
+          // Re-prompt once with the guardrail message; on the next loop Claude
+          // should end_turn with a summary.
+          iterations++;
+          continue;
+        }
+        if (STAT.totalLOCDelta >= MAX_LOC) {
+          messages.push({ role: "assistant", content: r.content });
+          messages.push({
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: toolUseBlocks[0].id,
+                content: `Halted: LOC-delta cap reached (${MAX_LOC}). Stop making changes and summarize what you've done so far.`,
+                is_error: true,
+              },
+            ],
+          });
+          iterations++;
+          continue;
+        }
+
+        // Execute every tool_use in this turn
+        messages.push({ role: "assistant", content: r.content });
+        const results: any[] = [];
+        for (const block of toolUseBlocks) {
+          try {
+            const result = await executeTool(block.name, block.input);
+            results.push({ type: "tool_result", tool_use_id: block.id, content: result });
+          } catch (e: any) {
+            results.push({
+              type: "tool_result",
+              tool_use_id: block.id,
+              content: JSON.stringify({ error: e.message }),
+              is_error: true,
+            });
+          }
+        }
+        messages.push({ role: "user", content: results });
+        iterations++;
+      }
+
+      logAiCost({
+        userId: null,
+        surface: "ops_ticket_auto_implement",
+        model: BEDROCK_MODELS.HIGH_IQ,
+        inputTokens: usageTotals.input,
+        outputTokens: usageTotals.output,
+        metadata: { ticket_id: ticketId, iterations },
+      }).catch(() => {});
+
+      const modifiedFiles = Object.entries(fileCache).filter(([, v]) => v.modified);
+      if (modifiedFiles.length === 0) {
+        // Claude decided not to modify anything — log + return.
+        await logAdminAction({
+          adminEmail,
+          actionType: "ticket.auto_implement",
+          targetKind: "ops_ticket",
+          targetId: ticketId,
+          targetLabel: ticket.ai_summary || ticket.source_url,
+          status: "ok",
+          metadata: { outcome: "no_op", reason: "Claude made no file changes", summary: lastSummary, iterations },
+        });
+        return res.json({
+          ok: true,
+          no_op: true,
+          summary: lastSummary,
+          iterations,
+          pr_url: ticket.resolution_pr_url,
+        });
+      }
+
+      // ── 4. Commit each modified file to the branch ──
+      const commits: Array<{ path: string; sha: string }> = [];
+      for (const [path, entry] of modifiedFiles) {
+        const body: any = {
+          message: `auto-impl(ticket ${ticketId.slice(0, 8)}): ${path}`,
+          content: Buffer.from(entry.content, "utf8").toString("base64"),
+          branch,
+        };
+        if (entry.originalSha) body.sha = entry.originalSha; // required for updates
+        const commitRes: any = await gh(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        commits.push({ path, sha: commitRes.commit?.sha || "" });
+      }
+
+      // ── 5. Append auto-implement summary to the PR body ──
+      const currentPr: any = await gh(`/repos/${owner}/${repo}/pulls/${prNumber}`);
+      const updatedBody = [
+        currentPr.body || "",
+        "",
+        "---",
+        "",
+        "## 🤖 Auto-implementation",
+        "",
+        `**Approved by:** ${adminEmail}`,
+        `**Files modified:** ${modifiedFiles.length}`,
+        `**LOC delta:** ~${STAT.totalLOCDelta}`,
+        `**Tool calls:** ${STAT.reads} reads, ${STAT.edits} edits, ${STAT.writes} writes (${iterations} turns)`,
+        "",
+        "### Files",
+        ...modifiedFiles.map(([p]) => `- \`${p}\``),
+        "",
+        "### Claude's summary",
+        "",
+        lastSummary || "(no closing summary)",
+        "",
+        "_PR remains DRAFT. Manually flip to ready-for-review after you've eyeballed the diff._",
+      ].join("\n");
+      await gh(`/repos/${owner}/${repo}/pulls/${prNumber}`, {
+        method: "PATCH",
+        body: JSON.stringify({ body: updatedBody }),
+      });
+
+      await pool.query(
+        `UPDATE ops_tickets SET status = 'pr_implemented', updated_at = NOW() WHERE id = $1`,
+        [ticketId],
+      );
+
+      await logAdminAction({
+        adminEmail,
+        actionType: "ticket.auto_implement",
+        targetKind: "ops_ticket",
+        targetId: ticketId,
+        targetLabel: ticket.ai_summary || ticket.source_url,
+        status: "ok",
+        metadata: {
+          pr_number: prNumber,
+          files_modified: modifiedFiles.map(([p]) => p),
+          loc_delta: STAT.totalLOCDelta,
+          iterations,
+          tokens_in: usageTotals.input,
+          tokens_out: usageTotals.output,
+        },
+      });
+
+      res.json({
+        ok: true,
+        pr_url: ticket.resolution_pr_url,
+        pr_number: prNumber,
+        files_modified: modifiedFiles.map(([p]) => p),
+        loc_delta: STAT.totalLOCDelta,
+        iterations,
+        summary: lastSummary,
+      });
+    } catch (e: any) {
+      await logAdminAction({
+        adminEmail,
+        actionType: "ticket.auto_implement",
+        targetKind: "ops_ticket",
+        targetId: ticketId,
+        targetLabel: null,
+        status: "failed",
+        error: e.message,
+      });
+      console.error("[OPS][TICKETS] auto-implement failed:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
