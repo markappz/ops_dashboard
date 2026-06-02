@@ -35,6 +35,7 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/reports/conversions", label: "Conversions", icon: "funnel" },
       { path: "/reports/email", label: "Email", icon: "mail" },
       { path: "/reports/sales", label: "Sales", icon: "dollar" },
+      { path: "/reports/ads", label: "Ads & Attribution", icon: "megaphone" },
     ],
   },
   {

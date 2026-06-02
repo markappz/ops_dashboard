@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { pool } from "./db";
 import { getAuthenticatedClient, getConnection } from "./google-auth";
 import { google } from "googleapis";
+import { getCreds as getMetaCreds, metaFetch, parseInsightsRow } from "./meta-ads";
 
 // FitScript-only v1: pulls Klaviyo for the EMAIL report.
 // Other sections (traffic, conversion, sales) will land alongside this.
@@ -440,6 +441,186 @@ async function ga4EventCounts(
   }
 }
 
+// ─── Meta + first-party helpers (Ads report) ─────────────────────────
+
+interface MetaSummary {
+  configured: boolean;
+  connected: boolean;
+  account_name: string | null;
+  currency: string | null;
+  spend_usd: number;
+  impressions: number;
+  clicks: number;
+  ctr_pct: number | null;
+  cpc_usd: number | null;
+  cpm_usd: number | null;
+  conversions: number;
+  conversion_value_usd: number;
+  roas: number | null;
+  error?: string;
+  hint?: string;
+}
+
+async function fetchMetaSummary(days: Days): Promise<MetaSummary> {
+  const creds = getMetaCreds();
+  if (!creds) {
+    return {
+      configured: false,
+      connected: false,
+      account_name: null,
+      currency: null,
+      spend_usd: 0,
+      impressions: 0,
+      clicks: 0,
+      ctr_pct: null,
+      cpc_usd: null,
+      cpm_usd: null,
+      conversions: 0,
+      conversion_value_usd: 0,
+      roas: null,
+      hint: "Set META_SYSTEM_USER_TOKEN and META_AD_ACCOUNT_ID. Generate in Meta Business Settings → System Users with ads_read scope.",
+    };
+  }
+
+  // Pick Meta's nearest date_preset matching our window.
+  const datePreset =
+    days <= 7 ? "last_7d" : days <= 30 ? "last_30d" : days <= 90 ? "last_90d" : "last_year";
+
+  try {
+    const [acct, insights] = await Promise.all([
+      metaFetch<{ name: string; currency: string }>(
+        `/${creds.version}/act_${creds.accountId}?fields=name,currency`,
+        creds.token,
+      ),
+      metaFetch<{ data: Array<Record<string, unknown>> }>(
+        `/${creds.version}/act_${creds.accountId}/insights?level=account&date_preset=${datePreset}&fields=spend,impressions,clicks,ctr,cpc,cpm,reach,actions,action_values`,
+        creds.token,
+      ),
+    ]);
+
+    const row = insights.data?.[0] || {};
+    const parsed = parseInsightsRow(row);
+    const roas = parsed.spend > 0 ? Math.round((parsed.conversionValue / parsed.spend) * 100) / 100 : null;
+
+    return {
+      configured: true,
+      connected: true,
+      account_name: acct.name,
+      currency: acct.currency,
+      spend_usd: Math.round(parsed.spend * 100) / 100,
+      impressions: parsed.impressions,
+      clicks: parsed.clicks,
+      ctr_pct: Math.round(parsed.ctr * 100) / 100,
+      cpc_usd: parsed.cpc > 0 ? Math.round(parsed.cpc * 100) / 100 : null,
+      cpm_usd: parsed.cpm > 0 ? Math.round(parsed.cpm * 100) / 100 : null,
+      conversions: parsed.conversions,
+      conversion_value_usd: Math.round(parsed.conversionValue * 100) / 100,
+      roas,
+    };
+  } catch (e) {
+    console.warn("[OPS][REPORTS] meta summary failed:", (e as Error).message);
+    return {
+      configured: true,
+      connected: false,
+      account_name: null,
+      currency: null,
+      spend_usd: 0,
+      impressions: 0,
+      clicks: 0,
+      ctr_pct: null,
+      cpc_usd: null,
+      cpm_usd: null,
+      conversions: 0,
+      conversion_value_usd: 0,
+      roas: null,
+      error: (e as Error).message,
+    };
+  }
+}
+
+interface ChannelRow {
+  channel: string;
+  sessions: number;
+  users: number;
+}
+
+interface FirstPartyChannels {
+  totalSessions: number;
+  totalUsers: number;
+  byChannel: ChannelRow[];
+}
+
+async function fetchFirstPartyChannels(cutoff: Date): Promise<FirstPartyChannels> {
+  try {
+    const r = await pool.query<{ channel: string | null; sessions: string; users: string }>(
+      `SELECT
+         COALESCE(NULLIF(utm_source, ''), 'direct') AS channel,
+         COUNT(*)::text AS sessions,
+         COUNT(DISTINCT COALESCE(user_id, visitor_id))::text AS users
+       FROM visitor_sessions
+       WHERE created_at >= $1
+       GROUP BY 1
+       ORDER BY sessions::int DESC
+       LIMIT 12`,
+      [cutoff],
+    );
+    const totalRow = await pool.query<{ sessions: string; users: string }>(
+      `SELECT COUNT(*)::text AS sessions, COUNT(DISTINCT COALESCE(user_id, visitor_id))::text AS users
+       FROM visitor_sessions WHERE created_at >= $1`,
+      [cutoff],
+    );
+    return {
+      totalSessions: parseInt(totalRow.rows[0]?.sessions || "0"),
+      totalUsers: parseInt(totalRow.rows[0]?.users || "0"),
+      byChannel: r.rows.map((row) => ({
+        channel: row.channel || "direct",
+        sessions: parseInt(row.sessions),
+        users: parseInt(row.users),
+      })),
+    };
+  } catch (e) {
+    console.warn("[OPS][REPORTS] firstPartyChannels failed:", (e as Error).message);
+    return { totalSessions: 0, totalUsers: 0, byChannel: [] };
+  }
+}
+
+interface AttributionRow {
+  source: string;
+  medium: string | null;
+  events: number;
+}
+
+async function fetchFirstPartyAttribution(cutoff: Date): Promise<{ topSources: AttributionRow[] }> {
+  try {
+    const r = await pool.query<{
+      source: string | null;
+      medium: string | null;
+      events: string;
+    }>(
+      `SELECT
+         COALESCE(NULLIF(utm_source, ''), 'direct') AS source,
+         NULL::text AS medium,
+         COUNT(*)::text AS events
+       FROM touchpoints
+       WHERE created_at >= $1
+       GROUP BY 1
+       ORDER BY events::int DESC
+       LIMIT 10`,
+      [cutoff],
+    );
+    return {
+      topSources: r.rows.map((row) => ({
+        source: row.source || "direct",
+        medium: row.medium,
+        events: parseInt(row.events),
+      })),
+    };
+  } catch (e) {
+    console.warn("[OPS][REPORTS] firstPartyAttribution failed:", (e as Error).message);
+    return { topSources: [] };
+  }
+}
+
 export function registerReportsRoutes(app: Express) {
   app.get("/api/ops/reports/email", async (req, res) => {
     const rawDays = parseInt(String(req.query.days || "30"));
@@ -571,6 +752,58 @@ export function registerReportsRoutes(app: Express) {
         flow_conversion_metric: flowConvMetric?.name || null,
         signup_source: "rds:users",
         unsub_metric_found: !!unsubMetric,
+      },
+    });
+  });
+
+  // ─── ADS + ATTRIBUTION ───────────────────────────────────────────
+  app.get("/api/ops/reports/ads", async (req, res) => {
+    const rawDays = parseInt(String(req.query.days || "30"));
+    const days: Days = (ALLOWED_DAYS.includes(rawDays as Days) ? rawDays : 30) as Days;
+    const cutoff = new Date(Date.now() - days * 86400_000);
+
+    // Run Meta + first-party in parallel. Google Ads + Hyros are stubs.
+    const [metaData, firstPartyChannels, firstPartyAttribution, rdsSignups] = await Promise.all([
+      fetchMetaSummary(days),
+      fetchFirstPartyChannels(cutoff),
+      fetchFirstPartyAttribution(cutoff),
+      rdsSubscribers(days),
+    ]);
+
+    // Google Ads + Hyros + Campaign Refiners stubs — connection-state-aware.
+    const googleAds = {
+      configured: !!process.env.GOOGLE_ADS_DEVELOPER_TOKEN && !!process.env.GOOGLE_ADS_CUSTOMER_ID,
+      connected: false,
+      hint: "Pending Google Ads developer-token approval. Once approved, set GOOGLE_ADS_DEVELOPER_TOKEN + GOOGLE_ADS_CUSTOMER_ID and uses the same OAuth as GA4.",
+    };
+    const hyros = {
+      configured: !!process.env.HYROS_API_KEY,
+      connected: false,
+      hint: "Set HYROS_API_KEY (Hyros → Settings → API). First-party tracking pixel below offers similar attribution today.",
+    };
+    const campaignRefiners = {
+      configured: !!process.env.CAMPAIGN_REFINERS_API_KEY,
+      connected: false,
+      hint: "If Campaign Refiners exposes an API, set CAMPAIGN_REFINERS_API_KEY. Otherwise this stays a placeholder.",
+    };
+
+    res.json({
+      window_days: days,
+      generated_at: new Date().toISOString(),
+      meta: metaData,
+      google_ads: googleAds,
+      hyros,
+      campaign_refiners: campaignRefiners,
+      first_party: {
+        sessions: firstPartyChannels.totalSessions,
+        users: firstPartyChannels.totalUsers,
+        channels: firstPartyChannels.byChannel,
+        top_sources: firstPartyAttribution.topSources,
+        signups_in_window: rdsSignups?.newInWindow ?? null,
+        note:
+          firstPartyChannels.totalSessions === 0
+            ? "Pixel is wired but no sessions in this window yet"
+            : "First-party tracking — same data Hyros would surface",
       },
     });
   });

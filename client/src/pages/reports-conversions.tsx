@@ -58,7 +58,14 @@ function toneForRate(rate: number | null): "good" | "warn" | "bad" | null {
 function FunnelCard({ f }: { f: Funnel }) {
   const fromCount = f.step_from.count ?? 0;
   const toCount = f.step_to.count ?? 0;
-  const tone = toneForRate(f.rate_pct);
+
+  // Rate >100% means upstream and downstream are measured on different
+  // surfaces (e.g. GA4 page-views miss signups that came via direct API).
+  // Clamp the display and flag it instead of showing a misleading number.
+  const rawRate = f.rate_pct;
+  const measurementGap = rawRate !== null && rawRate > 100;
+  const displayRate = rawRate === null ? null : measurementGap ? 100 : rawRate;
+  const tone = toneForRate(displayRate);
   const toneCls =
     tone === "good"
       ? "text-emerald-500"
@@ -79,8 +86,15 @@ function FunnelCard({ f }: { f: Funnel }) {
             {f.step_from.label} → {f.step_to.label}
           </div>
         </div>
-        <div className={`text-2xl font-bold tracking-tight tabular-nums ${toneCls}`}>
-          {fmtPct(f.rate_pct)}
+        <div className="flex items-baseline gap-1.5">
+          {measurementGap && (
+            <span className="text-[10px] tracking-wider uppercase font-bold text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded px-1.5 py-0.5">
+              ≈
+            </span>
+          )}
+          <div className={`text-2xl font-bold tracking-tight tabular-nums ${toneCls}`}>
+            {fmtPct(displayRate)}
+          </div>
         </div>
       </div>
 
@@ -117,6 +131,11 @@ function FunnelCard({ f }: { f: Funnel }) {
       {f.note && (
         <div className="mt-2 text-[11px] text-amber-500 bg-amber-500/5 border border-amber-500/20 rounded-md px-2.5 py-1.5">
           {f.note}
+        </div>
+      )}
+      {measurementGap && (
+        <div className="mt-2 text-[11px] text-amber-500 bg-amber-500/5 border border-amber-500/20 rounded-md px-2.5 py-1.5">
+          Downstream ({fmtInt(toCount)}) exceeds upstream ({fmtInt(fromCount)}) — upstream measurement misses some events. True rate likely 100%; raw ratio was {fmtPct(rawRate)}.
         </div>
       )}
     </div>

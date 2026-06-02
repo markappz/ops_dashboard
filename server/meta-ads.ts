@@ -27,7 +27,7 @@ interface MetaErr extends Error {
   body?: unknown;
 }
 
-function getCreds(): { token: string; accountId: string; version: string } | null {
+export function getCreds(): { token: string; accountId: string; version: string } | null {
   const token = process.env.META_SYSTEM_USER_TOKEN;
   const accountId = process.env.META_AD_ACCOUNT_ID;
   if (!token || !accountId) return null;
@@ -35,7 +35,7 @@ function getCreds(): { token: string; accountId: string; version: string } | nul
   return { token, accountId, version };
 }
 
-async function metaFetch<T = any>(path: string, token: string): Promise<T> {
+export async function metaFetch<T = any>(path: string, token: string): Promise<T> {
   const sep = path.includes("?") ? "&" : "?";
   const url = path.startsWith("http") ? path : `${META_GRAPH_BASE}${path}`;
   const res = await fetch(`${url}${sep}access_token=${encodeURIComponent(token)}`);
@@ -65,7 +65,7 @@ async function metaFetch<T = any>(path: string, token: string): Promise<T> {
   return body as T;
 }
 
-interface CampaignInsight {
+export interface CampaignInsight {
   spend: number;
   impressions: number;
   clicks: number;
@@ -77,7 +77,7 @@ interface CampaignInsight {
   reach: number;
 }
 
-function parseInsightsRow(row: any): CampaignInsight {
+export function parseInsightsRow(row: any): CampaignInsight {
   const spend = parseFloat(row?.spend || "0");
   const impressions = parseInt(row?.impressions || "0");
   const clicks = parseInt(row?.clicks || "0");
