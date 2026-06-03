@@ -4,6 +4,69 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-06-03 — Tech-tickets prod activation (PAT → secrets → ECS → S3 IAM)
+
+Paul provided his GitHub PAT. I drove the rest of the activation runbook end-to-end except the IAM steps (which my user can't self-grant).
+
+### What shipped (all in prod)
+
+**Secrets Manager (`prod/ops-secrets` + `humn/prod/general`):**
+- `GITHUB_PAT_FITSCRIPT_FIX` — Paul's `github_pat_11BJPFUTQ0…` (fine-grained, Contents+PRs r/w on `markappz/Humn-Health`). Validated against GitHub API before write.
+- `OPS_TICKETS_API_KEY` — generated fresh (`7tx9aiBl…`) written to both ops + fitscript secrets so the shared-key handshake works across services.
+- `OPS_TICKETS_INGEST_URL` — `https://ops.fitscript.me/api/tickets/ingest` added to fitscript secret.
+
+**ECS task definitions:**
+- `fitscript-ops-task:90` — added secret refs for `GITHUB_PAT_FITSCRIPT_FIX`, `OPS_TICKETS_API_KEY`, `OPS_CONTENT_BUCKET` (the bucket env was in the secret but missing from the task def).
+- `fitscript-task:355` — added secret refs for `OPS_TICKETS_API_KEY`, `OPS_TICKETS_INGEST_URL`.
+- Both services force-new-deployed; both stabilized cleanly.
+
+**Local dev sync:**
+- `ops-dashboard/.env` and `fitscript/.env` now both have the same `OPS_TICKETS_API_KEY` as prod. Before today the two local `.env` files had different (and truncated) values — fitscript had `90l7XPt0jXyqzdiBLugB` (20 chars), ops had `90l7XPt0jXyqzdiBLugBlx9dTVWXSobFzR3IMIKsILA` (43 chars). Local widget submission would have 401'd before. Now consistent.
+
+**S3 presign fix (`server/tickets.ts`, commit `c6e006b`):**
+- @aws-sdk/client-s3 ≥3.729 adds `x-amz-sdk-checksum-algorithm=CRC32` to presigned PUT URLs by default.
+- Browser `fetch()` / curl `PUT` uploads don't compute that header → S3 returns 403 `SignatureDoesNotMatch` on every screenshot upload.
+- Fix: `new S3Client({ region, requestChecksumCalculation: "WHEN_REQUIRED" })` strips the checksum from the canonical request.
+- Local PUT verified HTTP 200. Prod deploy run `26908592490` in flight at session-update time.
+
+### Side-issues uncovered
+
+- **Mystery secret writes.** Between my first PUT to `prod/ops-secrets` (11:33:37) and verification (11:36+), the secret got rewritten by something else (11:37:13). Likely culprit: the IntegrationEditModal save flow Paul added to `reports-ads.tsx` calls `writeSecretFields` in `server/integrations.ts:356`. If the modal saves a blank field, it would clobber existing keys. Worth a guard against empty-string writes.
+- **Inline-policy budget on `replit-humn-dev`.** The IAM user is at the 2048-char inline-policy limit. Could not add an inline S3 policy. Solution: created a managed policy `ops-content-bucket-access` (5 actions on `fitscript-ops-content` + objects) and attached it directly.
+
+### Verification
+
+| Surface | Result |
+|---|---|
+| Ops `/api/tickets/ingest` direct with API key | ✅ 200 (ticket `c4ad3707…`) |
+| Fitscript `/api/internal/report-issue` proxy | ✅ 200 (ticket `c0f74aff…`) |
+| Bad API key | ✅ 401 |
+| Admin auth (session cookie) | ✅ Lists prod tickets |
+| AI auto-fix flow | ✅ Already proven by ticket `6dece043` showing `status: pr_implemented` + PR #30 on `markappz/Humn-Health` |
+| S3 presign URL no longer carries CRC32 param | ✅ |
+| Local S3 PUT to `fitscript-ops-content` | ✅ HTTP 200 |
+| Prod S3 PUT | 🔄 Pending deploy `26908592490` |
+
+### Task list state (#23–28 closed except #24)
+
+- ✅ #23 PAT generated
+- ✅ #25 Secrets Manager writes
+- ✅ #26 Task-def revisions registered
+- ✅ #27 ECS services updated + stabilized
+- ✅ #28 End-to-end verification
+- 🟡 #24 S3 bucket + IAM — bucket exists, IAM policy attached. Closes once the S3 presign fix lands in prod.
+
+### What's still on Paul's plate (outside this runbook)
+
+1. **DMARC duplicate fix in Cloudflare** — drives the 9.67% email bounce rate.
+2. **Meta Ads system-user token** — `META_SYSTEM_USER_TOKEN` + `META_AD_ACCOUNT_ID`. Lights up `/reports/ads` Meta card.
+3. **Google Ads dev-token** — already submitted to Google, awaiting approval.
+4. **Klaviyo revenue metric** — configure "Placed Order" or equivalent with `conversion_value` so `/reports/email` Revenue cards populate.
+5. **Hyros API key** (optional — first-party tracking already works).
+6. **Campaign Refiners** — tell me the API shape if/when ready.
+
+---
+
 ## 2026-06-02 (PM) — Tickets row-level Approve / Deny + PAT-missing UX cleanup
 
 Paul flagged two issues after the Step 2 ship:
