@@ -45,16 +45,25 @@ Paul provided his GitHub PAT. I drove the rest of the activation runbook end-to-
 | AI auto-fix flow | ✅ Already proven by ticket `6dece043` showing `status: pr_implemented` + PR #30 on `markappz/Humn-Health` |
 | S3 presign URL no longer carries CRC32 param | ✅ |
 | Local S3 PUT to `fitscript-ops-content` | ✅ HTTP 200 |
-| Prod S3 PUT | 🔄 Pending deploy `26908592490` |
+| Prod S3 PUT (run `26909276248`, task def `:92`) | ✅ HTTP 200 |
+| Prod ingest with `screenshot_s3_key` | ✅ ticket `c47e985a-5ea1-4ecf-8072-a27a77337803` |
 
-### Task list state (#23–28 closed except #24)
+### Bonus issue caught + fixed: GitHub Actions task-def regression
+
+After the S3 fix deploy, the running container reported `OPS_TICKETS_API_KEY not configured` even though I had registered task def `:90` earlier with the secret refs. Root cause: the ops-dashboard deploy workflow renders the task def from the static `.aws/task-definition.json` in the repo, NOT from the latest live revision. Every deploy clones the static file and silently drops any manually-added secret refs. Revision `:91` (auto-created by Actions) was missing my 3 new entries.
+
+Fix: added the 3 refs (`OPS_TICKETS_API_KEY`, `GITHUB_PAT_FITSCRIPT_FIX`, `OPS_CONTENT_BUCKET`) to `.aws/task-definition.json` and pushed. Deploy run `26909276248` registered task def `:92` with all the secret refs intact. Future deploys will preserve them.
+
+(FitScript's workflow doesn't have this footgun — it uses `aws ecs describe-task-definition` to pull the live revision as the baseline, which is why my `:355` edit for fitscript stuck through subsequent deploys. Worth standardizing the ops-dashboard workflow to do the same pattern later.)
+
+### Task list state — all 6 done
 
 - ✅ #23 PAT generated
+- ✅ #24 S3 bucket + IAM — bucket existed; managed policy `ops-content-bucket-access` created and attached to `replit-humn-dev`
 - ✅ #25 Secrets Manager writes
-- ✅ #26 Task-def revisions registered
+- ✅ #26 Task-def revisions registered (manual `:90` + template fix in `.aws/task-definition.json`)
 - ✅ #27 ECS services updated + stabilized
-- ✅ #28 End-to-end verification
-- 🟡 #24 S3 bucket + IAM — bucket exists, IAM policy attached. Closes once the S3 presign fix lands in prod.
+- ✅ #28 End-to-end verification (ingest, fitscript proxy, screenshot upload, AI auto-fix already proven by PR #30)
 
 ### What's still on Paul's plate (outside this runbook)
 
