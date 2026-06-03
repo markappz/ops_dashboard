@@ -47,7 +47,10 @@ const BUCKET = process.env.OPS_CONTENT_BUCKET;
 const REGION = process.env.AWS_REGION || "us-east-1";
 let s3Client: S3Client | null = null;
 function getS3(): S3Client {
-  if (!s3Client) s3Client = new S3Client({ region: REGION });
+  // requestChecksumCalculation: 'WHEN_REQUIRED' prevents the SDK from baking
+  // x-amz-checksum-crc32 into presigned URLs — browser fetch/curl uploads
+  // don't compute that header and would 403 on SignatureDoesNotMatch otherwise.
+  if (!s3Client) s3Client = new S3Client({ region: REGION, requestChecksumCalculation: "WHEN_REQUIRED" });
   return s3Client;
 }
 
