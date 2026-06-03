@@ -49,17 +49,32 @@ jobs:
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+      # Pull the LIVE task def from ECS as the baseline. The static
+      # .aws/task-definition.json is kept for first-time bootstrap only;
+      # any secret refs added in AWS via console / register-task-definition
+      # would silently regress every deploy if we rendered from the static
+      # file. See SESSION_LOG 2026-06-03 for the postmortem.
+      - name: Download current task definition from ECS
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_DEFINITION \
+            --query 'taskDefinition' \
+            > task-definition-live.json
+          jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            task-definition-live.json > task-definition-baseline.json
+
       - name: Render task definition with new image
         id: render-task-def
-        run: |
-          jq --arg IMAGE "${{ steps.build-image.outputs.image }}" \
-            '.containerDefinitions[0].image = $IMAGE' \
-            .aws/task-definition.json > task-definition-rendered.json
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition-baseline.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy to ECS Fargate
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: task-definition-rendered.json
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true

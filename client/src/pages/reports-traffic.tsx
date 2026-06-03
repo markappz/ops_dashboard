@@ -155,20 +155,28 @@ export default function ReportsTraffic() {
         title="Site Traffic"
         subtitle="Page-view breakdown across landing, signup, product, checkout, and confirmation."
         actions={
-          <div className="flex items-center gap-1.5 p-1 rounded-full bg-ops-bg border border-ops-border">
-            {WINDOWS.map((w) => (
-              <button
-                key={w.days}
-                onClick={() => setDays(w.days)}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-                  days === w.days
-                    ? "bg-brand-blue-500 text-white shadow-[0_2px_8px_-2px_rgba(46,91,255,0.45)]"
-                    : "text-ops-text-muted hover:text-ops-text"
-                }`}
-              >
-                {w.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 p-1 rounded-full bg-ops-bg border border-ops-border">
+              {WINDOWS.map((w) => (
+                <button
+                  key={w.days}
+                  onClick={() => setDays(w.days)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    days === w.days
+                      ? "bg-brand-blue-500 text-white shadow-[0_2px_8px_-2px_rgba(46,91,255,0.45)]"
+                      : "text-ops-text-muted hover:text-ops-text"
+                  }`}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+            <a
+              href={`/api/ops/reports/traffic?days=${days}&format=csv`}
+              className="text-[11px] font-medium px-3 py-1.5 rounded-md bg-ops-surface border border-ops-border text-ops-text-muted hover:text-ops-text hover:border-brand-blue-400/40 transition-colors"
+            >
+              Download CSV
+            </a>
           </div>
         }
       />

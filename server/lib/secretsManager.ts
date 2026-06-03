@@ -54,6 +54,11 @@ async function readSecret(): Promise<Record<string, string>> {
  * Update one or more fields inside the secret JSON.
  * Other fields are preserved. Also reflects updates into process.env
  * immediately so the running container picks them up without restart.
+ *
+ * Empty/whitespace values are dropped silently. The IntegrationEditModal
+ * submits blank fields when an admin opens a form without typing — without
+ * this guard those blanks would clobber live keys (e.g. OPS_TICKETS_API_KEY
+ * got nulled by a stray modal save during the 2026-06-03 tickets activation).
  */
 export async function writeSecretFields(
   updates: Record<string, string>,
@@ -63,8 +68,27 @@ export async function writeSecretFields(
       "AWS Secrets Manager not configured (AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY missing)",
     );
   }
+
+  const sanitized: Record<string, string> = {};
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(updates)) {
+    if (typeof v !== "string" || v.trim() === "") {
+      dropped.push(k);
+      continue;
+    }
+    sanitized[k] = v;
+  }
+  if (dropped.length > 0) {
+    console.warn(
+      `[OPS][SECRETS] dropping empty values to protect existing keys: ${dropped.join(", ")}`,
+    );
+  }
+  if (Object.keys(sanitized).length === 0) {
+    return; // nothing to write — bail before hitting AWS
+  }
+
   const current = await readSecret();
-  const merged = { ...current, ...updates };
+  const merged = { ...current, ...sanitized };
   await getClient().send(
     new UpdateSecretCommand({
       SecretId: SECRET_ID,
@@ -73,7 +97,7 @@ export async function writeSecretFields(
   );
   // Reflect into the running process so handlers using process.env.X
   // pick up the new value immediately.
-  for (const [k, v] of Object.entries(updates)) {
+  for (const [k, v] of Object.entries(sanitized)) {
     process.env[k] = v;
   }
 }

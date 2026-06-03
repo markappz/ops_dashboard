@@ -23,6 +23,28 @@ function timeframeKey(days: Days): string {
         : "last_365_days";
 }
 
+// ─── CSV helpers ─────────────────────────────────────────────────────
+
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function csvRows(rows: Array<Array<unknown>>): string {
+  return rows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
+}
+
+function csvHeaders(res: import("express").Response, filename: string) {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+}
+
+function todayStamp(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 interface KlaviyoErr extends Error {
   status?: number;
 }
@@ -704,7 +726,7 @@ export function registerReportsRoutes(app: Express) {
         ? Math.round((combined.conversion_value / total) * 100) / 100
         : null;
 
-    res.json({
+    const emailPayload = {
       configured: true,
       window_days: days,
       generated_at: new Date().toISOString(),
@@ -753,7 +775,36 @@ export function registerReportsRoutes(app: Express) {
         signup_source: "rds:users",
         unsub_metric_found: !!unsubMetric,
       },
-    });
+    };
+
+    if (req.query.format === "csv") {
+      csvHeaders(res, `email-report-${days}d-${todayStamp()}.csv`);
+      const rows: Array<Array<unknown>> = [
+        ["section", "metric", "value"],
+        ["subscribers", "total", emailPayload.subscribers.total],
+        ["subscribers", "new_in_window", emailPayload.subscribers.new_in_window],
+        ["subscribers", "lost_in_window", emailPayload.subscribers.lost_in_window],
+        ["subscribers", "net_growth", emailPayload.subscribers.net_growth],
+        ["subscribers", "growth_rate_pct", emailPayload.subscribers.growth_rate_pct],
+        ["engagement", "messages_sent", emailPayload.engagement.messages_sent],
+        ["engagement", "delivered", emailPayload.engagement.delivered],
+        ["engagement", "opens_unique", emailPayload.engagement.opens_unique],
+        ["engagement", "clicks_unique", emailPayload.engagement.clicks_unique],
+        ["engagement", "unsubscribes", emailPayload.engagement.unsubscribes],
+        ["engagement", "bounced", emailPayload.engagement.bounced],
+        ["engagement", "spam_complaints", emailPayload.engagement.spam_complaints],
+        ["engagement", "open_rate_pct", emailPayload.engagement.open_rate],
+        ["engagement", "click_rate_pct", emailPayload.engagement.click_rate],
+        ["engagement", "unsubscribe_rate_pct", emailPayload.engagement.unsubscribe_rate],
+        ["engagement", "bounce_rate_pct", emailPayload.engagement.bounce_rate],
+        ["revenue", "total_attributed_usd", emailPayload.revenue.total_attributed_usd],
+        ["revenue", "campaigns_attributed_usd", emailPayload.revenue.campaigns_attributed_usd],
+        ["revenue", "flows_attributed_usd", emailPayload.revenue.flows_attributed_usd],
+        ["revenue", "per_subscriber_usd", emailPayload.revenue.per_subscriber_usd],
+      ];
+      return res.send(csvRows(rows));
+    }
+    res.json(emailPayload);
   });
 
   // ─── ADS + ATTRIBUTION ───────────────────────────────────────────
@@ -787,7 +838,7 @@ export function registerReportsRoutes(app: Express) {
       hint: "If Campaign Refiners exposes an API, set CAMPAIGN_REFINERS_API_KEY. Otherwise this stays a placeholder.",
     };
 
-    res.json({
+    const adsPayload = {
       window_days: days,
       generated_at: new Date().toISOString(),
       meta: metaData,
@@ -805,7 +856,35 @@ export function registerReportsRoutes(app: Express) {
             ? "Pixel is wired but no sessions in this window yet"
             : "First-party tracking — same data Hyros would surface",
       },
-    });
+    };
+
+    if (req.query.format === "csv") {
+      csvHeaders(res, `ads-report-${days}d-${todayStamp()}.csv`);
+      const rows: Array<Array<unknown>> = [
+        ["section", "metric", "value"],
+        ["meta", "connected", adsPayload.meta.connected],
+        ["meta", "account_name", adsPayload.meta.account_name],
+        ["meta", "spend_usd", adsPayload.meta.spend_usd],
+        ["meta", "impressions", adsPayload.meta.impressions],
+        ["meta", "clicks", adsPayload.meta.clicks],
+        ["meta", "ctr_pct", adsPayload.meta.ctr_pct],
+        ["meta", "cpc_usd", adsPayload.meta.cpc_usd],
+        ["meta", "cpm_usd", adsPayload.meta.cpm_usd],
+        ["meta", "conversions", adsPayload.meta.conversions],
+        ["meta", "conversion_value_usd", adsPayload.meta.conversion_value_usd],
+        ["meta", "roas", adsPayload.meta.roas],
+        ["google_ads", "connected", adsPayload.google_ads.connected],
+        ["hyros", "connected", adsPayload.hyros.connected],
+        ["first_party", "sessions", adsPayload.first_party.sessions],
+        ["first_party", "users", adsPayload.first_party.users],
+        ["first_party", "signups_in_window", adsPayload.first_party.signups_in_window],
+        [],
+        ["channel", "sessions", "users"],
+        ...adsPayload.first_party.channels.map((c) => [c.channel, c.sessions, c.users]),
+      ];
+      return res.send(csvRows(rows));
+    }
+    res.json(adsPayload);
   });
 
   // ─── SALES ───────────────────────────────────────────────────────
@@ -925,7 +1004,7 @@ export function registerReportsRoutes(app: Express) {
       const repeatCustomers = parseInt(lt.repeat_customers);
       const repeatRate = totalCustomers > 0 ? Math.round((repeatCustomers / totalCustomers) * 10000) / 100 : null;
 
-      res.json({
+      const salesPayload = {
         window_days: days,
         generated_at: new Date().toISOString(),
         window: {
@@ -958,7 +1037,36 @@ export function registerReportsRoutes(app: Express) {
           orders: parseInt(r.orders),
         })),
         source: "rds:lab_orders + rds:users + tier pricing",
-      });
+      };
+
+      if (req.query.format === "csv") {
+        csvHeaders(res, `sales-report-${days}d-${todayStamp()}.csv`);
+        const rows: Array<Array<unknown>> = [
+          ["section", "metric", "value"],
+          ["window", "revenue_usd", salesPayload.window.revenue_usd],
+          ["window", "orders", salesPayload.window.orders],
+          ["window", "customers_paid", salesPayload.window.customers_paid],
+          ["window", "new_customers", salesPayload.window.new_customers],
+          ["window", "aov_usd", salesPayload.window.aov_usd],
+          ["lifetime", "total_customers", salesPayload.lifetime.total_customers],
+          ["lifetime", "repeat_customers", salesPayload.lifetime.repeat_customers],
+          ["lifetime", "repeat_rate_pct", salesPayload.lifetime.repeat_rate_pct],
+          ["lifetime", "avg_orders_per_customer", salesPayload.lifetime.avg_orders_per_customer],
+          ["lifetime", "avg_ltv_usd", salesPayload.lifetime.avg_ltv_usd],
+          ["lifetime", "avg_days_to_first_purchase", salesPayload.lifetime.avg_days_to_first_purchase],
+          ["subscriptions", "mrr_estimate_usd", salesPayload.subscriptions.mrr_estimate_usd],
+          [],
+          ["tier_breakdown:", "", ""],
+          ["tier", "period", "count", "monthly_value_usd"],
+          ...salesPayload.subscriptions.breakdown.map((b) => [b.tier, b.period || "", b.count, b.monthly_value]),
+          [],
+          ["daily_revenue_series:", "", ""],
+          ["date", "revenue_usd", "orders"],
+          ...salesPayload.daily_series.map((d) => [d.date, d.revenue_usd, d.orders]),
+        ];
+        return res.send(csvRows(rows));
+      }
+      res.json(salesPayload);
     } catch (e) {
       console.error("[OPS][REPORTS] sales failed:", (e as Error).message);
       res.status(500).json({ error: (e as Error).message });
@@ -1110,7 +1218,7 @@ export function registerReportsRoutes(app: Express) {
         },
       ];
 
-      res.json({
+      const convPayload = {
         connected: true,
         window_days: days,
         generated_at: new Date().toISOString(),
@@ -1121,7 +1229,28 @@ export function registerReportsRoutes(app: Express) {
           ),
           bucket_views: viewsByBucket,
         },
-      });
+      };
+
+      if (req.query.format === "csv") {
+        csvHeaders(res, `conversions-report-${days}d-${todayStamp()}.csv`);
+        const rows: Array<Array<unknown>> = [
+          ["funnel", "step_from", "step_from_count", "step_to", "step_to_count", "rate_pct", "note"],
+          ...convPayload.funnels.map((f) => [
+            f.label,
+            f.step_from.label,
+            f.step_from.count,
+            f.step_to.label,
+            f.step_to.count,
+            f.rate_pct,
+            f.note || "",
+          ]),
+          [],
+          ["ga4_event", "count"],
+          ...Object.entries(convPayload.meta.ga4_events_found).map(([k, v]) => [k, v]),
+        ];
+        return res.send(csvRows(rows));
+      }
+      res.json(convPayload);
     } catch (e) {
       console.error("[OPS][REPORTS] conversions failed:", (e as Error).message);
       res.json({ connected: true, window_days: days, error: (e as Error).message });
@@ -1208,7 +1337,7 @@ export function registerReportsRoutes(app: Express) {
 
       const popupTotal = Object.values(popupCounts).reduce((a, b) => a + b, 0);
 
-      res.json({
+      const trafficPayload = {
         connected: true,
         window_days: days,
         generated_at: new Date().toISOString(),
@@ -1221,7 +1350,30 @@ export function registerReportsRoutes(app: Express) {
         },
         uncategorized_views: uncategorized,
         total_pages_seen: pageRows.length,
-      });
+      };
+
+      if (req.query.format === "csv") {
+        csvHeaders(res, `traffic-report-${days}d-${todayStamp()}.csv`);
+        const rows: Array<Array<unknown>> = [
+          ["section", "metric", "value"],
+          ["overview", "sessions", trafficPayload.overview.sessions],
+          ["overview", "users", trafficPayload.overview.users],
+          ["overview", "new_users", trafficPayload.overview.new_users],
+          ["overview", "page_views", trafficPayload.overview.page_views],
+          ["overview", "bounce_rate_pct", trafficPayload.overview.bounce_rate],
+          ["overview", "avg_duration_sec", trafficPayload.overview.avg_duration_sec],
+          ["overview", "uncategorized_views", trafficPayload.uncategorized_views],
+          ["overview", "total_pages_seen", trafficPayload.total_pages_seen],
+          [],
+          ["bucket_key", "bucket_label", "views"],
+          ...trafficPayload.buckets.map((b) => [b.key, b.label, b.views]),
+          [],
+          ["popup_event", "count"],
+          ...Object.entries(trafficPayload.popup.by_event).map(([k, v]) => [k, v]),
+        ];
+        return res.send(csvRows(rows));
+      }
+      res.json(trafficPayload);
     } catch (e) {
       console.error("[OPS][REPORTS] traffic failed:", (e as Error).message);
       res.json({
