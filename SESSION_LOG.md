@@ -68,6 +68,47 @@ Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into B
 
 ---
 
+## 2026-06-04 (evening) — Reports → DMARC ingestion (Phase 1)
+
+### What shipped (commit `7ceb683`, task def `:99`)
+
+After the Jun 4 DMARC apex fix sent Brevo into report-receiving mode, built a manual-upload surface so the reports are actually visible.
+
+**`server/dmarc.ts`** — new module:
+- Two new tables: `dmarc_reports` (one row per aggregate report, unique on `(org_name, report_id)` for dedup) and `dmarc_records` (one row per source-IP rollup inside a report). FK + cascade delete. Indexed on `date_range_start DESC` + `source_ip`.
+- Parser handles `.xml`, `.xml.gz`, and `.zip` via `node:zlib.gunzipSync` + `adm-zip`. Magic-byte fallback if filename extension is missing.
+- `POST /api/ops/dmarc/upload?filename=...` — raw body (20MB cap), returns `{ inserted, duplicate, records_count, total_messages }`.
+- `GET /api/ops/dmarc/aggregate?days=N` — summary (aligned %, DKIM/SPF pass %, quarantine/reject counts) + senders table + reporting-orgs breakdown + recent reports list.
+- `DELETE /api/ops/dmarc/reports/:id` for cleanup.
+
+**`client/src/pages/reports-dmarc.tsx`** — new page:
+- Drag-drop upload card with batch + per-file status (Ingested / Duplicate / Failed).
+- 4 stat cards (total / aligned% / DKIM% / SPF%) plus quarantine+reject cards when those are non-zero.
+- Sender table with messages-bar + tone-colored alignment % per source IP.
+- Reporting-orgs grid + recent-reports table.
+
+Sidebar entry added under Reports (now 6 reports: Traffic, Conversions, Email, Sales, Ads, DMARC).
+
+### Deps added
+
+`fast-xml-parser` + `adm-zip` (+ `@types/adm-zip`). ~290kb total.
+
+### Verification
+
+- Local: synthetic Google + Yahoo reports uploaded, aggregations correct, dedup blocks re-uploads, fully-failed sender renders `0%` (not `null`) after a small SQL fix (COALESCE around the SUM-with-FILTER inside the pct calc).
+- Prod: task def `:99` running, endpoint returns `reports_count: 0, total_messages: 0` (correct — no reports uploaded yet), `dmarc_records` + `dmarc_reports` tables present in RDS.
+
+### Phase 2 — deferred
+
+Mailgun inbound route → webhook so reports flow in automatically from a `dmarc@<mg-subdomain>` address added to the DMARC `rua=`. ~1 hour of work when needed. Noted inline on the page + in the commit so it's not lost.
+
+### Pending followups
+
+- Wait for first real Brevo-forwarded reports → upload → see actual sender alignment for Klaviyo (`send.fitscript.me`), Mailgun, Google Workspace, LeadConnector
+- If alignment is poor for any sender, that drives the next deliverability fix
+
+---
+
 ## 2026-06-04 (later) — Klaviyo `$value` wired + branch sidequest
 
 ### What shipped
