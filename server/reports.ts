@@ -309,6 +309,7 @@ async function pickConversionMetric(
   const candidates: Array<{ name: string; isRevenue: boolean }> = [
     { name: "Placed Order", isRevenue: true },
     { name: "Order Placed", isRevenue: true },
+    { name: "Lab Order Placed", isRevenue: true },
     { name: "Checkout Completed", isRevenue: true },
     { name: "Received Email", isRevenue: false },
     { name: "Opened Email", isRevenue: false },
