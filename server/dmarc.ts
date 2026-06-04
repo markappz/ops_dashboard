@@ -1,8 +1,9 @@
 import express, { type Express, type Request, type Response } from "express";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import AdmZip from "adm-zip";
 import { XMLParser } from "fast-xml-parser";
+import multer from "multer";
 import { pool } from "./db";
 
 // ─── Schema bootstrap (idempotent) ─────────────────────────────────
@@ -406,5 +407,81 @@ export function registerDmarcRoutes(app: Express) {
       res.status(500).json({ error: (e as Error).message });
     }
   });
+
+  // ─── Public webhook for Mailgun inbound (Phase 2) ───────────────
+  // Mailgun forwards inbound mail to here as multipart/form-data. We verify
+  // its HMAC signature, then run every attachment through the same parser
+  // as the manual upload path. Add a Mailgun Route at the Mailgun UI level
+  // pointing dmarc@email.fitscript.me → https://ops.fitscript.me/api/dmarc/inbound
+  // then update the DMARC rua= to include that mailto:.
+  //
+  // Required env: MAILGUN_WEBHOOK_SIGNING_KEY (from Mailgun dashboard →
+  // Sending → Domain settings → Webhooks → Signing Key).
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 20 } });
+  app.post(
+    "/api/dmarc/inbound",
+    upload.any() as any,
+    async (req: Request, res: Response) => {
+      const signingKey = process.env.MAILGUN_WEBHOOK_SIGNING_KEY;
+      if (!signingKey) {
+        console.error("[OPS][DMARC] inbound: MAILGUN_WEBHOOK_SIGNING_KEY not set");
+        return res.status(503).json({ error: "webhook signing key not configured" });
+      }
+
+      // Mailgun signature scheme: HMAC-SHA256(timestamp + token, signing_key)
+      const timestamp = String(req.body?.timestamp || "");
+      const token = String(req.body?.token || "");
+      const signature = String(req.body?.signature || "");
+      if (!timestamp || !token || !signature) {
+        return res.status(401).json({ error: "missing Mailgun signature fields" });
+      }
+      // Replay-window guard: reject anything older than 15min
+      const tsNum = parseInt(timestamp);
+      if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > 900) {
+        return res.status(401).json({ error: "stale timestamp" });
+      }
+      const computed = createHmac("sha256", signingKey).update(timestamp + token).digest("hex");
+      const sigBuf = Buffer.from(signature, "hex");
+      const cmpBuf = Buffer.from(computed, "hex");
+      if (sigBuf.length !== cmpBuf.length || !timingSafeEqual(sigBuf, cmpBuf)) {
+        return res.status(401).json({ error: "bad signature" });
+      }
+
+      // Mailgun (parsed mode) sends attachments as multer files with .buffer.
+      const files = (req.files as Express.Multer.File[]) || [];
+      const recipient = String(req.body?.recipient || "");
+      const sender = String(req.body?.sender || req.body?.from || "");
+
+      const results: Array<{ filename: string; status: string; detail: string }> = [];
+      for (const f of files) {
+        try {
+          const xml = extractXmlFromBuffer(f.originalname || f.fieldname || "report", f.buffer);
+          const parsed = parseDmarcXml(xml);
+          const stored = await storeReport(parsed);
+          results.push({
+            filename: f.originalname || f.fieldname,
+            status: stored.inserted ? "ingested" : "duplicate",
+            detail: `${parsed.orgName} · ${parsed.domain} · ${parsed.records.length} records`,
+          });
+        } catch (e) {
+          results.push({
+            filename: f.originalname || f.fieldname,
+            status: "failed",
+            detail: (e as Error).message,
+          });
+        }
+      }
+
+      // ALWAYS return 200 to Mailgun — non-2xx triggers retries which
+      // would just keep failing on bad attachments. Log details internally.
+      console.log(
+        `[OPS][DMARC] inbound from ${sender} → ${recipient}: ${files.length} files, ` +
+          `${results.filter((r) => r.status === "ingested").length} ingested, ` +
+          `${results.filter((r) => r.status === "duplicate").length} dup, ` +
+          `${results.filter((r) => r.status === "failed").length} failed`,
+      );
+      res.json({ ok: true, files: files.length, results });
+    },
+  );
 }
 
