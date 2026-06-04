@@ -21,6 +21,7 @@ import ReportsTraffic from "./pages/reports-traffic";
 import ReportsConversions from "./pages/reports-conversions";
 import ReportsSales from "./pages/reports-sales";
 import ReportsAds from "./pages/reports-ads";
+import ReportsDmarc from "./pages/reports-dmarc";
 import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
@@ -108,6 +109,7 @@ export default function App() {
           <Route path="/reports/conversions" component={ReportsConversions} />
           <Route path="/reports/sales" component={ReportsSales} />
           <Route path="/reports/ads" component={ReportsAds} />
+          <Route path="/reports/dmarc" component={ReportsDmarc} />
 
           {/* Workspace */}
           <Route path="/projects" component={Projects} />
