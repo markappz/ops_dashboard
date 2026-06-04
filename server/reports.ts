@@ -104,11 +104,9 @@ interface MetricRef {
 
 async function findMetric(name: string): Promise<MetricRef | null> {
   try {
-    const data = await kFetch<{ data: Array<{ id: string; attributes?: { name?: string } }> }>(
-      "/metrics/",
-    );
+    const all = await getMetricsList();
     const wanted = name.toLowerCase();
-    const m = (data.data || []).find((x) => x.attributes?.name?.toLowerCase() === wanted);
+    const m = all.find((x) => x.attributes?.name?.toLowerCase() === wanted);
     return m ? { id: m.id, name: m.attributes?.name || name } : null;
   } catch {
     return null;
@@ -301,24 +299,41 @@ async function aggregateValuesReport(
   return totals;
 }
 
-async function pickConversionMetric(
+// Cache (report-path + candidate-set hash) → resolved metric for 30 min.
+// pickMetricForReport hits /metrics/ + probe POSTs which add latency to every
+// email report request. The metric compatibility doesn't change between
+// requests, so cache aggressively.
+interface ResolvedMetric { id: string; name: string; isRevenueMetric: boolean }
+const metricResolveCache = new Map<string, { value: ResolvedMetric | null; at: number }>();
+const METRIC_RESOLVE_TTL_MS = 30 * 60_000;
+
+interface KlaviyoMetricRow { id: string; attributes?: { name?: string } }
+// Cache of /metrics/ list — request-scoped via parameter, but also module-level
+// fallback for picks that don't receive a list.
+let metricsListCache: { rows: KlaviyoMetricRow[]; at: number } | null = null;
+const METRICS_LIST_TTL_MS = 30 * 60_000;
+
+async function getMetricsList(): Promise<KlaviyoMetricRow[]> {
+  if (metricsListCache && Date.now() - metricsListCache.at < METRICS_LIST_TTL_MS) {
+    return metricsListCache.rows;
+  }
+  const data = await kFetch<{ data: KlaviyoMetricRow[] }>("/metrics/");
+  metricsListCache = { rows: data.data || [], at: Date.now() };
+  return metricsListCache.rows;
+}
+
+async function pickMetricForReport(
   reportPath: "/campaign-values-reports/" | "/flow-values-reports/",
   reportType: "campaign-values-report" | "flow-values-report",
-): Promise<{ id: string; name: string; isRevenueMetric: boolean } | null> {
-  // Find any "Placed Order"-style metric first; fall back to engagement.
-  const candidates: Array<{ name: string; isRevenue: boolean }> = [
-    { name: "Placed Order", isRevenue: true },
-    { name: "Order Placed", isRevenue: true },
-    { name: "Lab Order Placed", isRevenue: true },
-    { name: "Checkout Completed", isRevenue: true },
-    { name: "Received Email", isRevenue: false },
-    { name: "Opened Email", isRevenue: false },
-  ];
+  candidates: Array<{ name: string; isRevenue: boolean }>,
+): Promise<ResolvedMetric | null> {
+  const cacheKey = reportPath + "|" + candidates.map((c) => c.name).join(",");
+  const cached = metricResolveCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < METRIC_RESOLVE_TTL_MS) {
+    return cached.value;
+  }
   try {
-    const data = await kFetch<{ data: Array<{ id: string; attributes?: { name?: string } }> }>(
-      "/metrics/",
-    );
-    const all = data.data || [];
+    const all = await getMetricsList();
     for (const cand of candidates) {
       const m = all.find((x) => x.attributes?.name?.toLowerCase() === cand.name.toLowerCase());
       if (!m) continue;
@@ -337,15 +352,45 @@ async function pickConversionMetric(
             },
           }),
         });
-        return { id: m.id, name: cand.name, isRevenueMetric: cand.isRevenue };
+        const resolved = { id: m.id, name: cand.name, isRevenueMetric: cand.isRevenue };
+        metricResolveCache.set(cacheKey, { value: resolved, at: Date.now() });
+        return resolved;
       } catch {
         continue;
       }
     }
   } catch (e) {
-    console.warn("[OPS][REPORTS] pickConversionMetric failed:", (e as Error).message);
+    console.warn("[OPS][REPORTS] pickMetricForReport failed:", (e as Error).message);
   }
+  metricResolveCache.set(cacheKey, { value: null, at: Date.now() });
   return null;
+}
+
+const REVENUE_CANDIDATES = [
+  { name: "Placed Order", isRevenue: true },
+  { name: "Order Placed", isRevenue: true },
+  { name: "Lab Order Placed", isRevenue: true },
+  { name: "Checkout Completed", isRevenue: true },
+];
+
+const ENGAGEMENT_CANDIDATES = [
+  { name: "Received Email", isRevenue: false },
+  { name: "Opened Email", isRevenue: false },
+  { name: "Bounced Email", isRevenue: false },
+];
+
+function pickRevenueMetric(
+  reportPath: "/campaign-values-reports/" | "/flow-values-reports/",
+  reportType: "campaign-values-report" | "flow-values-report",
+) {
+  return pickMetricForReport(reportPath, reportType, REVENUE_CANDIDATES);
+}
+
+function pickEngagementMetric(
+  reportPath: "/campaign-values-reports/" | "/flow-values-reports/",
+  reportType: "campaign-values-report" | "flow-values-report",
+) {
+  return pickMetricForReport(reportPath, reportType, ENGAGEMENT_CANDIDATES);
 }
 
 function safeRate(num: number, denom: number): number | null {
@@ -665,16 +710,27 @@ export function registerReportsRoutes(app: Express) {
 
     // Run independent calls in parallel. RDS is the source-of-truth for
     // subscriber counts; Klaviyo handles engagement + unsubs.
+    //
+    // CRITICAL: engagement stats and revenue stats need SEPARATE
+    // conversion_metric_id queries. If we use a revenue metric like
+    // "Lab Order Placed" for engagement, Klaviyo only returns campaigns
+    // that have Lab Order Placed conversions — silently dropping every
+    // campaign that drove opens/clicks but no orders. Engagement = fallback
+    // metric (Received Email), revenue = whichever revenue metric exists.
     const [
       unsubMetric,
-      campaignConvMetric,
-      flowConvMetric,
+      campaignEngagementMetric,
+      campaignRevenueMetric,
+      flowEngagementMetric,
+      flowRevenueMetric,
       rds,
       sentCampaignIds,
     ] = await Promise.all([
       findMetric("Unsubscribed from Email Marketing"),
-      pickConversionMetric("/campaign-values-reports/", "campaign-values-report"),
-      pickConversionMetric("/flow-values-reports/", "flow-values-report"),
+      pickEngagementMetric("/campaign-values-reports/", "campaign-values-report"),
+      pickRevenueMetric("/campaign-values-reports/", "campaign-values-report"),
+      pickEngagementMetric("/flow-values-reports/", "flow-values-report"),
+      pickRevenueMetric("/flow-values-reports/", "flow-values-report"),
       rdsSubscribers(days),
       fetchSentCampaignIds(days),
     ]);
@@ -686,27 +742,66 @@ export function registerReportsRoutes(app: Express) {
       ? `contains-any(campaign_id,[${sentCampaignIds.map((id) => `"${id}"`).join(",")}])`
       : undefined;
 
-    const [campaignTotals, flowTotals] = await Promise.all([
-      campaignConvMetric && sentCampaignIds.length > 0
+    // Engagement queries (no revenue stats requested).
+    const [campaignEngagement, flowEngagement] = await Promise.all([
+      campaignEngagementMetric && sentCampaignIds.length > 0
         ? aggregateValuesReport(
             "campaign-values-report",
             "/campaign-values-reports/",
-            campaignConvMetric.id,
-            campaignConvMetric.isRevenueMetric,
+            campaignEngagementMetric.id,
+            false,
             days,
             campaignFilter,
           )
         : Promise.resolve(emptyTotals()),
-      flowConvMetric
+      flowEngagementMetric
         ? aggregateValuesReport(
             "flow-values-report",
             "/flow-values-reports/",
-            flowConvMetric.id,
-            flowConvMetric.isRevenueMetric,
+            flowEngagementMetric.id,
+            false,
             days,
           )
         : Promise.resolve(emptyTotals()),
     ]);
+
+    // Revenue queries (only if a revenue metric exists for this purpose).
+    const [campaignRevenue, flowRevenue] = await Promise.all([
+      campaignRevenueMetric && sentCampaignIds.length > 0
+        ? aggregateValuesReport(
+            "campaign-values-report",
+            "/campaign-values-reports/",
+            campaignRevenueMetric.id,
+            true,
+            days,
+            campaignFilter,
+          )
+        : Promise.resolve(emptyTotals()),
+      flowRevenueMetric
+        ? aggregateValuesReport(
+            "flow-values-report",
+            "/flow-values-reports/",
+            flowRevenueMetric.id,
+            true,
+            days,
+          )
+        : Promise.resolve(emptyTotals()),
+    ]);
+
+    // Merge: engagement counts come from the engagement queries; revenue
+    // (conversions + conversion_value) comes from the revenue queries.
+    const campaignTotals: AggregateTotals = {
+      ...campaignEngagement,
+      conversions: campaignRevenue.conversions,
+      conversion_value: campaignRevenue.conversion_value,
+      revenueAvailable: campaignRevenue.revenueAvailable,
+    };
+    const flowTotals: AggregateTotals = {
+      ...flowEngagement,
+      conversions: flowRevenue.conversions,
+      conversion_value: flowRevenue.conversion_value,
+      revenueAvailable: flowRevenue.revenueAvailable,
+    };
 
     const combined = emptyTotals();
     combined.revenueAvailable = campaignTotals.revenueAvailable || flowTotals.revenueAvailable;
@@ -777,8 +872,17 @@ export function registerReportsRoutes(app: Express) {
         conversions: combined.revenueAvailable ? combined.conversions : null,
       },
       meta: {
-        campaign_conversion_metric: campaignConvMetric?.name || null,
-        flow_conversion_metric: flowConvMetric?.name || null,
+        campaign_engagement_metric: campaignEngagementMetric?.name || null,
+        campaign_revenue_metric: campaignRevenueMetric?.name || null,
+        flow_engagement_metric: flowEngagementMetric?.name || null,
+        flow_revenue_metric: flowRevenueMetric?.name || null,
+        // Back-compat aliases for the existing client + CSV (revenue metric
+        // is what the UI labels as "conversion metric" since that's the
+        // money-driving signal).
+        campaign_conversion_metric:
+          campaignRevenueMetric?.name || campaignEngagementMetric?.name || null,
+        flow_conversion_metric:
+          flowRevenueMetric?.name || flowEngagementMetric?.name || null,
         signup_source: "rds:users",
         unsub_metric_found: !!unsubMetric,
       },
