@@ -4,6 +4,71 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-06-04 — Email deliverability fixes + 5 reports bugs + Waitlist CTAs
+
+### Reports bugs caught + fixed (commits `6db0740` + `a79f001`)
+
+While Paul was looking at `/reports/email` we caught three real defects:
+
+1. **Klaviyo `send_time` no longer filterable** — `/campaigns/?filter=greater-or-equal(send_time,...)` 400'd. Klaviyo's 2025-04-15 revision only allows filtering campaigns by `archived | created_at | id | messages.channel | name | scheduled_at | status | updated_at`. Switched to `updated_at` + `sort=-updated_at`.
+2. **Klaviyo `any(campaign_id,...)` rejected** — campaign-values-reports filter operator changed to `contains-any`. Without the fix `campaigns_sent` always read 0.
+3. **Postgres alias-in-cast ORDER BY** — `ORDER BY sessions::int DESC` fails because aliases don't resolve inside cast expressions. Switched to `ORDER BY COUNT(*) DESC` (raw aggregate). Was breaking `firstPartyChannels` + `firstPartyAttribution` on `/reports/ads`.
+
+Plus three quality-of-life improvements (commit `a79f001`):
+- `.github/workflows/deploy.yml` now pulls live task def from ECS instead of rendering static `.aws/task-definition.json` (eliminates the regression footgun from Jun 3).
+- `writeSecretFields` in `server/lib/secretsManager.ts` drops empty/whitespace values before put-secret-value (protects against IntegrationEditModal blanking out keys — see [[feedback_aws_secret_to_env]]).
+- CSV export on all 5 reports — `?format=csv` returns `Content-Disposition: attachment` with spreadsheet-friendly rows.
+
+### Waitlist Nurture flow rescue
+
+Paul looked at the 0.15% click rate. Diagnosis: the only sending flow (`Twr7Ln "FitScript Waitlist Nurture"`) had **5 emails with zero clickable CTAs** — the only hrefs in any email were the unsubscribe + privacy footer placeholders (`href="#"`). Click tracking was ON but nothing to click.
+
+Built CTA HTML blocks matching the existing template (DM Sans, brand gradient `#0EA57A → #34D399 → #60A5FA`, Outlook-safe with solid-color fallback), rendered all 5 full templates, dropped them at `~/Desktop/klaviyo-waitlist-flow-buttons/` for Paul to paste.
+
+**Klaviyo API blocker:** `/templates/{id}/` PATCH and `/flow-messages/{id}/` PATCH both rejected (404 / 405). Flow templates can only be edited via Klaviyo UI — no programmatic path. Paul pasted manually; verified after via API GET — all 5 emails now have `fitscript.me/signup` + `fitscript.me/labs/panels` real CTAs.
+
+### Email deliverability — DMARC + SPF audit
+
+**Findings:**
+1. **Duplicate DMARC at `_dmarc.fitscript.me`** — two TXT records (`p=none; rua=brevo` + `p=quarantine;`). Per RFC 7489 §6.6.3, when receivers see >1 DMARC record they discard both and treat the domain as having no DMARC policy at all. **This was the dominant cause of the 9.88% bounce rate.**
+2. **Klaviyo uses NS-delegation routing** — `send.fitscript.me` is delegated to `ns1-4.klaviyo.com`. Klaviyo manages SPF/DKIM/DMARC for that subdomain themselves on their nameservers. Our dig from Klaviyo's NS showed the zone empty (SOA serial=1), but Klaviyo UI shows the domain Active — the green checks verify NS delegation + apex DMARC, not the records Klaviyo serves. Real auth alignment unknown without inspecting actual outbound email headers.
+3. **`email.fitscript.me`** has its own separate SPF + DMARC for Brevo sends. Unchanged.
+
+**What Paul did in Cloudflare:**
+- Deleted the duplicate `p=quarantine;` row
+- Hardened the keeper to `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com; ruf=mailto:rua@dmarc.brevo.com; fo=1; adkim=r; aspf=r`
+- (Briefly added a bogus `_spf.klaviyo.com` SPF include — then reverted)
+
+### The SPF mistake — DO NOT REPEAT
+
+**What I said to do:** "Add `include:_spf.klaviyo.com` to the apex SPF to authorize Klaviyo."
+
+**Why it was wrong:**
+- `_spf.klaviyo.com` returns no TXT record. Klaviyo doesn't publish an SPF include hostname for senders.
+- For Klaviyo's NS-delegation model, the customer's apex SPF is irrelevant to authorizing emails from `send.<domain>` — SPF does NOT fall back from subdomain to parent the way DMARC does. Klaviyo handles authorization on its own NS for the delegated subdomain.
+- Unresolved SPF includes either waste 1 of 10 SPF lookups (best case) or cause `permerror` on strict receivers (worst case — could have made the situation worse).
+
+**Future rule:** before suggesting any `include:X` in an SPF record, **verify `dig +short TXT X | grep -c "v=spf1"` returns ≥ 1**. Empty includes are net-negative. Also see [[feedback_spf_klaviyo_no_include]].
+
+### Net DNS state at end of session (verified clean)
+
+| Surface | State |
+|---|---|
+| SPF apex `fitscript.me` | `v=spf1 include:mailgun.org include:_spf.google.com include:spf.leadconnectorhq.com ~all` — 8/10 lookups |
+| DMARC apex `_dmarc.fitscript.me` | `p=none; rua=mailto:rua@dmarc.brevo.com; ruf=mailto:rua@dmarc.brevo.com; fo=1; adkim=r; aspf=r` |
+| Subdomain `send.fitscript.me` | NS-delegated to Klaviyo, untouched |
+| Subdomain `email.fitscript.me` | Brevo-owned, untouched |
+
+Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into Brevo.
+
+### Pending follow-ups
+
+- Forward a real Klaviyo email's `Authentication-Results` header to confirm DKIM alignment status (the missing piece — could lead to a Klaviyo support ticket if the empty zone is a misconfig on their side)
+- After 2 weeks of clean Brevo DMARC reports → upgrade `p=none` → `p=quarantine`
+- Klaviyo `Placed Order` metric with `$value` (next item on Paul's punchlist for `/reports/email` revenue cards)
+
+---
+
 ## 2026-06-03 — Tech-tickets prod activation (PAT → secrets → ECS → S3 IAM)
 
 Paul provided his GitHub PAT. I drove the rest of the activation runbook end-to-end except the IAM steps (which my user can't self-grant).
