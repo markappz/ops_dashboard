@@ -65,7 +65,50 @@ Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into B
 
 - Forward a real Klaviyo email's `Authentication-Results` header to confirm DKIM alignment status (the missing piece — could lead to a Klaviyo support ticket if the empty zone is a misconfig on their side)
 - After 2 weeks of clean Brevo DMARC reports → upgrade `p=none` → `p=quarantine`
-- Klaviyo `Placed Order` metric with `$value` (next item on Paul's punchlist for `/reports/email` revenue cards)
+
+---
+
+## 2026-06-04 (later) — Klaviyo `$value` wired + branch sidequest
+
+### What shipped
+
+**FitScript (`markappz/Humn-Health` commit `b2b90884`):**
+- `server/services/klaviyoService.ts` — `KlaviyoEventPayload` extended with optional `value` + `valueCurrency` fields; `trackKlaviyoEvent` inlines them into the Klaviyo event body when present (`attributes.value`, `attributes.value_currency`). Klaviyo treats events with `value` as revenue-eligible.
+- `server/stripe.ts:1121` (Stripe webhook fire site for Lab Order Placed) — passes `value: Math.max(0, (grossCents - discountCentsTotal) / 100)`, `valueCurrency: "USD"`. Refunds at `:1232` fire `Lab Order Refunded` with **negative** value so revenue nets out cleanly.
+- `server/routes.ts:4538` (admin resend path) — mirrored the same value calculation so manual resends don't break the running total.
+
+**Ops dashboard (`markappz/ops_dashboard` commit `ce93126`):**
+- `server/reports.ts` `pickConversionMetric` — added `Lab Order Placed` to the revenue-first priority list ahead of the engagement fallback (`Received Email`). Reuses the existing probe-each-candidate pattern.
+
+### Verification
+
+- `/api/ops/reports/email` on prod now returns:
+  - `campaign_conversion_metric: "Lab Order Placed"` (was `"Received Email"`)
+  - `flow_conversion_metric: "Lab Order Placed"` (was `"Received Email"`)
+  - `revenue.available: true` (was `false`)
+  - `total_attributed_usd: 0` — correct; no paid lab orders in the 30d window yet. Cards will populate as soon as new orders fire the value-bearing event.
+
+### Branch sidequest — caught in flight
+
+The fitscript repo was sitting on `wizlo/intake-submission-api` (a feature branch that had ALREADY been merged to main as PR #35). My first `git commit` landed on that orphan branch (`a24d0d7e`) instead of main. Caught it on `git log`, switched to main, cherry-picked the commit cleanly to `b2b90884`, pushed. The local `wizlo/...` branch is harmless leftover — Paul's dev workflow can prune it whenever.
+
+**Lesson:** before committing in `fitscript/`, run `git branch --show-current` if any other agent or person may have been in the repo. The repo is shared with at least one human dev who creates feature branches; switching back to `main` is not the default.
+
+### Net state at session end
+
+| Item from Paul's punchlist | Status |
+|---|---|
+| PR #30 merge (FAQ pricing) | ✅ Done earlier today |
+| DMARC fix in Cloudflare | ✅ Done — single hardened record at apex |
+| Klaviyo `$value` on Lab Order Placed | ✅ Done — both sides shipped, prod showing revenue.available=true |
+| Meta Ads token | Waiting on Paul (Meta Business Settings) |
+| Google Ads dev-token | Waiting on Google approval (passive) |
+| Hyros / Campaign Refiners | Optional / need info |
+
+### Followups
+
+- Watch `/reports/email` over next week — first paid lab order should populate revenue cards with real numbers
+- If revenue numbers look off vs. Stripe ledger after first orders, audit the netCents calculation in `server/stripe.ts:1116` (discount handling)
 
 ---
 
