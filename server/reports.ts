@@ -193,10 +193,14 @@ interface ValuesReportRow {
 
 async function fetchSentCampaignIds(days: Days): Promise<string[]> {
   const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
-  const filter = `and(equals(messages.channel,"email"),greater-or-equal(send_time,${cutoff}))`;
+  // Klaviyo: send_time is NOT filterable. The filterable fields per their
+  // 2025 API revision: archived, created_at, id, messages.channel, name,
+  // scheduled_at, status, updated_at. We filter by updated_at as a proxy
+  // for "campaigns active in the window" and use status=sent.
+  const filter = `and(equals(messages.channel,"email"),greater-or-equal(updated_at,${cutoff}))`;
   try {
     const data = await kFetch<{ data: CampaignRow[] }>(
-      `/campaigns/?filter=${encodeURIComponent(filter)}&fields[campaign]=name,send_time&sort=-send_time&page[size]=100`,
+      `/campaigns/?filter=${encodeURIComponent(filter)}&fields[campaign]=name,send_time&sort=-updated_at&page[size]=100`,
     );
     return (data.data || []).map((c) => c.id);
   } catch (e) {
@@ -574,6 +578,8 @@ interface FirstPartyChannels {
 
 async function fetchFirstPartyChannels(cutoff: Date): Promise<FirstPartyChannels> {
   try {
+    // Postgres can't resolve a column alias inside an expression in ORDER BY,
+    // so order by the raw aggregate expression instead of the `sessions` alias.
     const r = await pool.query<{ channel: string | null; sessions: string; users: string }>(
       `SELECT
          COALESCE(NULLIF(utm_source, ''), 'direct') AS channel,
@@ -582,7 +588,7 @@ async function fetchFirstPartyChannels(cutoff: Date): Promise<FirstPartyChannels
        FROM visitor_sessions
        WHERE created_at >= $1
        GROUP BY 1
-       ORDER BY sessions::int DESC
+       ORDER BY COUNT(*) DESC
        LIMIT 12`,
       [cutoff],
     );
@@ -626,7 +632,7 @@ async function fetchFirstPartyAttribution(cutoff: Date): Promise<{ topSources: A
        FROM touchpoints
        WHERE created_at >= $1
        GROUP BY 1
-       ORDER BY events::int DESC
+       ORDER BY COUNT(*) DESC
        LIMIT 10`,
       [cutoff],
     );
@@ -676,7 +682,7 @@ export function registerReportsRoutes(app: Express) {
     const newSubsInWindow = rds?.newInWindow ?? null;
 
     const campaignFilter = sentCampaignIds.length
-      ? `any(campaign_id,[${sentCampaignIds.map((id) => `"${id}"`).join(",")}])`
+      ? `contains-any(campaign_id,[${sentCampaignIds.map((id) => `"${id}"`).join(",")}])`
       : undefined;
 
     const [campaignTotals, flowTotals] = await Promise.all([
