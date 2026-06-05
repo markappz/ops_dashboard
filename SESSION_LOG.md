@@ -68,6 +68,45 @@ Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into B
 
 ---
 
+## 2026-06-05 (later) — /reports/email cache warmer + perf hardening
+
+Paul tested `/reports/email` locally after the engagement regression fix and it was "taking too much time" — caught two remaining issues + added a background warmer.
+
+### Issues caught
+
+1. **`kFetch` 429 retries were uncapped.** Klaviyo's "Expected available in 60s" response triggered infinite retries that locked the request for minutes. Capped at 2 attempts with a max 10s Retry-After honor.
+2. **Revenue-metric probe lied.** `pickRevenueMetric` was testing candidates with the `delivered` stat (engagement), which Klaviyo accepts for any metric. The real query then asks for `conversion_value` — which Klaviyo rejects with "metric does not support values data" if the metric hasn't been classified as values-data-compatible yet. So we picked "Lab Order Placed", the real query failed, and revenue stayed blank. Fix: probe with `conversion_value` for revenue candidates so the probe actually validates what the real query will do.
+3. **Cold-load latency.** Klaviyo value-reports endpoint has a ~2/min sustained limit. A single page load fires 4 calls (engagement + revenue × campaigns + flows). The 60s TTL response cache (commit `61d60e6`) helped — cold ~21s, warm <100ms — but the cold experience was still painful.
+
+### Cache warmer (commit `856f42c`, task def `:105`)
+
+- Extracted `buildEmailReport(days)` from the express handler so both the handler and a background loop can call it.
+- Bumped response-cache TTL from 60s to 6 min so the 5-min warmer always refreshes BEFORE entries expire — user requests effectively never see a cold cache.
+- New `startEmailReportWarmer()` in `server/reports.ts`:
+  - 60s startup delay (lets the container settle)
+  - Then every 5 min: warm both 30d and 7d windows (the two windows the UI defaults to)
+  - Auto-enabled when `NODE_ENV=production`; dev opt-in via `OPS_ENABLE_WARMER=1`
+- Wired into `server/index.ts` alongside `startDirtScanLoop` + `startDirtDailyReportLoop`.
+
+### Verification
+
+Local (`OPS_ENABLE_WARMER=1`):
+```
+[email-warmer] enabled — first run in 60s, then every 5min for windows 30,7d
+[email-warmer] startup 30d warmed in 13986ms
+[email-warmer] startup 7d warmed in 17339ms
+```
+Subsequent local user requests: 61-62ms.
+
+Prod (`ops.fitscript.me`):
+- `generated_at` is 7s old (warmer is firing cleanly)
+- User-side requests: 384-497ms (ALB + network, not Klaviyo)
+- No 429s
+
+Klaviyo gets exactly 2 calls per 5 min for value-reports — well under their 2/min sustained limit and far below the prior bursty pattern.
+
+---
+
 ## 2026-06-04 (late) → 2026-06-05 — DMARC Phase 2 webhook + /reports/email engagement regression fix
 
 ### DMARC Phase 2 — Mailgun inbound auto-ingest (commit `7ebd1b6`, task def `:101`)
