@@ -68,6 +68,61 @@ Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into B
 
 ---
 
+## 2026-06-04 (late) → 2026-06-05 — DMARC Phase 2 webhook + /reports/email engagement regression fix
+
+### DMARC Phase 2 — Mailgun inbound auto-ingest (commit `7ebd1b6`, task def `:101`)
+
+`email.fitscript.me` already has Mailgun MX (`mxa.mailgun.org` / `mxb.mailgun.org`) so no new DNS work. Built a public webhook that auto-ingests DMARC reports once Paul wires the Mailgun side.
+
+**`server/dmarc.ts`** — added `POST /api/dmarc/inbound`:
+- Sits outside `/api/ops/*` so `opsGate` lets Mailgun's unauth'd POSTs through
+- HMAC-SHA256 signature verification (Mailgun's `webhook signing key` over `timestamp + token`)
+- 15-min replay window enforced via timestamp check
+- multer-parsed multipart, 25MB cap per file, 20 files max per POST
+- Each attachment runs through existing `extractXmlFromBuffer` + `parseDmarcXml` + `storeReport`
+- ALWAYS returns 200 to Mailgun (per-file errors logged) — non-2xx triggers Mailgun retries which just re-fail on bad XML
+
+**Deployed but dormant** — three things still on Paul's plate to activate:
+1. Mailgun UI → Receiving → Routes → create `match_recipient("dmarc@email.fitscript.me")` → `forward("https://ops.fitscript.me/api/dmarc/inbound")` + optional `store()` for backup
+2. Hand me the Webhook Signing Key (from Mailgun → Sending → Domain settings → Webhooks)
+3. Update DMARC `rua=` in Cloudflare to add `mailto:dmarc@email.fitscript.me` alongside the existing Brevo address
+
+Endpoint currently returns 503 `"webhook signing key not configured"` — by design, until secret lands.
+
+### /reports/email engagement REGRESSION — caught + fixed (commit `cb6b146`)
+
+While auditing the original brief at session end, noticed open/click/bounce/unsub all reading `None` in production. Root cause: the earlier "promote Lab Order Placed to conversion metric" change broke engagement aggregation. Klaviyo's `campaign-values-reports` + `flow-values-reports` filter their output to campaigns/flows that have conversions of the specified `conversion_metric_id`. Switching from `Received Email` (engagement) to `Lab Order Placed` (revenue) meant only campaigns that drove actual lab orders showed up — and there have been zero. Engagement columns silently went blank.
+
+**Fix:**
+- Split `pickConversionMetric` into `pickEngagementMetric` + `pickRevenueMetric` with distinct candidate lists
+- Run BOTH per surface in parallel (so each campaign + flow gets queried twice — once for engagement, once for revenue)
+- Merge: engagement counts come from the engagement-metric pass, `conversions` + `conversion_value` come from the revenue-metric pass
+- `meta` block now exposes both metric names (`campaign_engagement_metric` + `campaign_revenue_metric`, same for flows) plus back-compat aliases for the existing client
+
+**Performance fallout:** 4 separate metric picks (campaign engagement + revenue, flow engagement + revenue) each calling `/metrics/` + up to 4 probe POSTs blew past Klaviyo's response times — first cold call hit 2-min timeout. Fix: hoisted `/metrics/` into a module-level cache (30-min TTL) shared across all picks; resolved (path, candidates) → metric is also cached the same way. Cold call now ~3-5s, warm <200ms.
+
+**Verified on prod:** open=34.13% · click=0.15% · bounce=9.81% · unsub=0.45% · revenue available=true · per-subscriber=$0 (no paid orders in window yet — will populate as Lab Order Placed events with `$value` start flowing).
+
+### Audit against Paul's original 5-source / 4-section brief — 100% built
+
+| Brief item | Status |
+|---|---|
+| GA, WooCommerce, Hyros, Meta, Google Ads, Campaign Refiners | GA live; rest wired-but-quiet awaiting credentials |
+| SITE TRAFFIC (5 page types + popup) | All bucketed; popup waits on event firing |
+| CONVERSION RATES (5 funnels) | All wired; populate as GA4 ecommerce events fire |
+| EMAIL (6 metrics) | All live including revenue per subscriber |
+| SALES (7 metrics) | All live; $0 until paid lab orders happen |
+
+Plus extras: Ads & Attribution report, DMARC report (Phase 1 + Phase 2 endpoint), Growth Overview on Command Center, CSV export on every report, FitScript GA4 event firing.
+
+### Pending followups
+
+- Hand me Mailgun webhook signing key → write to prod/ops-secrets + task def → DMARC reports auto-flow
+- After 2-3 weeks of clean Brevo DMARC reports → upgrade `_dmarc.fitscript.me` from `p=none` to `p=quarantine`
+- Forward a real Klaviyo email's `Authentication-Results` header so we can confirm DKIM alignment on `send.fitscript.me`
+
+---
+
 ## 2026-06-04 (evening) — Reports → DMARC ingestion (Phase 1)
 
 ### What shipped (commit `7ceb683`, task def `:99`)
