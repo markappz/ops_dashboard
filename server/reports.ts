@@ -55,7 +55,7 @@ function getKey(): string | null {
   return k;
 }
 
-async function kFetch<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+async function kFetch<T = any>(path: string, init: RequestInit = {}, retries = 2): Promise<T> {
   const key = getKey();
   if (!key) {
     const err: KlaviyoErr = new Error("KLAVIYO_API_KEY not configured");
@@ -72,10 +72,10 @@ async function kFetch<T = any>(path: string, init: RequestInit = {}): Promise<T>
       ...(init.headers || {}),
     },
   });
-  if (res.status === 429) {
-    const retryAfter = parseInt(res.headers.get("Retry-After") || "2");
+  if (res.status === 429 && retries > 0) {
+    const retryAfter = Math.min(parseInt(res.headers.get("Retry-After") || "2"), 10);
     await new Promise((r) => setTimeout(r, Math.max(1, retryAfter) * 1000));
-    return kFetch<T>(path, init);
+    return kFetch<T>(path, init, retries - 1);
   }
   const text = await res.text();
   const body = text ? safeJson(text) : null;
@@ -337,7 +337,9 @@ async function pickMetricForReport(
     for (const cand of candidates) {
       const m = all.find((x) => x.attributes?.name?.toLowerCase() === cand.name.toLowerCase());
       if (!m) continue;
-      // Probe — Klaviyo rejects some metrics per report type.
+      // Probe — Klaviyo rejects some metrics per report type. For revenue
+      // metrics, probe with conversion_value so we actually validate
+      // values-data compatibility (not just engagement acceptance).
       try {
         await kFetch(reportPath, {
           method: "POST",
@@ -345,7 +347,9 @@ async function pickMetricForReport(
             data: {
               type: reportType,
               attributes: {
-                statistics: ["delivered"],
+                statistics: cand.isRevenue
+                  ? ["conversion_value"]
+                  : ["delivered"],
                 timeframe: { key: "last_7_days" },
                 conversion_metric_id: m.id,
               },
@@ -695,6 +699,15 @@ async function fetchFirstPartyAttribution(cutoff: Date): Promise<{ topSources: A
   }
 }
 
+// Cache the full assembled email-report response for 60s. Klaviyo's
+// value-reports endpoint is rate-limited to ~2/min sustained, and a single
+// report assembly fires 4 calls (engagement + revenue × campaign + flow) plus
+// metric-aggregates for unsubs. Without this, page reloads or React Query
+// retries inside a minute would 429-storm. Client already has staleTime:
+// 60s in useQuery so this matches user-facing freshness.
+const emailReportCache = new Map<string, { value: unknown; at: number }>();
+const EMAIL_REPORT_TTL_MS = 60_000;
+
 export function registerReportsRoutes(app: Express) {
   app.get("/api/ops/reports/email", async (req, res) => {
     const rawDays = parseInt(String(req.query.days || "30"));
@@ -706,6 +719,14 @@ export function registerReportsRoutes(app: Express) {
         window_days: days,
         error: "Klaviyo not configured",
       });
+    }
+
+    // Serve from cache if fresh (CSV requests bypass — they're usually exports).
+    if (req.query.format !== "csv") {
+      const cached = emailReportCache.get(`${days}`);
+      if (cached && Date.now() - cached.at < EMAIL_REPORT_TTL_MS) {
+        return res.json(cached.value);
+      }
     }
 
     // Run independent calls in parallel. RDS is the source-of-truth for
@@ -915,6 +936,7 @@ export function registerReportsRoutes(app: Express) {
       ];
       return res.send(csvRows(rows));
     }
+    emailReportCache.set(`${days}`, { value: emailPayload, at: Date.now() });
     res.json(emailPayload);
   });
 
