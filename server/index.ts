@@ -22,7 +22,7 @@ import { registerProjectRoutes } from "./projects";
 import { registerChatRoutes } from "./chat";
 import { registerContentRoutes } from "./content";
 import { registerTicketRoutes } from "./tickets";
-import { registerReportsRoutes } from "./reports";
+import { registerReportsRoutes, startEmailReportWarmer } from "./reports";
 import { registerDmarcRoutes } from "./dmarc";
 
 const app = express();
@@ -126,6 +126,7 @@ async function start() {
     console.log(`[OPS] FitScript Ops Dashboard running on http://localhost:${PORT}`);
     startDirtScanLoop();
     startDirtDailyReportLoop();
+    startEmailReportWarmer();
   });
 }
 

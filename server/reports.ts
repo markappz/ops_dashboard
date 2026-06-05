@@ -699,14 +699,234 @@ async function fetchFirstPartyAttribution(cutoff: Date): Promise<{ topSources: A
   }
 }
 
-// Cache the full assembled email-report response for 60s. Klaviyo's
-// value-reports endpoint is rate-limited to ~2/min sustained, and a single
-// report assembly fires 4 calls (engagement + revenue × campaign + flow) plus
-// metric-aggregates for unsubs. Without this, page reloads or React Query
-// retries inside a minute would 429-storm. Client already has staleTime:
-// 60s in useQuery so this matches user-facing freshness.
+// Cache the full assembled email-report response. Klaviyo's value-reports
+// endpoint is rate-limited to ~2/min sustained, and a single report assembly
+// fires 4 calls (engagement + revenue × campaign + flow) plus metric-aggregates
+// for unsubs. Without this, page reloads or React Query retries inside a minute
+// would 429-storm.
+//
+// TTL is 6 min so the 5-min warmer refreshes BEFORE entries expire — user
+// requests almost always hit warm cache.
 const emailReportCache = new Map<string, { value: unknown; at: number }>();
-const EMAIL_REPORT_TTL_MS = 60_000;
+const EMAIL_REPORT_TTL_MS = 6 * 60_000;
+
+// ─── Email report — extracted so the warmer can call it ──────────────
+
+async function buildEmailReport(days: Days): Promise<Record<string, unknown>> {
+  // Run independent calls in parallel. RDS is the source-of-truth for
+  // subscriber counts; Klaviyo handles engagement + unsubs.
+  //
+  // CRITICAL: engagement stats and revenue stats need SEPARATE
+  // conversion_metric_id queries. If we use a revenue metric like
+  // "Lab Order Placed" for engagement, Klaviyo only returns campaigns
+  // that have Lab Order Placed conversions — silently dropping every
+  // campaign that drove opens/clicks but no orders. Engagement = fallback
+  // metric (Received Email), revenue = whichever revenue metric exists.
+  const [
+    unsubMetric,
+    campaignEngagementMetric,
+    campaignRevenueMetric,
+    flowEngagementMetric,
+    flowRevenueMetric,
+    rds,
+    sentCampaignIds,
+  ] = await Promise.all([
+    findMetric("Unsubscribed from Email Marketing"),
+    pickEngagementMetric("/campaign-values-reports/", "campaign-values-report"),
+    pickRevenueMetric("/campaign-values-reports/", "campaign-values-report"),
+    pickEngagementMetric("/flow-values-reports/", "flow-values-report"),
+    pickRevenueMetric("/flow-values-reports/", "flow-values-report"),
+    rdsSubscribers(days),
+    fetchSentCampaignIds(days),
+  ]);
+
+  const lostInWindow = unsubMetric ? await sumMetric(unsubMetric.id, days) : null;
+  const newSubsInWindow = rds?.newInWindow ?? null;
+
+  const campaignFilter = sentCampaignIds.length
+    ? `contains-any(campaign_id,[${sentCampaignIds.map((id) => `"${id}"`).join(",")}])`
+    : undefined;
+
+  const [campaignEngagement, flowEngagement] = await Promise.all([
+    campaignEngagementMetric && sentCampaignIds.length > 0
+      ? aggregateValuesReport(
+          "campaign-values-report",
+          "/campaign-values-reports/",
+          campaignEngagementMetric.id,
+          false,
+          days,
+          campaignFilter,
+        )
+      : Promise.resolve(emptyTotals()),
+    flowEngagementMetric
+      ? aggregateValuesReport(
+          "flow-values-report",
+          "/flow-values-reports/",
+          flowEngagementMetric.id,
+          false,
+          days,
+        )
+      : Promise.resolve(emptyTotals()),
+  ]);
+
+  const [campaignRevenue, flowRevenue] = await Promise.all([
+    campaignRevenueMetric && sentCampaignIds.length > 0
+      ? aggregateValuesReport(
+          "campaign-values-report",
+          "/campaign-values-reports/",
+          campaignRevenueMetric.id,
+          true,
+          days,
+          campaignFilter,
+        )
+      : Promise.resolve(emptyTotals()),
+    flowRevenueMetric
+      ? aggregateValuesReport(
+          "flow-values-report",
+          "/flow-values-reports/",
+          flowRevenueMetric.id,
+          true,
+          days,
+        )
+      : Promise.resolve(emptyTotals()),
+  ]);
+
+  const campaignTotals: AggregateTotals = {
+    ...campaignEngagement,
+    conversions: campaignRevenue.conversions,
+    conversion_value: campaignRevenue.conversion_value,
+    revenueAvailable: campaignRevenue.revenueAvailable,
+  };
+  const flowTotals: AggregateTotals = {
+    ...flowEngagement,
+    conversions: flowRevenue.conversions,
+    conversion_value: flowRevenue.conversion_value,
+    revenueAvailable: flowRevenue.revenueAvailable,
+  };
+
+  const combined = emptyTotals();
+  combined.revenueAvailable = campaignTotals.revenueAvailable || flowTotals.revenueAvailable;
+  for (const k of Object.keys(combined) as (keyof AggregateTotals)[]) {
+    if (k === "revenueAvailable") continue;
+    (combined as any)[k] = (campaignTotals as any)[k] + (flowTotals as any)[k];
+  }
+
+  const open_rate = safeRate(combined.opens_unique, combined.delivered);
+  const click_rate = safeRate(combined.clicks_unique, combined.delivered);
+  const click_to_open_rate = safeRate(combined.clicks_unique, combined.opens_unique);
+  const unsubscribe_rate = safeRate(combined.unsubscribes, combined.delivered);
+  const bounce_rate = safeRate(combined.bounced, combined.recipients || combined.delivered);
+  const spam_rate = safeRate(combined.spam_complaints, combined.delivered);
+
+  const total = rds?.total ?? null;
+  const net_growth =
+    newSubsInWindow != null && lostInWindow != null ? newSubsInWindow - lostInWindow : null;
+  const growth_rate_pct =
+    total != null && net_growth != null && total - net_growth > 0
+      ? safeRate(net_growth, total - net_growth)
+      : null;
+  const revenue_per_subscriber =
+    combined.revenueAvailable && total && total > 0
+      ? Math.round((combined.conversion_value / total) * 100) / 100
+      : null;
+
+  const payload = {
+    configured: true,
+    window_days: days,
+    generated_at: new Date().toISOString(),
+    subscribers: {
+      total,
+      total_estimated: false,
+      new_in_window: newSubsInWindow,
+      lost_in_window: lostInWindow,
+      net_growth,
+      growth_rate_pct,
+    },
+    engagement: {
+      messages_sent: combined.messagesCounted,
+      campaigns_sent: campaignTotals.messagesCounted,
+      flows_active: flowTotals.messagesCounted,
+      delivered: combined.delivered,
+      opens_unique: combined.opens_unique,
+      clicks_unique: combined.clicks_unique,
+      unsubscribes: combined.unsubscribes,
+      bounced: combined.bounced,
+      spam_complaints: combined.spam_complaints,
+      open_rate,
+      click_rate,
+      click_to_open_rate,
+      unsubscribe_rate,
+      bounce_rate,
+      spam_rate,
+    },
+    revenue: {
+      available: combined.revenueAvailable,
+      campaigns_attributed_usd: campaignTotals.revenueAvailable
+        ? Math.round(campaignTotals.conversion_value * 100) / 100
+        : null,
+      flows_attributed_usd: flowTotals.revenueAvailable
+        ? Math.round(flowTotals.conversion_value * 100) / 100
+        : null,
+      total_attributed_usd: combined.revenueAvailable
+        ? Math.round(combined.conversion_value * 100) / 100
+        : null,
+      per_subscriber_usd: revenue_per_subscriber,
+      conversions: combined.revenueAvailable ? combined.conversions : null,
+    },
+    meta: {
+      campaign_engagement_metric: campaignEngagementMetric?.name || null,
+      campaign_revenue_metric: campaignRevenueMetric?.name || null,
+      flow_engagement_metric: flowEngagementMetric?.name || null,
+      flow_revenue_metric: flowRevenueMetric?.name || null,
+      campaign_conversion_metric:
+        campaignRevenueMetric?.name || campaignEngagementMetric?.name || null,
+      flow_conversion_metric:
+        flowRevenueMetric?.name || flowEngagementMetric?.name || null,
+      signup_source: "rds:users",
+      unsub_metric_found: !!unsubMetric,
+    },
+  };
+
+  emailReportCache.set(`${days}`, { value: payload, at: Date.now() });
+  return payload;
+}
+
+// ─── Cache warmer — keeps the 30d window warm in prod ────────────────
+
+const WARMER_INTERVAL_MS = 5 * 60_000;
+const WARMER_WINDOWS: Days[] = [30, 7];
+
+export function startEmailReportWarmer() {
+  const enabled =
+    process.env.NODE_ENV === "production" || process.env.OPS_ENABLE_WARMER === "1";
+  if (!enabled) {
+    console.log("[email-warmer] disabled in dev (set OPS_ENABLE_WARMER=1 to enable)");
+    return;
+  }
+  if (!getKey()) {
+    console.log("[email-warmer] skipped — KLAVIYO_API_KEY not set");
+    return;
+  }
+  const run = async (label: string) => {
+    for (const days of WARMER_WINDOWS) {
+      try {
+        const t0 = Date.now();
+        await buildEmailReport(days);
+        console.log(`[email-warmer] ${label} ${days}d warmed in ${Date.now() - t0}ms`);
+      } catch (e) {
+        console.warn(`[email-warmer] ${label} ${days}d failed:`, (e as Error).message);
+      }
+    }
+  };
+  // Defer initial warm by 60s so it doesn't fight container startup.
+  setTimeout(() => {
+    run("startup");
+    setInterval(() => run("cron"), WARMER_INTERVAL_MS);
+  }, 60_000);
+  console.log(
+    `[email-warmer] enabled — first run in 60s, then every ${WARMER_INTERVAL_MS / 60_000}min for windows ${WARMER_WINDOWS.join(",")}d`,
+  );
+}
 
 export function registerReportsRoutes(app: Express) {
   app.get("/api/ops/reports/email", async (req, res) => {
@@ -722,192 +942,14 @@ export function registerReportsRoutes(app: Express) {
     }
 
     // Serve from cache if fresh (CSV requests bypass — they're usually exports).
+    let emailPayload: any;
     if (req.query.format !== "csv") {
       const cached = emailReportCache.get(`${days}`);
       if (cached && Date.now() - cached.at < EMAIL_REPORT_TTL_MS) {
         return res.json(cached.value);
       }
     }
-
-    // Run independent calls in parallel. RDS is the source-of-truth for
-    // subscriber counts; Klaviyo handles engagement + unsubs.
-    //
-    // CRITICAL: engagement stats and revenue stats need SEPARATE
-    // conversion_metric_id queries. If we use a revenue metric like
-    // "Lab Order Placed" for engagement, Klaviyo only returns campaigns
-    // that have Lab Order Placed conversions — silently dropping every
-    // campaign that drove opens/clicks but no orders. Engagement = fallback
-    // metric (Received Email), revenue = whichever revenue metric exists.
-    const [
-      unsubMetric,
-      campaignEngagementMetric,
-      campaignRevenueMetric,
-      flowEngagementMetric,
-      flowRevenueMetric,
-      rds,
-      sentCampaignIds,
-    ] = await Promise.all([
-      findMetric("Unsubscribed from Email Marketing"),
-      pickEngagementMetric("/campaign-values-reports/", "campaign-values-report"),
-      pickRevenueMetric("/campaign-values-reports/", "campaign-values-report"),
-      pickEngagementMetric("/flow-values-reports/", "flow-values-report"),
-      pickRevenueMetric("/flow-values-reports/", "flow-values-report"),
-      rdsSubscribers(days),
-      fetchSentCampaignIds(days),
-    ]);
-
-    const lostInWindow = unsubMetric ? await sumMetric(unsubMetric.id, days) : null;
-    const newSubsInWindow = rds?.newInWindow ?? null;
-
-    const campaignFilter = sentCampaignIds.length
-      ? `contains-any(campaign_id,[${sentCampaignIds.map((id) => `"${id}"`).join(",")}])`
-      : undefined;
-
-    // Engagement queries (no revenue stats requested).
-    const [campaignEngagement, flowEngagement] = await Promise.all([
-      campaignEngagementMetric && sentCampaignIds.length > 0
-        ? aggregateValuesReport(
-            "campaign-values-report",
-            "/campaign-values-reports/",
-            campaignEngagementMetric.id,
-            false,
-            days,
-            campaignFilter,
-          )
-        : Promise.resolve(emptyTotals()),
-      flowEngagementMetric
-        ? aggregateValuesReport(
-            "flow-values-report",
-            "/flow-values-reports/",
-            flowEngagementMetric.id,
-            false,
-            days,
-          )
-        : Promise.resolve(emptyTotals()),
-    ]);
-
-    // Revenue queries (only if a revenue metric exists for this purpose).
-    const [campaignRevenue, flowRevenue] = await Promise.all([
-      campaignRevenueMetric && sentCampaignIds.length > 0
-        ? aggregateValuesReport(
-            "campaign-values-report",
-            "/campaign-values-reports/",
-            campaignRevenueMetric.id,
-            true,
-            days,
-            campaignFilter,
-          )
-        : Promise.resolve(emptyTotals()),
-      flowRevenueMetric
-        ? aggregateValuesReport(
-            "flow-values-report",
-            "/flow-values-reports/",
-            flowRevenueMetric.id,
-            true,
-            days,
-          )
-        : Promise.resolve(emptyTotals()),
-    ]);
-
-    // Merge: engagement counts come from the engagement queries; revenue
-    // (conversions + conversion_value) comes from the revenue queries.
-    const campaignTotals: AggregateTotals = {
-      ...campaignEngagement,
-      conversions: campaignRevenue.conversions,
-      conversion_value: campaignRevenue.conversion_value,
-      revenueAvailable: campaignRevenue.revenueAvailable,
-    };
-    const flowTotals: AggregateTotals = {
-      ...flowEngagement,
-      conversions: flowRevenue.conversions,
-      conversion_value: flowRevenue.conversion_value,
-      revenueAvailable: flowRevenue.revenueAvailable,
-    };
-
-    const combined = emptyTotals();
-    combined.revenueAvailable = campaignTotals.revenueAvailable || flowTotals.revenueAvailable;
-    for (const k of Object.keys(combined) as (keyof AggregateTotals)[]) {
-      if (k === "revenueAvailable") continue;
-      (combined as any)[k] = (campaignTotals as any)[k] + (flowTotals as any)[k];
-    }
-
-    const open_rate = safeRate(combined.opens_unique, combined.delivered);
-    const click_rate = safeRate(combined.clicks_unique, combined.delivered);
-    const click_to_open_rate = safeRate(combined.clicks_unique, combined.opens_unique);
-    const unsubscribe_rate = safeRate(combined.unsubscribes, combined.delivered);
-    const bounce_rate = safeRate(combined.bounced, combined.recipients || combined.delivered);
-    const spam_rate = safeRate(combined.spam_complaints, combined.delivered);
-
-    const total = rds?.total ?? null;
-    const net_growth = newSubsInWindow != null && lostInWindow != null ? newSubsInWindow - lostInWindow : null;
-    const growth_rate_pct =
-      total != null && net_growth != null && total - net_growth > 0
-        ? safeRate(net_growth, total - net_growth)
-        : null;
-    const revenue_per_subscriber =
-      combined.revenueAvailable && total && total > 0
-        ? Math.round((combined.conversion_value / total) * 100) / 100
-        : null;
-
-    const emailPayload = {
-      configured: true,
-      window_days: days,
-      generated_at: new Date().toISOString(),
-      subscribers: {
-        total,
-        total_estimated: false,
-        new_in_window: newSubsInWindow,
-        lost_in_window: lostInWindow,
-        net_growth,
-        growth_rate_pct,
-      },
-      engagement: {
-        messages_sent: combined.messagesCounted,
-        campaigns_sent: campaignTotals.messagesCounted,
-        flows_active: flowTotals.messagesCounted,
-        delivered: combined.delivered,
-        opens_unique: combined.opens_unique,
-        clicks_unique: combined.clicks_unique,
-        unsubscribes: combined.unsubscribes,
-        bounced: combined.bounced,
-        spam_complaints: combined.spam_complaints,
-        open_rate,
-        click_rate,
-        click_to_open_rate,
-        unsubscribe_rate,
-        bounce_rate,
-        spam_rate,
-      },
-      revenue: {
-        available: combined.revenueAvailable,
-        campaigns_attributed_usd: campaignTotals.revenueAvailable
-          ? Math.round(campaignTotals.conversion_value * 100) / 100
-          : null,
-        flows_attributed_usd: flowTotals.revenueAvailable
-          ? Math.round(flowTotals.conversion_value * 100) / 100
-          : null,
-        total_attributed_usd: combined.revenueAvailable
-          ? Math.round(combined.conversion_value * 100) / 100
-          : null,
-        per_subscriber_usd: revenue_per_subscriber,
-        conversions: combined.revenueAvailable ? combined.conversions : null,
-      },
-      meta: {
-        campaign_engagement_metric: campaignEngagementMetric?.name || null,
-        campaign_revenue_metric: campaignRevenueMetric?.name || null,
-        flow_engagement_metric: flowEngagementMetric?.name || null,
-        flow_revenue_metric: flowRevenueMetric?.name || null,
-        // Back-compat aliases for the existing client + CSV (revenue metric
-        // is what the UI labels as "conversion metric" since that's the
-        // money-driving signal).
-        campaign_conversion_metric:
-          campaignRevenueMetric?.name || campaignEngagementMetric?.name || null,
-        flow_conversion_metric:
-          flowRevenueMetric?.name || flowEngagementMetric?.name || null,
-        signup_source: "rds:users",
-        unsub_metric_found: !!unsubMetric,
-      },
-    };
+    emailPayload = await buildEmailReport(days);
 
     if (req.query.format === "csv") {
       csvHeaders(res, `email-report-${days}d-${todayStamp()}.csv`);
@@ -936,7 +978,6 @@ export function registerReportsRoutes(app: Express) {
       ];
       return res.send(csvRows(rows));
     }
-    emailReportCache.set(`${days}`, { value: emailPayload, at: Date.now() });
     res.json(emailPayload);
   });
 
