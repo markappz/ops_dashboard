@@ -68,6 +68,40 @@ Bounce-rate impact expected over next 2-3 weeks as new DMARC reports flow into B
 
 ---
 
+## 2026-06-06 — Session close: memory updates + pickup notes
+
+End-of-arc state save before Paul closes the terminal. Memory updated, pending Paul-side items recorded.
+
+### Memory updates
+
+- `~/.claude/.../memory/project_ops_reports_section.md` — refreshed from "4 reports, June 1" snapshot to current 6 reports + Klaviyo split-metric rule + perf pattern (warmer, caches, kFetch retry cap). Edit-style updates so pre-existing gotchas + envelope contract + links stayed put.
+- `~/.claude/.../memory/feedback_klaviyo_engagement_vs_revenue.md` — NEW. The split-metric rule from the 2026-06-04 regression captured as a feedback memory so future sessions can't repeat it. Linked into `MEMORY.md`.
+
+### Open / pending
+
+**Task #44 — DMARC Phase 2 activation** (in_progress, parked on Paul):
+- Mailgun Inbound Route to create in their UI: `match_recipient("dmarc@email.fitscript.me")` → `forward("https://ops.fitscript.me/api/dmarc/inbound")` + optional `store()`
+- Webhook Signing Key from Mailgun → Sending → Domain settings → Webhooks. Hand to me. I'll write to `prod/ops-secrets`, add to `.aws/task-definition.json`, push, verify.
+- Update DMARC `_dmarc.fitscript.me` `rua=` to add `mailto:dmarc@email.fitscript.me` alongside the existing Brevo address.
+
+**Deliverability followups:**
+- Forward a real Klaviyo email's `Authentication-Results` header so we can confirm DKIM alignment on `send.fitscript.me` (the Klaviyo NS-managed zone showed empty when queried, but UI says Active — actual outbound auth status unverified)
+- After 2-3 weeks of clean Brevo DMARC reports, upgrade `_dmarc.fitscript.me` from `p=none` to `p=quarantine`
+
+**External approvals (passive wait):**
+- Meta Ads system-user token (Meta Business Settings)
+- Google Ads developer-token (waiting on Google approval; already submitted)
+
+### Resume notes for next session
+
+1. Read this entry + 2026-06-05 (later) + 2026-06-04 (late) entries above for full context.
+2. Reports section is 100% built against Paul's original 5-source / 4-section brief. Six reports + Growth Overview live; CSV export on every report; FitScript GA4 events firing.
+3. The bottleneck on email-revenue cards: needs first real Lab Order Placed event with `$value` to hit Klaviyo's classifier. Then `pickRevenueMetric` will resolve and revenue cards populate.
+4. If anything breaks on `/reports/email`, first suspect: Klaviyo API change (filter operators, filterable fields shift every revision).
+5. Localhost dev server stopped at session close — restart with `cd ~/Projects/ops-dashboard && npm run dev` (or `OPS_ENABLE_WARMER=1 npm run dev` to also test the warmer locally).
+
+---
+
 ## 2026-06-05 (later) — /reports/email cache warmer + perf hardening
 
 Paul tested `/reports/email` locally after the engagement regression fix and it was "taking too much time" — caught two remaining issues + added a background warmer.
