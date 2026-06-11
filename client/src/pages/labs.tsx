@@ -216,6 +216,7 @@ function MappingsTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClie
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 function CatalogTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClient> }) {
+  const [, navigate] = useLocation();
   const { data, isLoading } = useQuery<{ tests: any[]; lastSynced: string | null }>({
     queryKey: ["labs-catalog", env], queryFn: () => j(`/api/ops/labs/catalog?env=${env}`),
   });
@@ -228,10 +229,16 @@ function CatalogTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClien
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-xs text-ops-text-muted">{data?.lastSynced ? `Last synced ${dt(data.lastSynced)}` : "Never synced"}</div>
-        <button onClick={() => sync.mutate()} disabled={sync.isPending}
-          className="text-sm px-4 py-1.5 rounded-lg bg-fitscript-green text-black font-medium hover:opacity-90 disabled:opacity-50">
-          {sync.isPending ? "Syncing…" : "↻ Sync from Junction"}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => navigate("/labs/builder")}
+            className="text-sm px-4 py-1.5 rounded-lg border border-fitscript-green text-fitscript-green font-medium hover:bg-fitscript-green/10">
+            + Build Lab Test
+          </button>
+          <button onClick={() => sync.mutate()} disabled={sync.isPending}
+            className="text-sm px-4 py-1.5 rounded-lg bg-fitscript-green text-black font-medium hover:opacity-90 disabled:opacity-50">
+            {sync.isPending ? "Syncing…" : "↻ Sync from Junction"}
+          </button>
+        </div>
       </div>
       {sync.data && <div className="text-xs text-fitscript-green">Synced {sync.data.count} tests.</div>}
       <div className="bg-ops-card border border-ops-border rounded-xl overflow-hidden">

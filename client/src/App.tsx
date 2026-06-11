@@ -9,6 +9,7 @@ import Orders from "./pages/orders";
 import Labs from "./pages/labs";
 import LabsEdit from "./pages/labs-edit";
 import LabsPanelEdit from "./pages/labs-panel-edit";
+import LabsBuilder from "./pages/labs-builder";
 import Marketing from "./pages/marketing";
 import Integrations from "./pages/integrations";
 import Email from "./pages/email";
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="/members/:id">{(params) => <MemberDetail id={params.id} />}</Route>
           <Route path="/orders" component={Orders} />
           <Route path="/labs" component={Labs} />
+          <Route path="/labs/builder" component={LabsBuilder} />
           <Route path="/labs/mapping/:id">{(params) => <LabsEdit id={params.id} />}</Route>
           <Route path="/labs/panel/:slug">{(params) => <LabsPanelEdit slug={params.slug} />}</Route>
 

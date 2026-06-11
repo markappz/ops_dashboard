@@ -31,6 +31,13 @@ async function callFitscript(path: string, body: unknown): Promise<{ status: num
   return { status: r.status, json };
 }
 
+async function getFitscript(path: string): Promise<{ status: number; json: any }> {
+  const r = await fetch(`${FITSCRIPT_URL}${path}`, { headers: { "x-ops-key": OPS_KEY } });
+  const text = await r.text();
+  let json: any; try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+  return { status: r.status, json };
+}
+
 export function registerLabsRoutes(app: Express) {
   // ── Catalog (cached Junction lab tests) ──────────────────────────────────
   app.get("/api/ops/labs/catalog", async (req, res) => {
@@ -52,6 +59,27 @@ export function registerLabsRoutes(app: Express) {
       if (status >= 300) return res.status(502).json({ error: json.error || "sync failed" });
       res.json(json);
     } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
+  // ── Lab Test Builder (create custom Junction lab tests) ──────────────────
+  app.get("/api/ops/labs/junction-labs", async (_req, res) => {
+    const { status, json } = await getFitscript("/api/internal/labs/labs");
+    if (status >= 300) return res.status(502).json({ error: json.error || "failed" });
+    res.json(json);
+  });
+
+  app.get("/api/ops/labs/markers", async (req, res) => {
+    const qs = new URLSearchParams();
+    for (const k of ["name", "labId", "page", "size"]) if (req.query[k]) qs.set(k, String(req.query[k]));
+    const { status, json } = await getFitscript(`/api/internal/labs/markers?${qs.toString()}`);
+    if (status >= 300) return res.status(502).json({ error: json.error || "failed" });
+    res.json(json);
+  });
+
+  app.post("/api/ops/labs/lab-tests", async (req, res) => {
+    const { status, json } = await callFitscript("/api/internal/labs/lab-tests", req.body);
+    if (status >= 300) return res.status(502).json({ error: json.error || "create failed" });
+    res.json(json);
   });
 
   // ── Mappings (panel ↔ Junction test) — direct shared-table writes ────────
