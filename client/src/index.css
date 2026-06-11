@@ -242,3 +242,18 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgb(var(--ops-text-subtle));
 }
+
+/* Shared form input for ops admin forms (Labs mapping editor, etc.) */
+.ops-input {
+  width: 100%;
+  background: rgb(var(--ops-bg));
+  border: 1px solid rgb(var(--ops-border));
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: rgb(var(--ops-text));
+}
+.ops-input:focus {
+  outline: none;
+  border-color: rgb(var(--fitscript-green, 14 165 122));
+}
