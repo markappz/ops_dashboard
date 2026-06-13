@@ -284,6 +284,25 @@ export function registerLabsRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Stream a stored lab document (results or requisition PDF) through
+  // FitScript's ops-keyed internal endpoint — FitScript owns the private bucket.
+  app.get("/api/ops/labs/orders/:id/:doc.pdf", async (req, res) => {
+    const doc = req.params.doc;
+    if (doc !== "results" && doc !== "requisition") return res.status(400).json({ error: "doc must be results or requisition" });
+    try {
+      const r = await fetch(`${FITSCRIPT_URL}/api/internal/labs/orders/${req.params.id}/${doc}.pdf`, {
+        headers: { "x-ops-key": OPS_KEY },
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        return res.status(r.status).json({ error: txt || `${doc} PDF unavailable` });
+      }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `inline; filename="${doc}-${req.params.id}.pdf"`);
+      res.send(Buffer.from(await r.arrayBuffer()));
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
   // Refresh / refund / cancel one order (via FitScript — single owner).
   for (const action of ["refresh", "refund", "cancel"]) {
     app.post(`/api/ops/labs/orders/:id/${action}`, async (req, res) => {

@@ -147,8 +147,12 @@ function OrderDetail({ id, onRefresh, onRefund, onCancel, busy }: { id: string |
         <Field label="Low-level" value={o.low_level_status || "—"} />
         <Field label="Method" value={(o.collection_method || "").replace(/_/g, " ")} />
         <Field label="Env" value={o.junction_env} />
-        <Field label="Requisition" value={o.requisition_url ? "✓" : "—"} />
-        <Field label="Results PDF" value={o.results_pdf_key ? "✓" : "—"} />
+        <Field label="Requisition" value={o.requisition_pdf_key
+          ? <a className="text-ops-accent underline" href={`/api/ops/labs/orders/${o.id}/requisition.pdf`} target="_blank" rel="noreferrer">Open PDF</a>
+          : (o.requisition_url ? "✓ (not stored)" : "—")} />
+        <Field label="Results PDF" value={o.results_pdf_key
+          ? <a className="text-ops-accent underline" href={`/api/ops/labs/orders/${o.id}/results.pdf`} target="_blank" rel="noreferrer">Open PDF</a>
+          : "—"} />
       </div>
       {data.biomarkers?.length > 0 && (
         <div><div className="text-xs uppercase text-ops-text-muted mb-1">Biomarkers ({data.biomarkers.length})</div>
