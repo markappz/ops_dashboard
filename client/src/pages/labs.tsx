@@ -294,7 +294,9 @@ function PanelsTab() {
     queryKey: ["labs-panels"], queryFn: () => j("/api/ops/labs/panels"),
   });
   if (isLoading) return <Loading />;
-  const panels = data?.panels ?? [];
+  // Hide sandbox test panels from the production catalog view (kept in the DB
+  // for sandbox order testing; they're already hidden on the live storefront).
+  const panels = (data?.panels ?? []).filter((p: any) => !String(p.slug || "").startsWith("sandbox-"));
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
