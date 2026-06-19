@@ -51,11 +51,21 @@ export default function Labs() {
           ))}
         </div>
         {tab !== "orders" && (
-          <select value={env} onChange={(e) => setEnv(e.target.value as Env)}
-            className="bg-ops-card border border-ops-border rounded-lg px-3 py-1.5 text-sm text-ops-text">
-            <option value="sandbox">Sandbox</option>
-            <option value="production">Production</option>
-          </select>
+          <div className="inline-flex rounded-lg border border-ops-border overflow-hidden">
+            {(["sandbox", "production"] as Env[]).map((e) => (
+              <button
+                key={e}
+                onClick={() => setEnv(e)}
+                className={`px-4 py-1.5 text-sm font-medium transition ${
+                  env === e
+                    ? "bg-fitscript-green text-black"
+                    : "bg-ops-card text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {e === "sandbox" ? "Sandbox" : "Production"}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -191,7 +201,7 @@ function MappingsTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClie
       <div className="bg-ops-card border border-ops-border rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
-            <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Method</th><th className="text-left p-3">Junction Test</th><th className="text-left p-3">Price</th><th className="text-left p-3">Image</th><th className="text-left p-3">Enabled</th><th className="p-3"></th></tr>
+            <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Method</th><th className="text-left p-3">Junction Test</th><th className="text-left p-3">Price (ours / Junction)</th><th className="text-left p-3">Image</th><th className="text-left p-3">Enabled</th><th className="p-3"></th></tr>
           </thead>
           <tbody>
             {mappings.map((m) => (
@@ -199,7 +209,13 @@ function MappingsTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClie
                 <td className="p-3 text-ops-text">{m.display_name || m.panel_slug}<div className="text-xs text-ops-text-muted">{m.panel_slug}</div></td>
                 <td className="p-3 text-ops-text-muted">{(m.collection_method || "").replace(/_/g, " ")}</td>
                 <td className="p-3 text-ops-text-muted">{m.test_name || m.junction_lab_test_id?.slice(0, 8) + "…"}</td>
-                <td className="p-3 text-ops-text-muted">{m.price_cents != null ? money(m.price_cents) : <span className="text-xs italic">test {money(m.test_price_cents)}</span>}</td>
+                <td className="p-3">
+                  <div className="text-ops-text">
+                    {money(m.price_cents ?? m.panel_price_cents)}
+                    {m.price_cents != null && <span className="ml-1 text-[10px] text-fitscript-green">override</span>}
+                  </div>
+                  <div className="text-xs text-ops-text-muted">Junction {money(m.test_price_cents)}</div>
+                </td>
                 <td className="p-3">{m.image_url ? <img src={m.image_url} alt="" className="w-8 h-8 rounded object-cover" /> : <span className="text-xs text-ops-text-muted">—</span>}</td>
                 <td className="p-3" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => toggle.mutate({ id: m.id, enabled: !m.enabled })} disabled={toggle.isPending}

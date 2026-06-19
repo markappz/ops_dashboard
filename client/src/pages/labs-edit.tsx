@@ -104,7 +104,14 @@ function EditForm({ isNew, env, m, tests, onDone, onCancel }: any) {
           <Field label="Display name"><input value={f.displayName} onChange={(e) => set("displayName", e.target.value)} placeholder={selectedTest?.name || "defaults to panel name"} className="ops-input" /></Field>
           <Field label="Subtitle / tagline"><input value={f.subtitle} onChange={(e) => set("subtitle", e.target.value)} placeholder="short tagline" className="ops-input" /></Field>
           <Field label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={4} placeholder="Panel description shown to customers…" className="ops-input resize-y" /></Field>
-          <Field label="Price USD"><input value={f.priceDollars} onChange={(e) => set("priceDollars", e.target.value)} placeholder={selectedTest ? (selectedTest.price_cents / 100).toFixed(2) : "defaults to panel price"} className="ops-input" type="number" step="0.01" /></Field>
+          <Field label="Price USD">
+            <input value={f.priceDollars} onChange={(e) => set("priceDollars", e.target.value)} placeholder={m.panel_price_cents != null ? (m.panel_price_cents / 100).toFixed(2) : "defaults to panel price"} className="ops-input" type="number" step="0.01" />
+            <div className="mt-1 text-xs text-ops-text-muted">
+              Junction cost: <span className="text-ops-text">{money(selectedTest?.price_cents ?? m.test_price_cents)}</span>
+              {" · "}Our price: <span className="text-ops-text">{money(m.price_cents ?? m.panel_price_cents)}</span>
+              {f.priceDollars === "" && m.panel_price_cents != null && " (panel default — leave blank to keep)"}
+            </div>
+          </Field>
         </Section>
       </div>
 

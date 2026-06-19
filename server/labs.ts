@@ -90,10 +90,12 @@ export function registerLabsRoutes(app: Express) {
         `SELECT m.id, m.panel_slug, m.env, m.collection_method, m.junction_lab_test_id,
                 m.enabled, m.approval_status, m.notes, m.updated_at,
                 m.display_name, m.subtitle, m.description, m.image_url, m.price_cents,
-                c.name AS test_name, c.status AS test_status, c.price_cents AS test_price_cents
+                c.name AS test_name, c.status AS test_status, c.price_cents AS test_price_cents,
+                p.price_cents AS panel_price_cents
            FROM lab_test_mappings m
            LEFT JOIN junction_lab_catalog c
              ON c.junction_lab_test_id = m.junction_lab_test_id AND c.env = m.env
+           LEFT JOIN lab_panels p ON p.slug = m.panel_slug
            ${env ? "WHERE m.env=$1" : ""}
            ORDER BY m.panel_slug, m.collection_method`,
         env ? [env] : []);
@@ -105,9 +107,11 @@ export function registerLabsRoutes(app: Express) {
   app.get("/api/ops/labs/mappings/:id", async (req, res) => {
     try {
       const r = await pool.query(
-        `SELECT m.*, c.name AS test_name, c.price_cents AS test_price_cents
+        `SELECT m.*, c.name AS test_name, c.price_cents AS test_price_cents,
+                p.price_cents AS panel_price_cents
            FROM lab_test_mappings m
            LEFT JOIN junction_lab_catalog c ON c.junction_lab_test_id=m.junction_lab_test_id AND c.env=m.env
+           LEFT JOIN lab_panels p ON p.slug=m.panel_slug
           WHERE m.id=$1`, [req.params.id]);
       if (!r.rowCount) return res.status(404).json({ error: "mapping not found" });
       res.json({ mapping: r.rows[0] });
