@@ -50,7 +50,7 @@ export default function Labs() {
             </button>
           ))}
         </div>
-        {tab !== "orders" && (
+        {(tab === "mappings" || tab === "catalog") && (
           <div className="inline-flex rounded-lg border border-ops-border overflow-hidden">
             {(["sandbox", "production"] as Env[]).map((e) => (
               <button
