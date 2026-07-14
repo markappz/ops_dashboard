@@ -32,6 +32,22 @@ const pool = new Pool({
 
 export { pool };
 
+/**
+ * PeptideU database — a SEPARATE Supabase Postgres, read-only for this dashboard.
+ * Optional: the dashboard runs fine without it (the PeptideU section returns 503).
+ * Supabase always terminates TLS with a chain Node may not trust → skip validation.
+ */
+const peptideuUrl = process.env.PEPTIDEU_DATABASE_URL;
+export const peptidePool = peptideuUrl
+  ? new Pool({ connectionString: peptideuUrl, ssl: { rejectUnauthorized: false }, max: 4 })
+  : null;
+
+if (peptidePool) {
+  peptidePool.on("error", (err) => {
+    console.warn("[OPS DB] PeptideU pool error:", err.message);
+  });
+}
+
 export async function verifyConnection(): Promise<boolean> {
   try {
     await pool.query("SELECT 1");
@@ -39,6 +55,21 @@ export async function verifyConnection(): Promise<boolean> {
     return true;
   } catch (error: any) {
     console.error("[OPS DB] Connection failed:", error.message);
+    return false;
+  }
+}
+
+export async function verifyPeptideuConnection(): Promise<boolean> {
+  if (!peptidePool) {
+    console.warn("[OPS DB] PEPTIDEU_DATABASE_URL not set — PeptideU section disabled");
+    return false;
+  }
+  try {
+    await peptidePool.query("SELECT 1");
+    console.log("[OPS DB] Connected to PeptideU (Supabase) database");
+    return true;
+  } catch (error: any) {
+    console.error("[OPS DB] PeptideU connection failed:", error.message);
     return false;
   }
 }

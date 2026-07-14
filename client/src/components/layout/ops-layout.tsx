@@ -1,11 +1,23 @@
 import { Link, useLocation } from "wouter";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../hooks/use-theme";
+import { useCompany, type Company } from "../../hooks/use-company";
 import logoWhite from "../../assets/fitscript-logo-white.png";
 import { Dirt } from "../dirt/Dirt";
 
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
+
+const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
+  {
+    label: "PeptideU",
+    items: [
+      { path: "/peptideu", label: "Overview", icon: "grid" },
+      { path: "/peptideu/curriculum", label: "Curriculum", icon: "file-text" },
+      { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
+    ],
+  },
+];
 
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -85,13 +97,33 @@ async function logout() {
 export function OpsLayout({
   children,
   adminEmail,
+  role,
 }: {
   children: ReactNode;
   adminEmail?: string;
+  role?: "admin" | "viewer";
 }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { theme, toggle } = useTheme();
+  const { company, setCompany } = useCompany();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // The displayed company follows the URL so nav + content never disagree.
+  const activeCompany: Company = location.startsWith("/peptideu") ? "peptideu" : "fitscript";
+  const sections = activeCompany === "peptideu" ? PEPTIDEU_NAV_SECTIONS : NAV_SECTIONS;
+
+  // On first load, honor the remembered company preference.
+  const didRedirect = useRef(false);
+  useEffect(() => {
+    if (didRedirect.current) return;
+    didRedirect.current = true;
+    if (company === "peptideu" && location === "/") navigate("/peptideu");
+  }, [company, location, navigate]);
+
+  const selectCompany = (c: Company) => {
+    setCompany(c);
+    navigate(c === "peptideu" ? "/peptideu" : "/");
+  };
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -123,16 +155,38 @@ export function OpsLayout({
           </span>
         </div>
 
+        {/* Company switcher */}
+        <div className="px-4 py-3 border-b border-ops-border">
+          <div className="flex bg-ops-bg rounded-lg p-1 gap-1">
+            {([
+              { key: "fitscript" as Company, label: "FitScript" },
+              { key: "peptideu" as Company, label: "PeptideU" },
+            ]).map((o) => (
+              <button
+                key={o.key}
+                onClick={() => selectCompany(o.key)}
+                className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-all ${
+                  activeCompany === o.key
+                    ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"
+                    : "text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Nav — grouped sections */}
         <nav className="flex-1 py-3 overflow-y-auto">
-          {NAV_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div key={section.label} className="mb-4">
               <div className="px-6 mb-1.5 text-[10px] tracking-[0.14em] uppercase font-semibold text-ops-text-subtle">
                 {section.label}
               </div>
               {section.items.map((item) => {
-                const isActive =
-                  item.path === "/" ? location === "/" : location.startsWith(item.path);
+                const isHome = item.path === "/" || item.path === "/peptideu";
+                const isActive = isHome ? location === item.path : location.startsWith(item.path);
                 return (
                   <Link key={item.path} href={item.path}>
                     <div
@@ -203,6 +257,14 @@ export function OpsLayout({
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" /></svg>
               )}
             </button>
+            {role === "viewer" && (
+              <span
+                className="hidden sm:inline text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30"
+                title="Read-only access — you can view everything but cannot make changes"
+              >
+                Read-only
+              </span>
+            )}
             {adminEmail && (
               <>
                 <div className="w-px h-5 bg-ops-border hidden sm:block" />
@@ -236,11 +298,14 @@ export function OpsLayout({
   );
 }
 
+const ALL_SECTIONS = [...NAV_SECTIONS, ...PEPTIDEU_NAV_SECTIONS];
+const isHomePath = (p: string) => p === "/" || p === "/peptideu";
+
 function currentSectionLabel(path: string): string {
-  for (const section of NAV_SECTIONS) {
+  for (const section of ALL_SECTIONS) {
     if (
       section.items.some((i) =>
-        i.path === "/" ? path === "/" : path.startsWith(i.path),
+        isHomePath(i.path) ? path === i.path : path.startsWith(i.path),
       )
     ) {
       return section.label;
@@ -250,9 +315,9 @@ function currentSectionLabel(path: string): string {
 }
 
 function currentPageLabel(path: string): string {
-  for (const section of NAV_SECTIONS) {
+  for (const section of ALL_SECTIONS) {
     for (const item of section.items) {
-      if (item.path === "/" ? path === "/" : path.startsWith(item.path)) {
+      if (isHomePath(item.path) ? path === item.path : path.startsWith(item.path)) {
         return item.label;
       }
     }

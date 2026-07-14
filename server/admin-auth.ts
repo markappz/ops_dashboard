@@ -56,6 +56,26 @@ function envAllowlist(): string[] {
     .filter(Boolean);
 }
 
+// Read-only viewers (Michael + team). Env-only allowlist — they sign in with the
+// same Google flow but every non-GET request is blocked. Admin always wins over viewer.
+export type OpsRole = "admin" | "viewer";
+
+function viewerAllowlist(): Set<string> {
+  return new Set(
+    (process.env.VIEWER_EMAILS || "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+function resolveRole(email: string): OpsRole | null {
+  const e = email.toLowerCase();
+  if (getAllowlist().has(e)) return "admin";
+  if (viewerAllowlist().has(e)) return "viewer";
+  return null;
+}
+
 async function ensureAdminTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ops_admins (
@@ -216,8 +236,10 @@ function cookieOptions(maxAgeMs: number) {
 
 export interface AdminRequest extends Request {
   adminEmail?: string;
+  role?: OpsRole;
 }
 
+/** Admin-only: rejects viewers outright. Use on management endpoints. */
 export function requireAdmin(
   req: AdminRequest,
   res: Response,
@@ -231,17 +253,44 @@ export function requireAdmin(
     return res.status(403).json({ error: "not_authorized" });
   }
   req.adminEmail = claims.email;
+  req.role = "admin";
+  next();
+}
+
+/**
+ * Role-aware auth: admins get full access, viewers are read-only (every
+ * non-GET request is blocked 403). Attaches req.role for downstream use.
+ */
+export function requireAuth(
+  req: AdminRequest,
+  res: Response,
+  next: NextFunction
+) {
+  const token = req.cookies?.[COOKIE_NAME];
+  if (!token) return res.status(401).json({ error: "unauthenticated" });
+  const claims = verify(token);
+  if (!claims) return res.status(401).json({ error: "invalid_session" });
+  const role = resolveRole(claims.email);
+  if (!role) return res.status(403).json({ error: "not_authorized" });
+  if (req.method !== "GET" && role !== "admin") {
+    return res
+      .status(403)
+      .json({ error: "read_only", message: "Read-only access — this action requires an admin account" });
+  }
+  req.adminEmail = claims.email;
+  req.role = role;
   next();
 }
 
 /**
  * Top-level gate: blocks every /api/ops/* except /api/ops/auth/*.
  * Keep /api/t/* (tracking pixel ingest) and /api/health public.
+ * Uses role-aware auth so read-only viewers can GET but not mutate.
  */
 export function opsGate(req: Request, res: Response, next: NextFunction) {
   if (!req.path.startsWith("/api/ops/")) return next();
   if (req.path.startsWith("/api/ops/auth/")) return next();
-  return requireAdmin(req as AdminRequest, res, next);
+  return requireAuth(req as AdminRequest, res, next);
 }
 
 // ─── Routes ────────────────────────────────────────────────────────
@@ -360,17 +409,18 @@ export function registerAdminAuthRoutes(app: Express) {
       const email = (data.email || "").toLowerCase();
 
       if (!email) return res.status(400).send("missing email from google");
-      if (!getAllowlist().has(email)) {
-        console.warn(`[OPS][AUTH] denied login for non-admin: ${email}`);
+      const role = resolveRole(email);
+      if (!role) {
+        console.warn(`[OPS][AUTH] denied login for non-allowlisted: ${email}`);
         return res
           .status(403)
-          .send(`Not authorized. ${email} is not on the admin allowlist.`);
+          .send(`Not authorized. ${email} is not on the allowlist.`);
       }
 
       const exp = Date.now() + COOKIE_TTL_MS;
       const token = sign({ email, exp });
       res.cookie(COOKIE_NAME, token, cookieOptions(COOKIE_TTL_MS));
-      console.log(`[OPS][AUTH] admin login: ${email}`);
+      console.log(`[OPS][AUTH] ${role} login: ${email}`);
       res.redirect("/");
     } catch (e: any) {
       console.error("[OPS][AUTH] callback error:", e.message);
@@ -383,10 +433,9 @@ export function registerAdminAuthRoutes(app: Express) {
     if (!token) return res.status(401).json({ error: "unauthenticated" });
     const claims = verify(token);
     if (!claims) return res.status(401).json({ error: "invalid_session" });
-    if (!getAllowlist().has(claims.email.toLowerCase())) {
-      return res.status(403).json({ error: "not_authorized" });
-    }
-    res.json({ email: claims.email });
+    const role = resolveRole(claims.email);
+    if (!role) return res.status(403).json({ error: "not_authorized" });
+    res.json({ email: claims.email, role });
   });
 
   app.post("/api/ops/auth/logout", (_req, res) => {

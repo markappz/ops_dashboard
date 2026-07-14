@@ -25,6 +25,8 @@ import { registerTicketRoutes } from "./tickets";
 import { registerReportsRoutes, startEmailReportWarmer } from "./reports";
 import { registerDmarcRoutes } from "./dmarc";
 import { registerLabsRoutes } from "./labs";
+import { registerPeptideURoutes } from "./peptideu";
+import { verifyPeptideuConnection } from "./db";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -73,6 +75,7 @@ registerTicketRoutes(app);
 registerReportsRoutes(app);
 registerDmarcRoutes(app);
 registerLabsRoutes(app);
+registerPeptideURoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
@@ -122,6 +125,7 @@ async function start() {
   }
 
   await ensureTrackingTables();
+  await verifyPeptideuConnection(); // non-fatal — PeptideU section degrades gracefully
   await setupClient();
 
   app.listen(PORT, () => {

@@ -30,9 +30,13 @@ import Content from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
+import PeptideuOverview from "./pages/peptideu-overview";
+import PeptideuCurriculum from "./pages/peptideu-curriculum";
+import PeptideuEngagement from "./pages/peptideu-engagement";
 
 interface Me {
   email: string;
+  role: "admin" | "viewer";
 }
 
 function useAdminSession() {
@@ -88,7 +92,7 @@ export default function App() {
   }
 
   return (
-    <OpsLayout adminEmail={me.email}>
+    <OpsLayout adminEmail={me.email} role={me.role}>
       <ErrorBoundary>
         <Switch>
           <Route path="/" component={CommandCenter} />
@@ -128,6 +132,11 @@ export default function App() {
           {/* System */}
           <Route path="/integrations" component={Integrations} />
           <Route path="/settings" component={Settings} />
+
+          {/* PeptideU */}
+          <Route path="/peptideu" component={PeptideuOverview} />
+          <Route path="/peptideu/curriculum" component={PeptideuCurriculum} />
+          <Route path="/peptideu/engagement" component={PeptideuEngagement} />
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
           <Route path="/tracking"><Redirect to="/marketing" /></Route>
