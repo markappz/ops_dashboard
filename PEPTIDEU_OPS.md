@@ -23,6 +23,12 @@ role** so Michael/team can see insights without changing anything.
 
 - `/peptideu` — Overview: MRR/ARR est., premium, conversion, users, 30-day signups chart,
   signup→premium funnel, rank distribution.
+- `/peptideu/members` — **management (admin-write)**: search members, comp/remove premium,
+  assign roles (member→owner). Viewers can view (GET); every mutation is admin-only —
+  `opsGate` returns 403 `read_only` on non-GET for viewers. Writes are direct parameterized
+  SQL on `peptidePool` (UPDATE profiles; comp inserts an `ops_comp` lifetime membership_grant).
+  **Requires `PEPTIDEU_DATABASE_URL` to be a WRITE-capable connection** (the postgres pooler
+  string, which bypasses RLS) — the read-only endpoints work with any role, but these need write.
 - `/peptideu/curriculum` — per-module completion + quiz pass rates (12 modules).
 - `/peptideu/engagement` — Ask / COA / Commons / Office Hours / Research Log usage.
 - API (auto-gated under `/api/ops/*`): `/api/ops/peptideu/{snapshot,signups,ranks,curriculum,engagement,funnel}`
