@@ -191,4 +191,66 @@ export function registerPeptideURoutes(app: Express) {
       res.status(500).json({ error: "Failed to load funnel" });
     }
   });
+
+  // ── Member management ──────────────────────────────────────────────────────
+  // GETs are visible to viewers; every mutation below is admin-only for free —
+  // opsGate blocks non-GET for the viewer role (403 read_only). Writes go direct
+  // (peptidePool connects as postgres, bypassing RLS) since the dashboard is the
+  // authority here, gated by its own Google-OAuth admin.
+  const PU_ROLES = ["member", "coach", "moderator", "admin", "owner"];
+
+  app.get("/api/ops/peptideu/members", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const q = String(req.query.q ?? "").trim().toLowerCase();
+    try {
+      const { rows } = q
+        ? await peptidePool!.query(
+            `SELECT id, email, display_name, role, entitlement, points, created_at
+             FROM profiles WHERE lower(email) LIKE $1 OR lower(display_name) LIKE $1
+             ORDER BY created_at DESC LIMIT 50`, [`%${q}%`])
+        : await peptidePool!.query(
+            `SELECT id, email, display_name, role, entitlement, points, created_at
+             FROM profiles ORDER BY created_at DESC LIMIT 50`);
+      res.json(rows);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] members", error);
+      res.status(500).json({ error: "Failed to load members" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/members/:id/entitlement", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const { id } = req.params;
+    const entitlement = String(req.body?.entitlement ?? "");
+    if (!["free", "premium"].includes(entitlement)) return res.status(400).json({ error: "bad_entitlement" });
+    try {
+      const upd = await peptidePool!.query(`UPDATE profiles SET entitlement = $1 WHERE id = $2`, [entitlement, id]);
+      if (upd.rowCount === 0) return res.status(404).json({ error: "not_found" });
+      if (entitlement === "premium") {
+        await peptidePool!.query(
+          `INSERT INTO membership_grants (user_id, kind, source)
+           SELECT $1, 'lifetime', 'ops_comp'
+           WHERE NOT EXISTS (SELECT 1 FROM membership_grants WHERE user_id = $1 AND source LIKE '%comp')`, [id]);
+      }
+      res.json({ ok: true, entitlement });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] set entitlement", error);
+      res.status(500).json({ error: "Failed to update entitlement" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/members/:id/role", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const { id } = req.params;
+    const role = String(req.body?.role ?? "");
+    if (!PU_ROLES.includes(role)) return res.status(400).json({ error: "bad_role" });
+    try {
+      const upd = await peptidePool!.query(`UPDATE profiles SET role = $1 WHERE id = $2`, [role, id]);
+      if (upd.rowCount === 0) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true, role });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] set role", error);
+      res.status(500).json({ error: "Failed to update role" });
+    }
+  });
 }

@@ -31,6 +31,7 @@ import Settings from "./pages/settings";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
 import PeptideuOverview from "./pages/peptideu-overview";
+import PeptideuMembers from "./pages/peptideu-members";
 import PeptideuCurriculum from "./pages/peptideu-curriculum";
 import PeptideuEngagement from "./pages/peptideu-engagement";
 
@@ -135,6 +136,7 @@ export default function App() {
 
           {/* PeptideU */}
           <Route path="/peptideu" component={PeptideuOverview} />
+          <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/curriculum" component={PeptideuCurriculum} />
           <Route path="/peptideu/engagement" component={PeptideuEngagement} />
 

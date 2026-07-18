@@ -13,6 +13,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
     label: "PeptideU",
     items: [
       { path: "/peptideu", label: "Overview", icon: "grid" },
+      { path: "/peptideu/members", label: "Members", icon: "users" },
       { path: "/peptideu/curriculum", label: "Curriculum", icon: "file-text" },
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
     ],
