@@ -4,6 +4,19 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-07-19 — PeptideU section: management + moderation + drawing (write-enabled)
+
+Extended the PeptideU section from read-only analytics into a full admin surface. All raw SQL on `peptidePool`; every mutation is admin-only for free (`opsGate` 403s viewers on non-GET). Deployed to ops.fitscript.me (commits through `32bf652`).
+
+- **Prod blocker fixed:** `PEPTIDEU_DATABASE_URL` was never set → section showed "not connected." Paul's dev added it (Session pooler :5432, `postgres.…` user, WRITE-capable) as a plaintext env var on the live ECS task def (a ValueFrom-secret attempt tripped the deploy circuit breaker — secret resolution failed at task start). "[OPS DB] Connected" confirmed. Persists across deploys (pipeline reads the live task def). **TODO: move to Secrets Manager** (+ execution-role `secretsmanager:GetSecretValue`) to get the password out of the task def.
+- **Members** (`/peptideu/members`): search, comp/remove premium (logs `ops_comp` lifetime grant), set role. Kills the SQL-editor grind for the two most-common ops.
+- **Requests** (`/peptideu/requests`): deny/approve member peptide+brand suggestions. Peptide approve → AI Library draft via the ops `anthropic` client (Sonnet 4.5, `BEDROCK_MODELS.HIGH_IQ`), prompt kept in sync with the app's `admin-generate-peptide` edge fn — no cross-repo secret. Draft lands `published=false`; publish from the app.
+- **Moderation** (`/peptideu/moderation`): post-hoc take-down of live Commons posts (DELETE, cascades) + peptide/brand reviews (reject). No reports table yet — take-down, not triage.
+- **Drawing** (`/peptideu/drawing`): entry leaderboard + totals + prize picker + "Run drawing" (weighted-random `run_drawing`, admin-only) + past winners. Reads/writes PeptideU's `entry_leaderboard`/`run_drawing`/`recent_winners` (migration 0052 in the PeptideU DB).
+- Server: all endpoints in `server/peptideu.ts`. Nav: added Members/Requests/Moderation/Drawing to `PEPTIDEU_NAV_SECTIONS` (+ shield/gift icons). Docs in `PEPTIDEU_OPS.md`.
+
+---
+
 ## 2026-06-04 — Email deliverability fixes + 5 reports bugs + Waitlist CTAs
 
 ### Reports bugs caught + fixed (commits `6db0740` + `a79f001`)
