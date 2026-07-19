@@ -6,6 +6,25 @@
  */
 import type { Express, Request, Response } from "express";
 import { peptidePool } from "./db";
+import { anthropic, BEDROCK_MODELS } from "./lib/bedrock";
+
+// Library-entry generation prompt. KEEP IN SYNC with the PeptideU edge function
+// `admin-generate-peptide` (supabase/functions/) — same compliance wall, so a
+// draft made from the portal reads identically to one made from the app.
+const GEN_SYSTEM = `You write a single factual, evidence-first encyclopedia entry for PeptideU — a peptide EDUCATION and research-tracking library. It teaches what the published research describes; it never advises.
+
+HARD RULES — a violation makes the entry unusable:
+- NEVER include a dose, dosing schedule, cycle, titration, administration route, reconstitution amount, or "how to use/take/inject" — not even ranges, not even "commonly." If research is expressed in doses, describe the finding qualitatively without the numbers.
+- NEVER recommend/encourage acquiring or using it. No vendors, no "where to buy," no product/brand names.
+- No therapeutic promises or cure claims. Describe what studies observed, with honest uncertainty.
+- Grade evidence HONESTLY — most peptides are early/preclinical/theoretical; say so.
+
+VOICE: calm, precise, third-person reference tone; technical but readable; define terms inline. Attribute findings to the research ("studies describe", "the literature frames"); name genuine debates explicitly; no hype adjectives.
+
+Output STRICT JSON ONLY (no markdown): {"name":string,"aka":string[],"category":string,"class_label":string,"aa_count":number|null,"half_life":string|null,"regulatory_note":string,"summary":string,"mechanism":{"intro":string,"points":[{"label":string,"text":string}],"together":string},"reported":[{"value":string,"label":string}],"the_catch":string,"evidence_tier":"established"|"promising"|"early"|"preclinical"|"theoretical"|"disputed"}`;
+
+const slugify = (s: string) =>
+  s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
 // Yearly plan ($99.99, the promoted one) monthly-equivalent, for MRR estimate.
 const YEARLY_PRICE = 99.99;
@@ -251,6 +270,130 @@ export function registerPeptideURoutes(app: Express) {
     } catch (error: any) {
       console.error("[PEPTIDEU] set role", error);
       res.status(500).json({ error: "Failed to update role" });
+    }
+  });
+
+  // ── Moderation queue ───────────────────────────────────────────────────────
+  // No reports table + reviews/posts are AI-moderated on submit, so this is
+  // post-hoc: browse what's LIVE and pull anything the AI let through. Remove =
+  // delete a post (cascades) or reject a review (drops it from the members' view).
+  app.get("/api/ops/peptideu/moderation", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [posts, pr, br] = await Promise.all([
+        peptidePool!.query(`
+          SELECT cp.id, cp.body, cp.created_at, p.display_name, ch.name AS channel
+          FROM community_posts cp JOIN profiles p ON p.id = cp.user_id
+          LEFT JOIN channels ch ON ch.id = cp.channel_id
+          ORDER BY cp.created_at DESC LIMIT 40`),
+        peptidePool!.query(`
+          SELECT r.id, r.note, r.rating, r.created_at, p.display_name, pep.name AS subject
+          FROM peptide_reviews r JOIN profiles p ON p.id = r.user_id
+          JOIN peptides pep ON pep.id = r.peptide_id
+          WHERE r.status = 'approved' AND r.note IS NOT NULL
+          ORDER BY r.created_at DESC LIMIT 40`),
+        peptidePool!.query(`
+          SELECT r.id, r.note, r.rating, r.created_at, p.display_name, b.name AS subject
+          FROM brand_reviews r JOIN profiles p ON p.id = r.user_id
+          JOIN brands b ON b.id = r.brand_id
+          WHERE r.status = 'approved' AND r.note IS NOT NULL
+          ORDER BY r.created_at DESC LIMIT 40`),
+      ]);
+      res.json({ posts: posts.rows, peptideReviews: pr.rows, brandReviews: br.rows });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] moderation", error);
+      res.status(500).json({ error: "Failed to load moderation queue" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/moderation/remove", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const { type, id } = req.body ?? {};
+    try {
+      if (type === "post") await peptidePool!.query(`DELETE FROM community_posts WHERE id = $1`, [id]);
+      else if (type === "peptide_review") await peptidePool!.query(`UPDATE peptide_reviews SET status = 'rejected' WHERE id = $1`, [id]);
+      else if (type === "brand_review") await peptidePool!.query(`UPDATE brand_reviews SET status = 'rejected' WHERE id = $1`, [id]);
+      else return res.status(400).json({ error: "bad_type" });
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] remove", error);
+      res.status(500).json({ error: "Failed to remove" });
+    }
+  });
+
+  // ── Request approval ───────────────────────────────────────────────────────
+  app.get("/api/ops/peptideu/requests", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [pep, brand] = await Promise.all([
+        peptidePool!.query(`SELECT id, name, category, why, created_at FROM peptide_requests WHERE status = 'pending' ORDER BY created_at`),
+        peptidePool!.query(`SELECT id, name, note, created_at FROM brand_requests WHERE status = 'pending' ORDER BY created_at`),
+      ]);
+      res.json({ peptides: pep.rows, brands: brand.rows });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] requests", error);
+      res.status(500).json({ error: "Failed to load requests" });
+    }
+  });
+
+  // Deny either kind, or approve a brand (marks it; brand entries stay manual).
+  app.post("/api/ops/peptideu/requests/:kind/:id/:decision", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const { kind, id, decision } = req.params;
+    if (!["peptide", "brand"].includes(kind) || !["approved", "denied"].includes(decision))
+      return res.status(400).json({ error: "bad_request" });
+    // peptide approvals go through AI generation, not this endpoint
+    if (kind === "peptide" && decision === "approved")
+      return res.status(400).json({ error: "use_generate" });
+    try {
+      const table = kind === "peptide" ? "peptide_requests" : "brand_requests";
+      await peptidePool!.query(`UPDATE ${table} SET status = $1, reviewed_at = now() WHERE id = $2 AND status = 'pending'`, [decision, id]);
+      res.json({ ok: true, decision });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] decide request", error);
+      res.status(500).json({ error: "Failed to update request" });
+    }
+  });
+
+  // Approve a peptide request → generate an unpublished DRAFT (published=false).
+  // Never goes live here; an admin publishes it from the Library review.
+  app.post("/api/ops/peptideu/requests/peptide/:id/generate", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const { id } = req.params;
+    try {
+      const { rows } = await peptidePool!.query(`SELECT id, name, category, status FROM peptide_requests WHERE id = $1`, [id]);
+      const reqRow = rows[0];
+      if (!reqRow) return res.status(404).json({ error: "not_found" });
+
+      const ai: any = await (anthropic as any).messages.create({
+        model: BEDROCK_MODELS.HIGH_IQ,
+        max_tokens: 2500,
+        system: GEN_SYSTEM,
+        messages: [{ role: "user", content: `Write the Library entry for: "${reqRow.name}"${reqRow.category ? ` (member filed it under: ${reqRow.category})` : ""}. Return the JSON only.` }],
+      });
+      const text = (ai.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+      let entry: any;
+      try { entry = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, "")); }
+      catch { return res.status(502).json({ error: "model returned non-JSON" }); }
+
+      let slug = slugify(entry.name || reqRow.name);
+      const clash = await peptidePool!.query(`SELECT 1 FROM peptides WHERE slug = $1`, [slug]);
+      if (clash.rowCount) slug = `${slug}-${String(id).slice(0, 6)}`;
+
+      const ins = await peptidePool!.query(
+        `INSERT INTO peptides (slug, name, aka, category, class_label, aa_count, half_life, regulatory, regulatory_note, summary, mechanism, reported, the_catch, evidence_tier, published)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'other',$8,$9,$10,$11,$12,$13,false) RETURNING id, slug, name`,
+        [slug, entry.name ?? reqRow.name, Array.isArray(entry.aka) ? entry.aka : [], entry.category ?? reqRow.category ?? null,
+         entry.class_label ?? null, typeof entry.aa_count === "number" ? entry.aa_count : null, entry.half_life ?? null,
+         entry.regulatory_note ?? null, entry.summary ?? null, entry.mechanism ?? null, entry.reported ?? null,
+         entry.the_catch ?? null, entry.evidence_tier ?? "theoretical"]);
+      const draft = ins.rows[0];
+
+      await peptidePool!.query(`UPDATE peptide_requests SET status = 'approved', reviewed_at = now(), peptide_id = $1 WHERE id = $2`, [draft.id, id]);
+      res.json({ ok: true, draft, published: false });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] generate", error);
+      res.status(500).json({ error: "Generation failed" });
     }
   });
 }

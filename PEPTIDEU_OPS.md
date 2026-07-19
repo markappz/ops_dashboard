@@ -29,6 +29,14 @@ role** so Michael/team can see insights without changing anything.
   SQL on `peptidePool` (UPDATE profiles; comp inserts an `ops_comp` lifetime membership_grant).
   **Requires `PEPTIDEU_DATABASE_URL` to be a WRITE-capable connection** (the postgres pooler
   string, which bypasses RLS) — the read-only endpoints work with any role, but these need write.
+- `/peptideu/requests` — **admin-write**: member peptide/brand suggestions. Deny (SQL) or approve.
+  Approving a peptide runs AI generation (`anthropic` client, `BEDROCK_MODELS.HIGH_IQ`, prompt kept
+  in sync with the app's `admin-generate-peptide` edge fn) → inserts a `peptides` row `published=false`
+  (draft) → an admin publishes it from the app/Library. Brands are marked approved (manual entry).
+  **Uses the ops AI credentials (Bedrock/Anthropic) — no cross-repo secret.**
+- `/peptideu/moderation` — **admin-write**: post-hoc queue of live Commons posts + peptide/brand
+  reviews (all AI-pre-moderated on submit). Remove pulls a post (DELETE, cascades) or rejects a
+  review (drops it from members' view). No reports table exists yet; this is take-down, not triage.
 - `/peptideu/curriculum` — per-module completion + quiz pass rates (12 modules).
 - `/peptideu/engagement` — Ask / COA / Commons / Office Hours / Research Log usage.
 - API (auto-gated under `/api/ops/*`): `/api/ops/peptideu/{snapshot,signups,ranks,curriculum,engagement,funnel}`
