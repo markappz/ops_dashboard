@@ -396,4 +396,36 @@ export function registerPeptideURoutes(app: Express) {
       res.status(500).json({ error: "Generation failed" });
     }
   });
+
+  // ── Grant Drawing ──────────────────────────────────────────────────────────
+  // Leaderboard + totals + past winners. Read; safe for viewers.
+  app.get("/api/ops/peptideu/drawing", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      await peptidePool!.query(`SELECT reconcile_entries()`); // pull in latest module-pass entries
+      const [lb, win, tot] = await Promise.all([
+        peptidePool!.query(`SELECT * FROM entry_leaderboard(NULL, 25)`),
+        peptidePool!.query(`SELECT * FROM recent_winners(10)`),
+        peptidePool!.query(`SELECT count(DISTINCT user_id)::int AS players, coalesce(sum(entries),0)::int AS entries, current_season() AS season FROM sweepstakes_entries WHERE season = current_season()`),
+      ]);
+      res.json({ leaderboard: lb.rows, winners: win.rows, totals: tot.rows[0] });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] drawing", error);
+      res.status(500).json({ error: "Failed to load drawing" });
+    }
+  });
+
+  // Run the weighted-random draw (admin-only via opsGate on non-GET).
+  app.post("/api/ops/peptideu/drawing/run", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const prize = String(req.body?.prize ?? "Grant").slice(0, 80);
+    const season = req.body?.season ? String(req.body.season) : null;
+    try {
+      const { rows } = await peptidePool!.query(`SELECT run_drawing($1, $2) AS result`, [season, prize]);
+      res.json(rows[0].result);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] run drawing", error);
+      res.status(500).json({ error: "Draw failed" });
+    }
+  });
 }

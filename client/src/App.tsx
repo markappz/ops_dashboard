@@ -34,6 +34,7 @@ import PeptideuOverview from "./pages/peptideu-overview";
 import PeptideuMembers from "./pages/peptideu-members";
 import PeptideuRequests from "./pages/peptideu-requests";
 import PeptideuModeration from "./pages/peptideu-moderation";
+import PeptideuDrawing from "./pages/peptideu-drawing";
 import PeptideuCurriculum from "./pages/peptideu-curriculum";
 import PeptideuEngagement from "./pages/peptideu-engagement";
 
@@ -141,6 +142,7 @@ export default function App() {
           <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/requests" component={PeptideuRequests} />
           <Route path="/peptideu/moderation" component={PeptideuModeration} />
+          <Route path="/peptideu/drawing" component={PeptideuDrawing} />
           <Route path="/peptideu/curriculum" component={PeptideuCurriculum} />
           <Route path="/peptideu/engagement" component={PeptideuEngagement} />
 
