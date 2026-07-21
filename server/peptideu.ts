@@ -26,6 +26,21 @@ Output STRICT JSON ONLY (no markdown): {"name":string,"aka":string[],"category":
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 
+// Curriculum-gap analysis prompt. Clusters real member questions into themes,
+// checks them against the existing modules, and proposes new modules / office
+// hours. INTERNAL ops planning only — the output is topic labels for Paul, never
+// member-facing content, so the same compliance wall still applies: no doses, no
+// protocols, no "what to take" in any rationale.
+const INSIGHTS_SYSTEM = `You analyse what PeptideU members are asking (the Professor AI + the Commons) to help plan curriculum. You cluster questions into themes, check each theme against the existing modules, and surface gaps.
+
+RULES:
+- This is internal planning. Output TOPIC LABELS and rationale only. NEVER put a dose, dosing schedule, protocol, or "what to take/how much" in any field — describe the SUBJECT people are asking about, not an answer to it.
+- "covered" is true only when an existing module clearly teaches that theme; if a theme is adjacent but not really taught, mark it uncovered.
+- Rank demand honestly from how often the theme appears in the sample. Do not invent themes that are not in the questions.
+- Keep titles short and concrete. Rationale = one sentence on why it is worth building, referencing the demand.
+
+Output STRICT JSON ONLY (no markdown): {"themes":[{"topic":string,"demand":"high"|"medium"|"low","covered":boolean,"coveredBy":string|null,"example":string}],"moduleSuggestions":[{"title":string,"rationale":string}],"officeHoursSuggestions":[{"topic":string,"rationale":string}]}`;
+
 // Yearly plan ($99.99, the promoted one) monthly-equivalent, for MRR estimate.
 const YEARLY_PRICE = 99.99;
 const MONTHLY_EQUIV = YEARLY_PRICE / 12;
@@ -412,6 +427,85 @@ export function registerPeptideURoutes(app: Express) {
     } catch (error: any) {
       console.error("[PEPTIDEU] drawing", error);
       res.status(500).json({ error: "Failed to load drawing" });
+    }
+  });
+
+  // ── Coach queue: most-asked questions ───────────────────────────────────────
+  // Live list of what members actually ask the Professor, grouped by normalized
+  // text so repeats bubble up (with a distinct-user count). Read; safe for
+  // viewers. The answer shown is what the Professor gave the most recent asker —
+  // Q&A share an insert timestamp, so we match the assistant row on created_at.
+  app.get("/api/ops/peptideu/questions", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const { rows } = await peptidePool!.query(`
+        SELECT t.n, t.users, t.example, t.last_at,
+          (SELECT a.content FROM ask_messages a
+             WHERE a.role = 'assistant' AND a.created_at = t.last_at LIMIT 1) AS answer
+        FROM (
+          SELECT count(*)::int AS n, count(DISTINCT user_id)::int AS users,
+                 (array_agg(content ORDER BY created_at DESC))[1] AS example,
+                 max(created_at) AS last_at
+          FROM ask_messages
+          WHERE role = 'user' AND length(btrim(content)) > 2
+          GROUP BY lower(btrim(content))
+          ORDER BY count(*) DESC, max(created_at) DESC
+          LIMIT 20
+        ) t
+      `);
+      res.json(rows.map((r) => ({
+        question: r.example,
+        asks: Number(r.n),
+        users: Number(r.users),
+        lastAt: r.last_at,
+        answer: r.answer ?? null,
+      })));
+    } catch (error: any) {
+      console.error("[PEPTIDEU] questions", error);
+      res.status(500).json({ error: "Failed to load questions" });
+    }
+  });
+
+  // ── Curriculum-gap analysis (AI) ─────────────────────────────────────────────
+  // POST (admin-only via opsGate — it spends an AI call, so viewers can't trigger
+  // it). Feeds recent Professor + Commons questions and the module list to the
+  // model, which clusters themes, flags gaps, and proposes modules / office hours.
+  app.post("/api/ops/peptideu/question-insights", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [ask, posts, mods] = await Promise.all([
+        peptidePool!.query(`SELECT content FROM ask_messages WHERE role = 'user' AND length(btrim(content)) > 2 ORDER BY created_at DESC LIMIT 300`),
+        peptidePool!.query(`SELECT body FROM community_posts WHERE byline IS NULL AND length(btrim(body)) > 2 ORDER BY created_at DESC LIMIT 150`),
+        peptidePool!.query(`SELECT order_index, title FROM modules ORDER BY order_index`),
+      ]);
+      const questions = [
+        ...ask.rows.map((r) => String(r.content)),
+        ...posts.rows.map((r) => String(r.body)),
+      ];
+      if (questions.length === 0) return res.json({ themes: [], moduleSuggestions: [], officeHoursSuggestions: [], sampleSize: 0 });
+      const moduleList = mods.rows.map((m) => `${Number(m.order_index) + 1}. ${m.title}`).join("\n");
+      const sample = questions.map((x) => `- ${x.slice(0, 240)}`).join("\n");
+
+      const ai: any = await (anthropic as any).messages.create({
+        model: BEDROCK_MODELS.HIGH_IQ,
+        max_tokens: 2200,
+        system: INSIGHTS_SYSTEM,
+        messages: [{ role: "user", content: `Existing modules:\n${moduleList}\n\nRecent member questions (${questions.length}, Professor + Commons):\n${sample}\n\nReturn the JSON only.` }],
+      });
+      const text = (ai.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+      let out: any;
+      try { out = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, "")); }
+      catch { return res.status(502).json({ error: "model returned non-JSON" }); }
+
+      res.json({
+        themes: Array.isArray(out.themes) ? out.themes : [],
+        moduleSuggestions: Array.isArray(out.moduleSuggestions) ? out.moduleSuggestions : [],
+        officeHoursSuggestions: Array.isArray(out.officeHoursSuggestions) ? out.officeHoursSuggestions : [],
+        sampleSize: questions.length,
+      });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] question-insights", error);
+      res.status(500).json({ error: "Analysis failed" });
     }
   });
 

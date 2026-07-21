@@ -37,6 +37,7 @@ import PeptideuModeration from "./pages/peptideu-moderation";
 import PeptideuDrawing from "./pages/peptideu-drawing";
 import PeptideuCurriculum from "./pages/peptideu-curriculum";
 import PeptideuEngagement from "./pages/peptideu-engagement";
+import PeptideuQuestions from "./pages/peptideu-questions";
 
 interface Me {
   email: string;
@@ -143,6 +144,7 @@ export default function App() {
           <Route path="/peptideu/requests" component={PeptideuRequests} />
           <Route path="/peptideu/moderation" component={PeptideuModeration} />
           <Route path="/peptideu/drawing" component={PeptideuDrawing} />
+          <Route path="/peptideu/questions" component={PeptideuQuestions} />
           <Route path="/peptideu/curriculum" component={PeptideuCurriculum} />
           <Route path="/peptideu/engagement" component={PeptideuEngagement} />
 
