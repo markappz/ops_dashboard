@@ -418,15 +418,59 @@ export function registerPeptideURoutes(app: Express) {
     if (!ensurePool(res)) return;
     try {
       await peptidePool!.query(`SELECT reconcile_entries()`); // pull in latest module-pass entries
-      const [lb, win, tot] = await Promise.all([
+      const [lb, win, tot, draws, flag] = await Promise.all([
         peptidePool!.query(`SELECT * FROM entry_leaderboard(NULL, 25)`),
         peptidePool!.query(`SELECT * FROM recent_winners(10)`),
         peptidePool!.query(`SELECT count(DISTINCT user_id)::int AS players, coalesce(sum(entries),0)::int AS entries, current_season() AS season FROM sweepstakes_entries WHERE season = current_season()`),
+        peptidePool!.query(`SELECT id, prize, num_winners, scheduled_at, seed_hash, status, drawn_at FROM drawings ORDER BY scheduled_at DESC LIMIT 12`),
+        peptidePool!.query(`SELECT coalesce((SELECT enabled FROM app_flags WHERE key='drawings_live'), false) AS live`),
       ]);
-      res.json({ leaderboard: lb.rows, winners: win.rows, totals: tot.rows[0] });
+      res.json({ leaderboard: lb.rows, winners: win.rows, totals: tot.rows[0], drawings: draws.rows, live: flag.rows[0].live });
     } catch (error: any) {
       console.error("[PEPTIDEU] drawing", error);
       res.status(500).json({ error: "Failed to load drawing" });
+    }
+  });
+
+  // Schedule a provably-fair drawing (mints + commits a seed hash). Admin-only.
+  app.post("/api/ops/peptideu/drawings/schedule", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const prize = String(req.body?.prize ?? "Grant").slice(0, 80);
+    const winners = Math.min(10, Math.max(1, Math.floor(Number(req.body?.winners ?? 3))));
+    const at = req.body?.scheduled_at ? new Date(req.body.scheduled_at) : null;
+    if (!at || isNaN(at.getTime())) return res.status(400).json({ error: "bad_date" });
+    try {
+      const { rows } = await peptidePool!.query(`SELECT schedule_drawing($1,$2,$3) AS r`, [prize, winners, at.toISOString()]);
+      res.json(rows[0].r);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] schedule drawing", error);
+      res.status(500).json({ error: "Schedule failed" });
+    }
+  });
+
+  // Execute a scheduled drawing (provably-fair; refuses unless the legal flag is on
+  // and the scheduled time has passed). Admin-only.
+  app.post("/api/ops/peptideu/drawings/:id/execute", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const { rows } = await peptidePool!.query(`SELECT execute_drawing($1) AS r`, [req.params.id]);
+      res.json(rows[0].r);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] execute drawing", error);
+      res.status(500).json({ error: "Execute failed" });
+    }
+  });
+
+  // The LEGAL kill-switch. Flip only after attorney sign-off + state registration.
+  app.post("/api/ops/peptideu/drawings/flag", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const enabled = !!req.body?.enabled;
+    try {
+      await peptidePool!.query(`UPDATE app_flags SET enabled=$1, updated_at=now() WHERE key='drawings_live'`, [enabled]);
+      res.json({ ok: true, live: enabled });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] flag", error);
+      res.status(500).json({ error: "Flag update failed" });
     }
   });
 
