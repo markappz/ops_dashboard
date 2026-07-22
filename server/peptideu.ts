@@ -418,14 +418,23 @@ export function registerPeptideURoutes(app: Express) {
     if (!ensurePool(res)) return;
     try {
       await peptidePool!.query(`SELECT reconcile_entries()`); // pull in latest module-pass entries
-      const [lb, win, tot, draws, flag] = await Promise.all([
+      const [lb, tot, draws, flag, claims, redemptions] = await Promise.all([
         peptidePool!.query(`SELECT * FROM entry_leaderboard(NULL, 25)`),
-        peptidePool!.query(`SELECT * FROM recent_winners(10)`),
         peptidePool!.query(`SELECT count(DISTINCT user_id)::int AS players, coalesce(sum(entries),0)::int AS entries, current_season() AS season FROM sweepstakes_entries WHERE season = current_season()`),
         peptidePool!.query(`SELECT id, prize, num_winners, scheduled_at, seed_hash, status, drawn_at FROM drawings ORDER BY scheduled_at DESC LIMIT 12`),
         peptidePool!.query(`SELECT coalesce((SELECT enabled FROM app_flags WHERE key='drawings_live'), false) AS live`),
+        // Winners + claim status/contact — this is the fulfillment queue.
+        peptidePool!.query(`
+          SELECT dw.id, dw.prize, dw.drawn_at, dw.claimed_at, dw.claim_email, dw.claim_contact, p.display_name, p.email
+          FROM drawing_winners dw JOIN profiles p ON p.id = dw.user_id
+          ORDER BY dw.drawn_at DESC NULLS LAST LIMIT 40`),
+        // Self-service scholarship redemptions (credits -> free membership).
+        peptidePool!.query(`
+          SELECT mg.kind, mg.granted_at AS created_at, mg.expires_at, p.display_name, p.email
+          FROM membership_grants mg JOIN profiles p ON p.id = mg.user_id
+          WHERE mg.source = 'scholarship' ORDER BY mg.granted_at DESC LIMIT 25`),
       ]);
-      res.json({ leaderboard: lb.rows, winners: win.rows, totals: tot.rows[0], drawings: draws.rows, live: flag.rows[0].live });
+      res.json({ leaderboard: lb.rows, winners: claims.rows, totals: tot.rows[0], drawings: draws.rows, live: flag.rows[0].live, claims: claims.rows, redemptions: redemptions.rows });
     } catch (error: any) {
       console.error("[PEPTIDEU] drawing", error);
       res.status(500).json({ error: "Failed to load drawing" });

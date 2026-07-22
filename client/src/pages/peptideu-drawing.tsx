@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PuLoading, PuUnavailable } from "../components/peptideu/ui";
 
 interface LB { display_name: string; rank: string; entries: number; }
-interface Win { display_name: string; prize: string; season: string; drawn_at: string; }
+interface Win { id: string; display_name: string; email: string; prize: string; drawn_at: string; claimed_at: string | null; claim_email: string | null; claim_contact: string | null; }
+interface Redemption { kind: string; created_at: string; expires_at: string | null; display_name: string; email: string; }
 interface Draw { id: string; prize: string; num_winners: number; scheduled_at: string; seed_hash: string; status: string; drawn_at: string | null; }
-interface Data { leaderboard: LB[]; winners: Win[]; totals: { players: number; entries: number; season: string }; drawings?: Draw[]; live?: boolean; error?: string; }
+interface Data { leaderboard: LB[]; winners: Win[]; totals: { players: number; entries: number; season: string }; drawings?: Draw[]; live?: boolean; claims?: Win[]; redemptions?: Redemption[]; error?: string; }
 
 const PRIZES = ["Oura Ring", "WHOOP band", "Red-light therapy cap", "Peptide storage fridge", "FitScript voucher"];
 
@@ -169,15 +170,40 @@ export default function PeptideuDrawing() {
           ))}
       </div>
 
-      {/* winners */}
+      {/* winners + prize fulfillment queue */}
       {winners.length > 0 && (
         <>
-          <h3 className="text-sm font-semibold text-ops-text mt-6 mb-2">Past winners</h3>
+          <h3 className="text-sm font-semibold text-ops-text mt-6 mb-2">Winners &amp; prize claims</h3>
           <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden shadow-card">
             {winners.map((w, i) => (
+              <div key={w.id || i} className={`flex flex-wrap items-center gap-3 p-3.5 ${i > 0 ? "border-t border-ops-border" : ""}`}>
+                <div className="flex-1 min-w-[200px]">
+                  <div className="text-sm text-ops-text">{w.display_name} <span className="text-fitscript-green">· {w.prize}</span></div>
+                  <div className="text-xs text-ops-text-muted">
+                    {w.claimed_at
+                      ? <>Claimed → <span className="text-ops-text">{w.claim_email}</span>{w.claim_contact ? ` · ${w.claim_contact}` : ""}</>
+                      : <>Unclaimed · account {w.email}</>}
+                  </div>
+                </div>
+                <span className={`text-xs font-mono uppercase px-2 py-0.5 rounded ${w.claimed_at ? "bg-fitscript-green/15 text-fitscript-green" : "bg-[#5C7FFF]/15 text-[#5C7FFF]"}`}>
+                  {w.claimed_at ? "ready to ship" : "awaiting claim"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* scholarship redemptions (self-service; shown for audit) */}
+      {(data?.redemptions ?? []).length > 0 && (
+        <>
+          <h3 className="text-sm font-semibold text-ops-text mt-6 mb-2">Scholarship redemptions</h3>
+          <p className="text-xs text-ops-text-muted mb-2">Members who spent credits for free membership — automatic (no approval needed); listed for the record.</p>
+          <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden shadow-card">
+            {(data?.redemptions ?? []).map((r, i) => (
               <div key={i} className={`flex items-center gap-3 p-3.5 ${i > 0 ? "border-t border-ops-border" : ""}`}>
-                <div className="flex-1"><span className="text-sm text-ops-text">{w.display_name}</span> <span className="text-xs text-ops-text-muted">· {w.season}</span></div>
-                <span className="text-sm text-fitscript-green">{w.prize}</span>
+                <div className="flex-1"><span className="text-sm text-ops-text">{r.display_name}</span> <span className="text-xs text-ops-text-muted">· {r.email}</span></div>
+                <span className="text-sm text-fitscript-green capitalize">{r.kind}{r.expires_at ? "" : " (lifetime)"}</span>
               </div>
             ))}
           </div>
