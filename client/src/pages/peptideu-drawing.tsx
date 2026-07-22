@@ -22,17 +22,18 @@ export default function PeptideuDrawing() {
   const flash = (ok: boolean, msg: string) => { setToast({ ok, msg }); setTimeout(() => setToast(null), 6000); };
 
   const run = async () => {
-    if (!confirm(`Run the drawing now for "${prize}"? This picks a winner at random (weighted by entries) and records it. This can't be undone.`)) return;
+    if (!confirm(`Run the drawing now for "${prize}"? This picks 3 winners at random (weighted by entries) and records them. This can't be undone.`)) return;
     setBusy(true);
     try {
       const r = await fetch("/api/ops/peptideu/drawing/run", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prize }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prize, winners: 3 }),
       });
       const d = await r.json();
       if (d.error) throw new Error(d.error === "read_only" ? "Read-only account — ask an admin" : d.error);
       if (!d.ok) throw new Error(d.reason === "no_entries" ? "No entries yet — nobody to draw." : (d.reason || "Draw failed"));
       await qc.invalidateQueries({ queryKey: ["/api/ops/peptideu/drawing"] });
-      flash(true, `🎉 Winner: ${d.winner} — ${prize}`);
+      const names = Array.isArray(d.winners) ? d.winners.map((w: any) => w.winner).join(", ") : d.winner;
+      flash(true, `🎉 Winners: ${names} — ${prize}`);
     } catch (e: any) { flash(false, e.message); } finally { setBusy(false); }
   };
 

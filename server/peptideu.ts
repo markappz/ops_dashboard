@@ -514,8 +514,11 @@ export function registerPeptideURoutes(app: Express) {
     if (!ensurePool(res)) return;
     const prize = String(req.body?.prize ?? "Grant").slice(0, 80);
     const season = req.body?.season ? String(req.body.season) : null;
+    // 3 winners/month (Paul); clamp to a sane range. run_drawing picks distinct
+    // weighted-random winners.
+    const winners = Math.min(10, Math.max(1, Math.floor(Number(req.body?.winners ?? 3))));
     try {
-      const { rows } = await peptidePool!.query(`SELECT run_drawing($1, $2) AS result`, [season, prize]);
+      const { rows } = await peptidePool!.query(`SELECT run_drawing($1, $2, $3) AS result`, [season, prize, winners]);
       res.json(rows[0].result);
     } catch (error: any) {
       console.error("[PEPTIDEU] run drawing", error);
