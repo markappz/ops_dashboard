@@ -578,4 +578,49 @@ export function registerPeptideURoutes(app: Express) {
       res.status(500).json({ error: "Draw failed" });
     }
   });
+
+  // ── Feature requests: the voting board's management side ─────────────────────
+  const FEATURE_STATUS = ["open", "planned", "in_progress", "shipped", "declined"];
+
+  app.get("/api/ops/peptideu/features", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const { rows } = await peptidePool!.query(`
+        SELECT fr.id, fr.title, fr.body, fr.status, fr.created_at,
+          (SELECT count(*)::int FROM feature_votes fv WHERE fv.feature_id = fr.id) AS votes,
+          p.display_name, p.email
+        FROM feature_requests fr LEFT JOIN profiles p ON p.id = fr.created_by
+        ORDER BY (SELECT count(*) FROM feature_votes fv WHERE fv.feature_id = fr.id) DESC, fr.created_at DESC
+        LIMIT 200`);
+      res.json(rows);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] features", error);
+      res.status(500).json({ error: "Failed to load features" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/features/:id/status", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const status = String(req.body?.status ?? "");
+    if (!FEATURE_STATUS.includes(status)) return res.status(400).json({ error: "bad_status" });
+    try {
+      const upd = await peptidePool!.query(`UPDATE feature_requests SET status = $1 WHERE id = $2`, [status, req.params.id]);
+      if (upd.rowCount === 0) return res.status(404).json({ error: "not_found" });
+      res.json({ ok: true, status });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] feature status", error);
+      res.status(500).json({ error: "Failed to update status" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/features/:id/delete", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      await peptidePool!.query(`DELETE FROM feature_requests WHERE id = $1`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] feature delete", error);
+      res.status(500).json({ error: "Failed to delete" });
+    }
+  });
 }
