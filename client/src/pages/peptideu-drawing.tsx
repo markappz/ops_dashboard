@@ -10,9 +10,15 @@ interface Data { leaderboard: LB[]; winners: Win[]; totals: { players: number; e
 
 const PRIZES = ["Oura Ring", "WHOOP band", "Red-light therapy cap", "Peptide storage fridge", "FitScript voucher"];
 
+// Always show drawing times in Eastern, regardless of the admin's browser zone.
+const fmtEST = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  });
+
 export default function PeptideuDrawing() {
   const qc = useQueryClient();
-  const [prize, setPrize] = useState(PRIZES[0]);
   const [schedPrize, setSchedPrize] = useState(PRIZES[0]);
   const [schedWinners, setSchedWinners] = useState(3);
   const [schedAt, setSchedAt] = useState("");
@@ -26,21 +32,6 @@ export default function PeptideuDrawing() {
 
   const flash = (ok: boolean, msg: string) => { setToast({ ok, msg }); setTimeout(() => setToast(null), 6000); };
 
-  const run = async () => {
-    if (!confirm(`Run the drawing now for "${prize}"? This picks 3 winners at random (weighted by entries) and records them. This can't be undone.`)) return;
-    setBusy(true);
-    try {
-      const r = await fetch("/api/ops/peptideu/drawing/run", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prize, winners: 3 }),
-      });
-      const d = await r.json();
-      if (d.error) throw new Error(d.error === "read_only" ? "Read-only account — ask an admin" : d.error);
-      if (!d.ok) throw new Error(d.reason === "no_entries" ? "No entries yet — nobody to draw." : (d.reason || "Draw failed"));
-      await qc.invalidateQueries({ queryKey: ["/api/ops/peptideu/drawing"] });
-      const names = Array.isArray(d.winners) ? d.winners.map((w: any) => w.winner).join(", ") : d.winner;
-      flash(true, `🎉 Winners: ${names} — ${prize}`);
-    } catch (e: any) { flash(false, e.message); } finally { setBusy(false); }
-  };
 
   const post = async (url: string, body: any, ok: string | ((d: any) => string)) => {
     setBusy(true);
@@ -127,7 +118,7 @@ export default function PeptideuDrawing() {
                 <div key={d.id} className="flex flex-wrap items-center gap-3 py-3 border-b border-ops-border last:border-b-0">
                   <div className="flex-1 min-w-[180px]">
                     <div className="text-sm text-ops-text">{d.prize} · {d.num_winners} winners</div>
-                    <div className="text-xs text-ops-text-muted">{new Date(d.scheduled_at).toLocaleString()} · seed {d.seed_hash.slice(0, 12)}…</div>
+                    <div className="text-xs text-ops-text-muted">{fmtEST(d.scheduled_at)} · seed {d.seed_hash.slice(0, 12)}…</div>
                   </div>
                   <span className={`text-xs font-mono uppercase ${d.status === "drawn" ? "text-fitscript-green" : d.status === "cancelled" ? "text-ops-text-muted" : "text-[#5C7FFF]"}`}>{d.status}</span>
                   {d.status === "scheduled" && (
@@ -139,22 +130,6 @@ export default function PeptideuDrawing() {
             })}
           </div>
         )}
-      </div>
-
-      {/* run drawing (manual, legacy) */}
-      <div className="mt-4 bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-        <div className="text-sm font-semibold text-ops-text mb-3">Run the drawing (manual)</div>
-        <div className="flex flex-wrap items-center gap-3">
-          <select value={prize} onChange={(e) => setPrize(e.target.value)}
-            className="text-sm bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-ops-text focus:outline-none focus:border-[#5C7FFF]">
-            {PRIZES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <button disabled={busy || (totals?.entries ?? 0) === 0} onClick={run}
-            className="text-sm font-medium px-5 py-2 rounded-lg bg-[#5C7FFF] text-white hover:opacity-90 disabled:opacity-40">
-            {busy ? "Drawing…" : "Run drawing"}
-          </button>
-        </div>
-        <p className="text-xs text-ops-text-muted mt-3">Weighted-random pick from all entries this period. Records the winner. Make sure the entry period has ended and the official rules are finalized before drawing.</p>
       </div>
 
       {/* leaderboard */}
