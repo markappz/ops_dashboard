@@ -6,7 +6,8 @@ interface LB { display_name: string; rank: string; entries: number; }
 interface Win { id: string; display_name: string; email: string; prize: string; drawn_at: string; claimed_at: string | null; claim_email: string | null; claim_contact: string | null; }
 interface Redemption { kind: string; created_at: string; expires_at: string | null; display_name: string; email: string; }
 interface Draw { id: string; prize: string; num_winners: number; scheduled_at: string; seed_hash: string; status: string; drawn_at: string | null; }
-interface Data { leaderboard: LB[]; winners: Win[]; totals: { players: number; entries: number; season: string }; drawings?: Draw[]; live?: boolean; claims?: Win[]; redemptions?: Redemption[]; error?: string; }
+interface Prize { id: string; prize: string; num_winners: number; position: number; used_at: string | null; }
+interface Data { leaderboard: LB[]; winners: Win[]; totals: { players: number; entries: number; season: string }; drawings?: Draw[]; live?: boolean; claims?: Win[]; redemptions?: Redemption[]; prizes?: Prize[]; error?: string; }
 
 const PRIZES = ["Oura Ring", "WHOOP band", "Red-light therapy cap", "Peptide storage fridge", "FitScript voucher"];
 
@@ -17,6 +18,35 @@ const fmtEST = (iso: string) =>
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short",
   });
 
+function PrizeRow({ p, idx, count, busy, onEdit, onDelete, onMove }: {
+  p: Prize; idx: number; count: number; busy: boolean;
+  onEdit: (p: Prize, prize: string, winners: number) => void;
+  onDelete: (p: Prize) => void; onMove: (idx: number, dir: -1 | 1) => void;
+}) {
+  const [prize, setPrize] = useState(p.prize);
+  const [winners, setWinners] = useState(p.num_winners);
+  const dirty = prize.trim() !== p.prize || winners !== p.num_winners;
+  return (
+    <div className={`flex flex-wrap items-center gap-2 py-2.5 ${idx > 0 ? "border-t border-ops-border" : ""}`}>
+      <span className={`w-5 text-center text-xs ${idx === 0 ? "text-[#5C7FFF]" : "text-ops-text-muted"}`}>{idx === 0 ? "▶" : idx + 1}</span>
+      <input value={prize} onChange={(e) => setPrize(e.target.value)}
+        className="flex-1 min-w-[160px] text-sm bg-ops-bg border border-ops-border rounded-lg px-2.5 py-1.5 text-ops-text focus:outline-none focus:border-[#5C7FFF]" />
+      <input type="number" min={1} max={10} value={winners} onChange={(e) => setWinners(Number(e.target.value))}
+        title="winners" className="w-14 text-sm bg-ops-bg border border-ops-border rounded-lg px-2 py-1.5 text-ops-text" />
+      <div className="flex items-center gap-1">
+        <button onClick={() => onMove(idx, -1)} disabled={busy || idx === 0} title="Move up"
+          className="text-xs px-2 py-1.5 rounded-lg border border-ops-border text-ops-text-muted hover:text-ops-text disabled:opacity-30">↑</button>
+        <button onClick={() => onMove(idx, 1)} disabled={busy || idx === count - 1} title="Move down"
+          className="text-xs px-2 py-1.5 rounded-lg border border-ops-border text-ops-text-muted hover:text-ops-text disabled:opacity-30">↓</button>
+        <button onClick={() => onEdit(p, prize.trim(), winners)} disabled={busy || !dirty || !prize.trim()} title="Save"
+          className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[#5C7FFF] text-white hover:opacity-90 disabled:opacity-30">Save</button>
+        <button onClick={() => onDelete(p)} disabled={busy} title="Remove"
+          className="text-xs px-2 py-1.5 rounded-lg border border-red-400/40 text-red-400 hover:bg-red-400/10 disabled:opacity-30">✕</button>
+      </div>
+    </div>
+  );
+}
+
 export default function PeptideuDrawing() {
   const qc = useQueryClient();
   const [schedPrize, setSchedPrize] = useState(PRIZES[0]);
@@ -24,6 +54,8 @@ export default function PeptideuDrawing() {
   const [schedAt, setSchedAt] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [newPrize, setNewPrize] = useState("");
+  const [newPrizeWinners, setNewPrizeWinners] = useState(1);
 
   const { data, isLoading, error } = useQuery<Data>({
     queryKey: ["/api/ops/peptideu/drawing"],
@@ -55,6 +87,37 @@ export default function PeptideuDrawing() {
   const toggleLive = (enabled: boolean) => {
     if (enabled && !confirm("Enable LIVE drawings? Only do this after attorney sign-off + state registration. Real draws will award real prizes.")) return;
     post("/api/ops/peptideu/drawings/flag", { enabled }, enabled ? "Drawings are now LIVE." : "Drawings paused (not live).");
+  };
+
+  // Prize lineup — the queue the cron pops from for next month's drawing.
+  const req = async (method: string, url: string, body: any, okMsg: string) => {
+    setBusy(true);
+    try {
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error === "read_only" ? "Read-only account — ask an admin" : d.error);
+      await qc.invalidateQueries({ queryKey: ["/api/ops/peptideu/drawing"] });
+      flash(true, okMsg);
+    } catch (e: any) { flash(false, e.message); } finally { setBusy(false); }
+  };
+  const upcomingPrizes = (data?.prizes ?? []).filter((p) => !p.used_at);
+  const addPrize = () => {
+    if (!newPrize.trim()) return flash(false, "Enter a prize name.");
+    req("POST", "/api/ops/peptideu/prizes", { prize: newPrize.trim(), winners: newPrizeWinners }, "Prize added to the lineup.")
+      .then(() => { setNewPrize(""); setNewPrizeWinners(1); });
+  };
+  const editPrize = (p: Prize, prize: string, winners: number) =>
+    req("PATCH", `/api/ops/peptideu/prizes/${p.id}`, { prize, winners }, "Prize updated.");
+  const deletePrize = (p: Prize) => {
+    if (!confirm(`Remove "${p.prize}" from the lineup?`)) return;
+    req("DELETE", `/api/ops/peptideu/prizes/${p.id}`, null, "Prize removed.");
+  };
+  const movePrize = (idx: number, dir: -1 | 1) => {
+    const ids = upcomingPrizes.map((p) => p.id);
+    const j = idx + dir;
+    if (j < 0 || j >= ids.length) return;
+    [ids[idx], ids[j]] = [ids[j], ids[idx]];
+    req("POST", "/api/ops/peptideu/prizes/reorder", { ids }, "Lineup reordered.");
   };
 
   if (isLoading) return <PuLoading />;
@@ -130,6 +193,30 @@ export default function PeptideuDrawing() {
             })}
           </div>
         )}
+      </div>
+
+      {/* prize lineup — the cron pops the top one for next month's auto-created drawing */}
+      <div className="mt-4 bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-sm font-semibold text-ops-text">Prize lineup</div>
+          <span className="text-xs text-ops-text-muted">{upcomingPrizes.length} queued</span>
+        </div>
+        <p className="text-xs text-ops-text-muted mb-3">When a drawing fires, next month's is auto-created using the <span className="text-[#5C7FFF]">▶ top</span> prize. Reorder or edit anytime.</p>
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <input value={newPrize} onChange={(e) => setNewPrize(e.target.value)} placeholder="Prize name (e.g. Oura Ring)"
+            className="flex-1 min-w-[180px] text-sm bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-ops-text focus:outline-none focus:border-[#5C7FFF]" />
+          <input type="number" min={1} max={10} value={newPrizeWinners} onChange={(e) => setNewPrizeWinners(Number(e.target.value))}
+            title="winners" className="w-16 text-sm bg-ops-bg border border-ops-border rounded-lg px-3 py-2 text-ops-text" />
+          <button onClick={addPrize} disabled={busy} className="text-sm font-medium px-4 py-2 rounded-lg bg-[#5C7FFF] text-white hover:opacity-90 disabled:opacity-40">Add prize</button>
+        </div>
+        {upcomingPrizes.length === 0
+          ? <div className="text-xs text-ops-text-muted">No prizes queued — the cron falls back to a default. Add some above.</div>
+          : <div className="border-t border-ops-border">
+              {upcomingPrizes.map((p, i) => (
+                <PrizeRow key={p.id} p={p} idx={i} count={upcomingPrizes.length} busy={busy}
+                  onEdit={editPrize} onDelete={deletePrize} onMove={movePrize} />
+              ))}
+            </div>}
       </div>
 
       {/* leaderboard */}

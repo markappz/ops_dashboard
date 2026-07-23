@@ -418,7 +418,7 @@ export function registerPeptideURoutes(app: Express) {
     if (!ensurePool(res)) return;
     try {
       await peptidePool!.query(`SELECT reconcile_entries()`); // pull in latest module-pass entries
-      const [lb, tot, draws, flag, claims, redemptions] = await Promise.all([
+      const [lb, tot, draws, flag, claims, redemptions, prizes] = await Promise.all([
         peptidePool!.query(`SELECT * FROM entry_leaderboard(NULL, 25)`),
         peptidePool!.query(`SELECT count(DISTINCT user_id)::int AS players, coalesce(sum(entries),0)::int AS entries, current_season() AS season FROM sweepstakes_entries WHERE season = current_season()`),
         peptidePool!.query(`SELECT id, prize, num_winners, scheduled_at, seed_hash, status, drawn_at FROM drawings ORDER BY scheduled_at DESC LIMIT 12`),
@@ -433,8 +433,10 @@ export function registerPeptideURoutes(app: Express) {
           SELECT mg.kind, mg.granted_at AS created_at, mg.expires_at, p.display_name, p.email
           FROM membership_grants mg JOIN profiles p ON p.id = mg.user_id
           WHERE mg.source = 'scholarship' ORDER BY mg.granted_at DESC LIMIT 25`),
+        // Prize lineup the cron pops from when it auto-creates next month's drawing.
+        peptidePool!.query(`SELECT id, prize, num_winners, position, used_at FROM drawing_prize_queue ORDER BY used_at NULLS FIRST, position, created_at`),
       ]);
-      res.json({ leaderboard: lb.rows, winners: claims.rows, totals: tot.rows[0], drawings: draws.rows, live: flag.rows[0].live, claims: claims.rows, redemptions: redemptions.rows });
+      res.json({ leaderboard: lb.rows, winners: claims.rows, totals: tot.rows[0], drawings: draws.rows, live: flag.rows[0].live, claims: claims.rows, redemptions: redemptions.rows, prizes: prizes.rows });
     } catch (error: any) {
       console.error("[PEPTIDEU] drawing", error);
       res.status(500).json({ error: "Failed to load drawing" });
@@ -480,6 +482,68 @@ export function registerPeptideURoutes(app: Express) {
     } catch (error: any) {
       console.error("[PEPTIDEU] flag", error);
       res.status(500).json({ error: "Flag update failed" });
+    }
+  });
+
+  // ── Prize lineup ────────────────────────────────────────────────────────────
+  // The queue the auto-create cron pops from for next month's drawing. Admin-only
+  // writes (opsGate blocks non-GET for viewers).
+  app.post("/api/ops/peptideu/prizes", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const prize = String(req.body?.prize ?? "").trim().slice(0, 80);
+    const winners = Math.min(10, Math.max(1, Math.floor(Number(req.body?.winners ?? 1))));
+    if (!prize) return res.status(400).json({ error: "bad_prize" });
+    try {
+      await peptidePool!.query(
+        `INSERT INTO drawing_prize_queue (prize, num_winners, position)
+         VALUES ($1, $2, coalesce((SELECT max(position) FROM drawing_prize_queue WHERE used_at IS NULL), 0) + 1)`,
+        [prize, winners]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] add prize", error);
+      res.status(500).json({ error: "Add failed" });
+    }
+  });
+
+  app.patch("/api/ops/peptideu/prizes/:id", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const prize = String(req.body?.prize ?? "").trim().slice(0, 80);
+    const winners = Math.min(10, Math.max(1, Math.floor(Number(req.body?.winners ?? 1))));
+    if (!prize) return res.status(400).json({ error: "bad_prize" });
+    try {
+      await peptidePool!.query(
+        `UPDATE drawing_prize_queue SET prize = $1, num_winners = $2 WHERE id = $3 AND used_at IS NULL`,
+        [prize, winners, req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] edit prize", error);
+      res.status(500).json({ error: "Edit failed" });
+    }
+  });
+
+  app.delete("/api/ops/peptideu/prizes/:id", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      await peptidePool!.query(`DELETE FROM drawing_prize_queue WHERE id = $1 AND used_at IS NULL`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] delete prize", error);
+      res.status(500).json({ error: "Delete failed" });
+    }
+  });
+
+  // Reorder: client sends the full ordered list of unused prize ids; we renumber 1..n.
+  app.post("/api/ops/peptideu/prizes/reorder", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const ids: string[] = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) return res.status(400).json({ error: "no_ids" });
+    try {
+      await Promise.all(ids.map((id, i) =>
+        peptidePool!.query(`UPDATE drawing_prize_queue SET position = $1 WHERE id = $2 AND used_at IS NULL`, [i + 1, id])));
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] reorder prizes", error);
+      res.status(500).json({ error: "Reorder failed" });
     }
   });
 
