@@ -180,7 +180,7 @@ export default function PeptideuDrawing() {
               return (
                 <div key={d.id} className="flex flex-wrap items-center gap-3 py-3 border-b border-ops-border last:border-b-0">
                   <div className="flex-1 min-w-[180px]">
-                    <div className="text-sm text-ops-text">{d.prize} · {d.num_winners} winners</div>
+                    <div className="text-sm text-ops-text">{d.prize} · {d.num_winners} {d.num_winners === 1 ? "winner" : "winners"}</div>
                     <div className="text-xs text-ops-text-muted">{fmtEST(d.scheduled_at)} · seed {d.seed_hash.slice(0, 12)}…</div>
                   </div>
                   <span className={`text-xs font-mono uppercase ${d.status === "drawn" ? "text-fitscript-green" : d.status === "cancelled" ? "text-ops-text-muted" : "text-[#5C7FFF]"}`}>{d.status}</span>
