@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PuLoading, PuUnavailable } from "../components/peptideu/ui";
 
-interface Question { question: string; asks: number; users: number; lastAt: string; answer: string | null; }
+interface Question { question: string; asks: number; users: number; lastAt: string; answer: string | null; source?: "professor" | "commons"; }
 interface Theme { topic: string; demand: "high" | "medium" | "low"; covered: boolean; coveredBy: string | null; example: string; }
 interface Suggestion { title?: string; topic?: string; rationale: string; }
 interface Insights { themes: Theme[]; moduleSuggestions: Suggestion[]; officeHoursSuggestions: Suggestion[]; sampleSize: number; }
@@ -27,7 +27,14 @@ function QueueRow({ q, rank }: { q: Question; rank: number }) {
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-start gap-3 p-4 text-left hover:bg-ops-bg">
         <span className="text-xs font-mono text-ops-text-muted mt-0.5 w-5 shrink-0">{String(rank).padStart(2, "0")}</span>
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-ops-text">{q.question}</div>
+          <div className="flex items-center gap-2">
+            {q.source ? (
+              <span className={`text-[9px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 ${q.source === "commons" ? "bg-[#5C7FFF]/15 text-[#5C7FFF]" : "bg-fitscript-green/15 text-fitscript-green"}`}>
+                {q.source === "commons" ? "Commons" : "Professor"}
+              </span>
+            ) : null}
+            <div className="text-sm text-ops-text">{q.question}</div>
+          </div>
           <div className="text-xs text-ops-text-muted mt-1">
             {q.asks > 1 ? <span className="text-[#5C7FFF] font-medium">asked {q.asks}× · {q.users} {q.users === 1 ? "member" : "members"} · </span> : null}
             {ago(q.lastAt)}{q.answer ? " · tap to see the Professor's answer" : ""}

@@ -556,16 +556,23 @@ export function registerPeptideURoutes(app: Express) {
     if (!ensurePool(res)) return;
     try {
       const { rows } = await peptidePool!.query(`
-        SELECT t.n, t.users, t.example, t.last_at,
+        WITH corpus AS (
+          SELECT lower(btrim(content)) AS norm, content AS raw, user_id, created_at, 'professor' AS source
+            FROM ask_messages WHERE role = 'user' AND length(btrim(content)) > 2
+          UNION ALL
+          SELECT lower(btrim(body)), body, user_id, created_at, 'commons'
+            FROM community_posts WHERE byline IS NULL AND length(btrim(body)) > 2
+        )
+        SELECT t.n, t.users, t.example, t.last_at, t.source,
           (SELECT a.content FROM ask_messages a
              WHERE a.role = 'assistant' AND a.created_at = t.last_at LIMIT 1) AS answer
         FROM (
           SELECT count(*)::int AS n, count(DISTINCT user_id)::int AS users,
-                 (array_agg(content ORDER BY created_at DESC))[1] AS example,
+                 (array_agg(raw ORDER BY created_at DESC))[1] AS example,
+                 (array_agg(source ORDER BY created_at DESC))[1] AS source,
                  max(created_at) AS last_at
-          FROM ask_messages
-          WHERE role = 'user' AND length(btrim(content)) > 2
-          GROUP BY lower(btrim(content))
+          FROM corpus
+          GROUP BY norm
           ORDER BY count(*) DESC, max(created_at) DESC
           LIMIT 20
         ) t
@@ -575,6 +582,7 @@ export function registerPeptideURoutes(app: Express) {
         asks: Number(r.n),
         users: Number(r.users),
         lastAt: r.last_at,
+        source: r.source,
         answer: r.answer ?? null,
       })));
     } catch (error: any) {
