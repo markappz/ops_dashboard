@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PuLoading, PuUnavailable } from "../components/peptideu/ui";
 
 interface Question { question: string; asks: number; users: number; lastAt: string; answer: string | null; source?: "professor" | "commons"; }
 interface Theme { topic: string; demand: "high" | "medium" | "low"; covered: boolean; coveredBy: string | null; example: string; }
 interface Suggestion { title?: string; topic?: string; rationale: string; }
-interface Insights { themes: Theme[]; moduleSuggestions: Suggestion[]; officeHoursSuggestions: Suggestion[]; sampleSize: number; }
+interface Insights { themes: Theme[]; moduleSuggestions: Suggestion[]; officeHoursSuggestions: Suggestion[]; sampleSize: number; generatedAt?: string | null; }
 
 const ago = (iso: string) => {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -69,7 +69,7 @@ function SuggestionCard({ head, sub, items, empty }: { head: string; sub: string
 }
 
 export default function PeptideuQuestions() {
-  const [insights, setInsights] = useState<Insights | null>(null);
+  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -79,13 +79,20 @@ export default function PeptideuQuestions() {
     refetchInterval: 30_000,
   });
 
+  // Stored analysis, auto-refreshed daily server-side — shown with no click.
+  const { data: stored } = useQuery<Insights>({
+    queryKey: ["peptideu-insights"],
+    queryFn: () => fetch("/api/ops/peptideu/question-insights").then((r) => r.json()),
+  });
+  const insights = stored && stored.sampleSize > 0 ? stored : null;
+
   const analyze = async () => {
     setBusy(true); setErr(null);
     try {
       const r = await fetch("/api/ops/peptideu/question-insights", { method: "POST", headers: { "Content-Type": "application/json" } });
       const d = await r.json();
       if (d.error) throw new Error(d.error === "read_only" ? "Read-only account — an admin can run the analysis" : d.error);
-      setInsights(d);
+      qc.setQueryData(["peptideu-insights"], d);
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
 
@@ -129,12 +136,12 @@ export default function PeptideuQuestions() {
 
       {!insights ? (
         <div className="bg-ops-surface border border-ops-border rounded-xl p-8 text-center text-sm text-ops-text-muted">
-          Run the analysis to cluster recent questions into themes and get module & office-hours suggestions.
-          <div className="text-xs mt-2">Uses one AI call over the latest ~450 questions.</div>
+          The daily analysis will populate here automatically — or click "Analyze questions" to generate the first set now.
+          <div className="text-xs mt-2">Clusters the latest ~450 Professor + Commons questions and refreshes once a day.</div>
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="text-xs text-ops-text-muted">Analysed {insights.sampleSize} recent questions.</div>
+          <div className="text-xs text-ops-text-muted">Analysed {insights.sampleSize} recent questions{insights.generatedAt ? ` · updated ${ago(insights.generatedAt)}` : ""} · auto-refreshes daily.</div>
           <div className="grid grid-cols-2 gap-4">
             <SuggestionCard head="Suggested new modules" sub="Gaps with real demand" items={insights.moduleSuggestions} empty="No clear module gaps." />
             <SuggestionCard head="Suggested office hours" sub="Live-session topics" items={insights.officeHoursSuggestions} empty="No office-hours suggestions." />

@@ -55,7 +55,71 @@ function ensurePool(res: Response): boolean {
   return true;
 }
 
+// ── Curriculum-gap analysis: shared by the on-demand button and the daily job ──
+type Insights = { themes: any[]; moduleSuggestions: any[]; officeHoursSuggestions: any[]; sampleSize: number };
+
+async function computeInsights(): Promise<Insights> {
+  const empty: Insights = { themes: [], moduleSuggestions: [], officeHoursSuggestions: [], sampleSize: 0 };
+  if (!peptidePool) return empty;
+  const [ask, posts, mods] = await Promise.all([
+    peptidePool.query(`SELECT content FROM ask_messages WHERE role = 'user' AND length(btrim(content)) > 2 ORDER BY created_at DESC LIMIT 300`),
+    peptidePool.query(`SELECT body FROM community_posts WHERE byline IS NULL AND length(btrim(body)) > 2 ORDER BY created_at DESC LIMIT 150`),
+    peptidePool.query(`SELECT order_index, title FROM modules ORDER BY order_index`),
+  ]);
+  const questions = [...ask.rows.map((r) => String(r.content)), ...posts.rows.map((r) => String(r.body))];
+  if (questions.length === 0) return empty;
+  const moduleList = mods.rows.map((m) => `${Number(m.order_index) + 1}. ${m.title}`).join("\n");
+  const sample = questions.map((x) => `- ${x.slice(0, 240)}`).join("\n");
+  const ai: any = await (anthropic as any).messages.create({
+    model: BEDROCK_MODELS.HIGH_IQ, max_tokens: 2200, system: INSIGHTS_SYSTEM,
+    messages: [{ role: "user", content: `Existing modules:\n${moduleList}\n\nRecent member questions (${questions.length}, Professor + Commons):\n${sample}\n\nReturn the JSON only.` }],
+  });
+  const text = (ai.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+  const out = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, ""));
+  return {
+    themes: Array.isArray(out.themes) ? out.themes : [],
+    moduleSuggestions: Array.isArray(out.moduleSuggestions) ? out.moduleSuggestions : [],
+    officeHoursSuggestions: Array.isArray(out.officeHoursSuggestions) ? out.officeHoursSuggestions : [],
+    sampleSize: questions.length,
+  };
+}
+
+async function storeInsights(ins: Insights) {
+  if (!peptidePool) return;
+  await peptidePool.query(
+    `INSERT INTO question_insights (sample_size, themes, module_suggestions, office_hours_suggestions) VALUES ($1,$2,$3,$4)`,
+    [ins.sampleSize, JSON.stringify(ins.themes), JSON.stringify(ins.moduleSuggestions), JSON.stringify(ins.officeHoursSuggestions)],
+  );
+  await peptidePool.query(`DELETE FROM question_insights WHERE id NOT IN (SELECT id FROM question_insights ORDER BY generated_at DESC LIMIT 30)`);
+}
+
+async function latestInsights() {
+  if (!peptidePool) return null;
+  const { rows } = await peptidePool.query(`SELECT generated_at, sample_size, themes, module_suggestions, office_hours_suggestions FROM question_insights ORDER BY generated_at DESC LIMIT 1`);
+  const r = rows[0];
+  if (!r) return null;
+  return { generatedAt: r.generated_at, sampleSize: r.sample_size, themes: r.themes, moduleSuggestions: r.module_suggestions, officeHoursSuggestions: r.office_hours_suggestions };
+}
+
+// Daily-ish auto-refresh: on boot + every 6h, run the analysis if the last stored
+// run is >20h old. The staleness gate keeps it idempotent across restarts/instances.
+let insightsTimer: ReturnType<typeof setInterval> | null = null;
+function startInsightsSchedule() {
+  if (insightsTimer || !peptidePool) return;
+  const tick = async () => {
+    try {
+      const last = await latestInsights();
+      if (last && Date.now() - new Date(last.generatedAt).getTime() < 20 * 3600 * 1000) return;
+      const ins = await computeInsights();
+      if (ins.sampleSize > 0) { await storeInsights(ins); console.log(`[PEPTIDEU] auto insights refreshed (${ins.sampleSize} questions)`); }
+    } catch (e: any) { console.error("[PEPTIDEU] auto insights failed", e?.message); }
+  };
+  void tick();
+  insightsTimer = setInterval(tick, 6 * 3600 * 1000);
+}
+
 export function registerPeptideURoutes(app: Express) {
+  startInsightsSchedule();
   // Headline metrics
   app.get("/api/ops/peptideu/snapshot", async (_req: Request, res: Response) => {
     if (!ensurePool(res)) return;
@@ -592,42 +656,26 @@ export function registerPeptideURoutes(app: Express) {
   });
 
   // ── Curriculum-gap analysis (AI) ─────────────────────────────────────────────
-  // POST (admin-only via opsGate — it spends an AI call, so viewers can't trigger
-  // it). Feeds recent Professor + Commons questions and the module list to the
-  // model, which clusters themes, flags gaps, and proposes modules / office hours.
+  // GET returns the latest STORED analysis (refreshed daily by startInsightsSchedule),
+  // so the page always shows current suggestions with no click. Safe for viewers.
+  app.get("/api/ops/peptideu/question-insights", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      res.json((await latestInsights()) ?? { themes: [], moduleSuggestions: [], officeHoursSuggestions: [], sampleSize: 0, generatedAt: null });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] question-insights get", error);
+      res.status(500).json({ error: "Failed to load insights" });
+    }
+  });
+
+  // POST = "Re-analyze now" (admin-only via opsGate — it spends an AI call). Runs
+  // fresh over recent Professor + Commons questions, stores + returns the result.
   app.post("/api/ops/peptideu/question-insights", async (_req: Request, res: Response) => {
     if (!ensurePool(res)) return;
     try {
-      const [ask, posts, mods] = await Promise.all([
-        peptidePool!.query(`SELECT content FROM ask_messages WHERE role = 'user' AND length(btrim(content)) > 2 ORDER BY created_at DESC LIMIT 300`),
-        peptidePool!.query(`SELECT body FROM community_posts WHERE byline IS NULL AND length(btrim(body)) > 2 ORDER BY created_at DESC LIMIT 150`),
-        peptidePool!.query(`SELECT order_index, title FROM modules ORDER BY order_index`),
-      ]);
-      const questions = [
-        ...ask.rows.map((r) => String(r.content)),
-        ...posts.rows.map((r) => String(r.body)),
-      ];
-      if (questions.length === 0) return res.json({ themes: [], moduleSuggestions: [], officeHoursSuggestions: [], sampleSize: 0 });
-      const moduleList = mods.rows.map((m) => `${Number(m.order_index) + 1}. ${m.title}`).join("\n");
-      const sample = questions.map((x) => `- ${x.slice(0, 240)}`).join("\n");
-
-      const ai: any = await (anthropic as any).messages.create({
-        model: BEDROCK_MODELS.HIGH_IQ,
-        max_tokens: 2200,
-        system: INSIGHTS_SYSTEM,
-        messages: [{ role: "user", content: `Existing modules:\n${moduleList}\n\nRecent member questions (${questions.length}, Professor + Commons):\n${sample}\n\nReturn the JSON only.` }],
-      });
-      const text = (ai.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-      let out: any;
-      try { out = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, "")); }
-      catch { return res.status(502).json({ error: "model returned non-JSON" }); }
-
-      res.json({
-        themes: Array.isArray(out.themes) ? out.themes : [],
-        moduleSuggestions: Array.isArray(out.moduleSuggestions) ? out.moduleSuggestions : [],
-        officeHoursSuggestions: Array.isArray(out.officeHoursSuggestions) ? out.officeHoursSuggestions : [],
-        sampleSize: questions.length,
-      });
+      const ins = await computeInsights();
+      if (ins.sampleSize > 0) await storeInsights(ins);
+      res.json({ ...ins, generatedAt: new Date().toISOString() });
     } catch (error: any) {
       console.error("[PEPTIDEU] question-insights", error);
       res.status(500).json({ error: "Analysis failed" });
