@@ -40,6 +40,7 @@ import PeptideuEngagement from "./pages/peptideu-engagement";
 import PeptideuQuestions from "./pages/peptideu-questions";
 import PeptideuFeatures from "./pages/peptideu-features";
 import PeptideuAp from "./pages/peptideu-ap";
+import PeptideuLibrary from "./pages/peptideu-library";
 
 interface Me {
   email: string;
@@ -150,6 +151,7 @@ export default function App() {
           <Route path="/peptideu/features" component={PeptideuFeatures} />
           <Route path="/peptideu/curriculum" component={PeptideuCurriculum} />
           <Route path="/peptideu/ap" component={PeptideuAp} />
+          <Route path="/peptideu/library" component={PeptideuLibrary} />
           <Route path="/peptideu/engagement" component={PeptideuEngagement} />
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}

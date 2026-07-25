@@ -805,6 +805,59 @@ export function registerPeptideURoutes(app: Express) {
       res.status(500).json({ error: "Delete failed" });
     }
   });
+
+  // ── Library auto-updates review queue ───────────────────────────────────────
+  // The daily web-search job auto-applies news; regulatory/status changes wait
+  // here for one-tap approval (an AI FDA claim must be reviewed).
+  app.get("/api/ops/peptideu/library-updates", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [pending, recentNews] = await Promise.all([
+        peptidePool!.query(`
+          SELECT lu.id, lu.field, lu.current_value, lu.proposed_value, lu.summary, lu.sources, lu.confidence, lu.created_at,
+                 p.name, p.slug
+          FROM library_updates lu JOIN peptides p ON p.id = lu.peptide_id
+          WHERE lu.status = 'pending' ORDER BY lu.created_at DESC`),
+        peptidePool!.query(`
+          SELECT name, slug, latest_update, latest_update_at
+          FROM peptides WHERE latest_update IS NOT NULL ORDER BY latest_update_at DESC LIMIT 20`),
+      ]);
+      res.json({ pending: pending.rows, recentNews: recentNews.rows });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] library-updates", error);
+      res.status(500).json({ error: "Failed to load" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/library-updates/:id/approve", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const { rows } = await peptidePool!.query(`SELECT peptide_id, field, proposed_value FROM library_updates WHERE id=$1 AND status='pending'`, [req.params.id]);
+      const u = rows[0];
+      if (!u) return res.status(404).json({ error: "not_found" });
+      if (u.field === "regulatory") {
+        await peptidePool!.query(`UPDATE peptides SET regulatory=$1::regulatory_t, updated_at=now() WHERE id=$2`, [u.proposed_value, u.peptide_id]);
+      } else {
+        return res.status(400).json({ error: "unsupported_field" });
+      }
+      await peptidePool!.query(`UPDATE library_updates SET status='applied', reviewed_at=now() WHERE id=$1`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] library approve", error);
+      res.status(500).json({ error: "Approve failed" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/library-updates/:id/dismiss", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      await peptidePool!.query(`UPDATE library_updates SET status='dismissed', reviewed_at=now() WHERE id=$1`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] library dismiss", error);
+      res.status(500).json({ error: "Dismiss failed" });
+    }
+  });
 }
 
 // Build the circle_content body_html from the editor fields. Video posts embed
