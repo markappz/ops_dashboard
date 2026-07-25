@@ -20,6 +20,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
       { path: "/peptideu/questions", label: "Questions", icon: "chat" },
       { path: "/peptideu/features", label: "Features", icon: "zap" },
       { path: "/peptideu/curriculum", label: "Curriculum", icon: "file-text" },
+      { path: "/peptideu/ap", label: "AP Class", icon: "clipboard" },
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
     ],
   },

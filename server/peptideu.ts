@@ -743,4 +743,92 @@ export function registerPeptideURoutes(app: Express) {
       res.status(500).json({ error: "Failed to delete" });
     }
   });
+
+  // ── AP Class authoring (native — no Circle) ─────────────────────────────────
+  // Writes to circle_content with a synthetic circle_id so native posts live
+  // alongside imported ones and the app reads them identically. Video posts store
+  // a YouTube embed in body_html (the app plays it in-app via youtubeId()).
+  app.get("/api/ops/peptideu/ap", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const { rows } = await peptidePool!.query(`
+        SELECT id, kind, title, cover_url, published_at,
+               (space_id = 'native') AS native,
+               (body_html ~* 'youtube|youtu\\.be|vimeo|<iframe') AS has_video
+        FROM circle_content WHERE dest = 'ap' ORDER BY published_at DESC NULLS LAST`);
+      res.json(rows);
+    } catch (error: any) {
+      console.error("[PEPTIDEU] ap list", error);
+      res.status(500).json({ error: "Failed to load AP content" });
+    }
+  });
+
+  app.post("/api/ops/peptideu/ap", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const body = buildApBody(req.body);
+    if (body.error) return res.status(400).json({ error: body.error });
+    try {
+      const { rows } = await peptidePool!.query(
+        `INSERT INTO circle_content (circle_id, space_id, space_name, dest, kind, title, excerpt, body_html, cover_url, published_at)
+         VALUES ('native-' || gen_random_uuid(), 'native', 'PeptideU AP', 'ap', $1, $2, $3, $4, $5, now())
+         RETURNING id`,
+        [body.kind, body.title, body.excerpt, body.bodyHtml, body.cover]);
+      res.json({ ok: true, id: rows[0].id });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] ap create", error);
+      res.status(500).json({ error: "Create failed" });
+    }
+  });
+
+  app.patch("/api/ops/peptideu/ap/:id", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    const body = buildApBody(req.body);
+    if (body.error) return res.status(400).json({ error: body.error });
+    try {
+      await peptidePool!.query(
+        `UPDATE circle_content SET kind=$1, title=$2, excerpt=$3, body_html=$4, cover_url=$5 WHERE id=$6 AND dest='ap'`,
+        [body.kind, body.title, body.excerpt, body.bodyHtml, body.cover, req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] ap update", error);
+      res.status(500).json({ error: "Update failed" });
+    }
+  });
+
+  app.delete("/api/ops/peptideu/ap/:id", async (req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      await peptidePool!.query(`DELETE FROM circle_content WHERE id=$1 AND dest='ap'`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] ap delete", error);
+      res.status(500).json({ error: "Delete failed" });
+    }
+  });
+}
+
+// Build the circle_content body_html from the editor fields. Video posts embed
+// the YouTube id so the app plays it in-app; article text becomes <p> blocks.
+function apYouTubeId(url: string): string | null {
+  const m = String(url || "").match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+function apEscape(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function buildApBody(input: any): { error?: string; kind: string; title: string; excerpt: string | null; bodyHtml: string; cover: string | null } {
+  const title = String(input?.title ?? "").trim();
+  const kind = input?.kind === "video" ? "video" : "article";
+  const bodyText = String(input?.body ?? "").trim();
+  const cover = String(input?.cover_url ?? "").trim() || null;
+  if (!title) return { error: "title_required" } as any;
+  let embed = "";
+  if (kind === "video") {
+    const id = apYouTubeId(input?.youtube_url ?? "");
+    if (!id) return { error: "valid_youtube_url_required" } as any;
+    embed = `<iframe src="https://www.youtube.com/embed/${id}"></iframe>`;
+  }
+  const paras = bodyText.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean).map((s) => `<p>${apEscape(s)}</p>`).join("");
+  const excerpt = bodyText ? bodyText.replace(/\s+/g, " ").slice(0, 200) : null;
+  return { kind, title, excerpt, bodyHtml: embed + paras, cover };
 }
