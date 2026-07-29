@@ -7,10 +7,11 @@ interface Feature {
   votes: number; display_name: string | null; email: string | null;
 }
 
-const STATUS = ["open", "planned", "in_progress", "shipped", "declined"];
+const STATUS = ["pending", "approved", "open", "planned", "in_progress", "shipped", "built", "declined"];
 const STATUS_TONE: Record<string, string> = {
-  open: "text-ops-text-muted", planned: "text-[#5C7FFF]", in_progress: "text-[#5C7FFF]",
-  shipped: "text-fitscript-green", declined: "text-red-400",
+  pending: "text-amber-400", approved: "text-fitscript-green", open: "text-ops-text-muted",
+  planned: "text-[#5C7FFF]", in_progress: "text-[#5C7FFF]",
+  shipped: "text-fitscript-green", built: "text-fitscript-green", declined: "text-red-400",
 };
 
 export default function PeptideuFeatures() {
@@ -44,7 +45,7 @@ export default function PeptideuFeatures() {
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ops-text">Feature Requests</h1>
-        <p className="text-sm text-ops-text-muted mt-1">What members are asking for, ranked by votes. Set a status or remove spam. Statuses show back in the app.</p>
+        <p className="text-sm text-ops-text-muted mt-1"><span className="text-amber-400 font-medium">Pending</span> items are hidden from members until you set them to <span className="text-fitscript-green font-medium">approved</span>. Mark <span className="text-fitscript-green font-medium">built</span> to reward the author (entries + points). Pending shows first.</p>
       </div>
       {toast && <div className={`mb-4 text-sm rounded-lg px-4 py-3 ${toast.ok ? "bg-fitscript-green/15 text-fitscript-green" : "bg-red-500/15 text-red-400"}`}>{toast.msg}</div>}
 
@@ -59,7 +60,10 @@ export default function PeptideuFeatures() {
                 <span className="text-base font-bold text-ops-text tabular-nums">{f.votes}</span>
               </div>
               <div className="flex-1 min-w-[200px]">
-                <div className="text-sm font-medium text-ops-text">{f.title}</div>
+                <div className="text-sm font-medium text-ops-text">
+                  {f.status === "pending" && <span className="text-[10px] font-bold uppercase tracking-wide text-amber-400 bg-amber-400/15 rounded px-1.5 py-0.5 mr-2">Needs review</span>}
+                  {f.title}
+                </div>
                 {f.body ? <div className="text-xs text-ops-text-muted mt-0.5">{f.body}</div> : null}
                 <div className="text-[11px] text-ops-text-muted mt-1">by {f.display_name || f.email || "a member"}</div>
               </div>

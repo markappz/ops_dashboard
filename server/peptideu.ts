@@ -700,17 +700,20 @@ export function registerPeptideURoutes(app: Express) {
   });
 
   // ── Feature requests: the voting board's management side ─────────────────────
-  const FEATURE_STATUS = ["open", "planned", "in_progress", "shipped", "declined"];
+  // 'pending' is the moderation queue (members can't see it until 'approved').
+  // Setting 'built' fires the author's reward (entries + points) — deduped.
+  const FEATURE_STATUS = ["pending", "approved", "open", "planned", "in_progress", "shipped", "built", "declined"];
 
   app.get("/api/ops/peptideu/features", async (_req: Request, res: Response) => {
     if (!ensurePool(res)) return;
     try {
       const { rows } = await peptidePool!.query(`
-        SELECT fr.id, fr.title, fr.body, fr.status, fr.created_at,
+        SELECT fr.id, fr.title, fr.body, fr.status, fr.created_at, fr.approved_at, fr.built_at,
           (SELECT count(*)::int FROM feature_votes fv WHERE fv.feature_id = fr.id) AS votes,
           p.display_name, p.email
         FROM feature_requests fr LEFT JOIN profiles p ON p.id = fr.created_by
-        ORDER BY (SELECT count(*) FROM feature_votes fv WHERE fv.feature_id = fr.id) DESC, fr.created_at DESC
+        ORDER BY (fr.status = 'pending') DESC,
+          (SELECT count(*) FROM feature_votes fv WHERE fv.feature_id = fr.id) DESC, fr.created_at DESC
         LIMIT 200`);
       res.json(rows);
     } catch (error: any) {
@@ -724,8 +727,16 @@ export function registerPeptideURoutes(app: Express) {
     const status = String(req.body?.status ?? "");
     if (!FEATURE_STATUS.includes(status)) return res.status(400).json({ error: "bad_status" });
     try {
-      const upd = await peptidePool!.query(`UPDATE feature_requests SET status = $1 WHERE id = $2`, [status, req.params.id]);
+      const upd = await peptidePool!.query(
+        `UPDATE feature_requests SET status = $1,
+           approved_at = CASE WHEN $1 IN ('approved','planned','in_progress','shipped','built') AND approved_at IS NULL THEN now() ELSE approved_at END,
+           built_at = CASE WHEN $1 = 'built' AND built_at IS NULL THEN now() ELSE built_at END
+         WHERE id = $2`,
+        [status, req.params.id],
+      );
       if (upd.rowCount === 0) return res.status(404).json({ error: "not_found" });
+      // Reward the author when a recommendation ships as 'built' (idempotent).
+      if (status === "built") await peptidePool!.query(`SELECT reward_feature_built($1)`, [req.params.id]);
       res.json({ ok: true, status });
     } catch (error: any) {
       console.error("[PEPTIDEU] feature status", error);
