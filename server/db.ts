@@ -73,3 +73,34 @@ export async function verifyPeptideuConnection(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * pawgen database — a SEPARATE Supabase Postgres (dog recovery brand).
+ * Optional: the dashboard runs fine without it (the pawgen section returns 503).
+ * Supabase always terminates TLS with a chain Node may not trust → skip validation.
+ */
+const pawgenUrl = process.env.PAWGEN_DATABASE_URL;
+export const pawgenPool = pawgenUrl
+  ? new Pool({ connectionString: pawgenUrl, ssl: { rejectUnauthorized: false }, max: 4 })
+  : null;
+
+if (pawgenPool) {
+  pawgenPool.on("error", (err) => {
+    console.warn("[OPS DB] pawgen pool error:", err.message);
+  });
+}
+
+export async function verifyPawgenConnection(): Promise<boolean> {
+  if (!pawgenPool) {
+    console.warn("[OPS DB] PAWGEN_DATABASE_URL not set — pawgen section disabled");
+    return false;
+  }
+  try {
+    await pawgenPool.query("SELECT 1");
+    console.log("[OPS DB] Connected to pawgen (Supabase) database");
+    return true;
+  } catch (error: any) {
+    console.error("[OPS DB] pawgen connection failed:", error.message);
+    return false;
+  }
+}

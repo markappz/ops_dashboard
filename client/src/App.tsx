@@ -41,6 +41,7 @@ import PeptideuQuestions from "./pages/peptideu-questions";
 import PeptideuFeatures from "./pages/peptideu-features";
 import PeptideuAp from "./pages/peptideu-ap";
 import PeptideuLibrary from "./pages/peptideu-library";
+import PawgenOrders from "./pages/pawgen-orders";
 
 interface Me {
   email: string;
@@ -153,6 +154,10 @@ export default function App() {
           <Route path="/peptideu/ap" component={PeptideuAp} />
           <Route path="/peptideu/library" component={PeptideuLibrary} />
           <Route path="/peptideu/engagement" component={PeptideuEngagement} />
+
+          {/* pawgen */}
+          <Route path="/pawgen" component={PawgenOrders} />
+          <Route path="/pawgen/orders" component={PawgenOrders} />
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
           <Route path="/tracking"><Redirect to="/marketing" /></Route>

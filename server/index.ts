@@ -27,6 +27,8 @@ import { registerDmarcRoutes } from "./dmarc";
 import { registerLabsRoutes } from "./labs";
 import { registerPeptideURoutes } from "./peptideu";
 import { verifyPeptideuConnection } from "./db";
+import { registerPawgenRoutes } from "./pawgen";
+import { verifyPawgenConnection } from "./db";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -76,6 +78,7 @@ registerReportsRoutes(app);
 registerDmarcRoutes(app);
 registerLabsRoutes(app);
 registerPeptideURoutes(app);
+registerPawgenRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
@@ -126,6 +129,7 @@ async function start() {
 
   await ensureTrackingTables();
   await verifyPeptideuConnection(); // non-fatal — PeptideU section degrades gracefully
+  await verifyPawgenConnection(); // non-fatal — pawgen section degrades gracefully
   await setupClient();
 
   app.listen(PORT, () => {

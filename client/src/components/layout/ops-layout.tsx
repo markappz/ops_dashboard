@@ -27,6 +27,13 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+const PAWGEN_NAV_SECTIONS: NavSection[] = [
+  {
+    label: "pawgen",
+    items: [{ path: "/pawgen", label: "Orders & Refunds", icon: "package" }],
+  },
+];
+
 const NAV_SECTIONS: NavSection[] = [
   {
     label: "Overview",
@@ -119,20 +126,27 @@ export function OpsLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // The displayed company follows the URL so nav + content never disagree.
-  const activeCompany: Company = location.startsWith("/peptideu") ? "peptideu" : "fitscript";
-  const sections = activeCompany === "peptideu" ? PEPTIDEU_NAV_SECTIONS : NAV_SECTIONS;
+  const activeCompany: Company = location.startsWith("/peptideu")
+    ? "peptideu"
+    : location.startsWith("/pawgen")
+      ? "pawgen"
+      : "fitscript";
+  const sections =
+    activeCompany === "peptideu" ? PEPTIDEU_NAV_SECTIONS : activeCompany === "pawgen" ? PAWGEN_NAV_SECTIONS : NAV_SECTIONS;
+
+  const companyHome = (c: Company) => (c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : "/");
 
   // On first load, honor the remembered company preference.
   const didRedirect = useRef(false);
   useEffect(() => {
     if (didRedirect.current) return;
     didRedirect.current = true;
-    if (company === "peptideu" && location === "/") navigate("/peptideu");
+    if (company !== "fitscript" && location === "/") navigate(companyHome(company));
   }, [company, location, navigate]);
 
   const selectCompany = (c: Company) => {
     setCompany(c);
-    navigate(c === "peptideu" ? "/peptideu" : "/");
+    navigate(companyHome(c));
   };
 
   // Auto-close sidebar on route change (mobile)
@@ -171,6 +185,7 @@ export function OpsLayout({
             {([
               { key: "fitscript" as Company, label: "FitScript" },
               { key: "peptideu" as Company, label: "PeptideU" },
+              { key: "pawgen" as Company, label: "pawgen" },
             ]).map((o) => (
               <button
                 key={o.key}
@@ -308,7 +323,7 @@ export function OpsLayout({
   );
 }
 
-const ALL_SECTIONS = [...NAV_SECTIONS, ...PEPTIDEU_NAV_SECTIONS];
+const ALL_SECTIONS = [...NAV_SECTIONS, ...PEPTIDEU_NAV_SECTIONS, ...PAWGEN_NAV_SECTIONS];
 const isHomePath = (p: string) => p === "/" || p === "/peptideu";
 
 function currentSectionLabel(path: string): string {
