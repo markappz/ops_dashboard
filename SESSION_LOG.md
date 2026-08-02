@@ -4,6 +4,72 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-01 — pawgen tab crash fix (prod white-screen) + log backfill
+
+`ops.fitscript.me/pawgen` was **white-screening in production** with `Cannot read properties of
+undefined (reading 'pages')`. Two separate problems stacked:
+
+**1. Client crash (fixed here, commit below).** `client/src/pages/pawgen-orders.tsx` typed the
+orders response as if every field were always present, then rendered
+`{data && data.pagination.pages > 1 && …}`. An error body (`{error: "…"}`) is truthy, so it blew
+straight through the guard into `undefined.pages` → React unmounted the whole route.
+
+- `OrdersResponse` fields (`orders`/`stats`/`statuses`/`pagination`) are now **optional**, so
+  `tsc` forces a guard at every read — this bug class can't come back silently.
+- Pagination guard → `data?.pagination && …`; Next-button bound to `data.pagination?.pages ?? 1`.
+- `queryFn` now catches a non-JSON body (ALB/HTML error pages) and synthesizes
+  `{error: "Orders request failed (HTTP <status>)"}` instead of throwing into a blank state.
+- Error state renders cleanly: red banner ("pawgen orders unavailable" + server message), stats
+  cards show "—", table shows "Not connected — no orders to show", no pagination row.
+- Also fixed the React key warning in the same block — the row pair was wrapped in a bare `<>`
+  with keys on the children; now a keyed `<Fragment key={o.id}>`.
+
+**2. Root cause — missing env var (Paul's action, AWS).** `server/pawgen.ts` correctly 503s with
+`pawgen database not connected (PAWGEN_DATABASE_URL unset)`. Only `PAWGEN_STRIPE_SECRET_KEY` made
+it onto the ECS task definition; **`PAWGEN_DATABASE_URL` was never added**. It's the Supabase
+**session-pooler** URI for project `nlejhymlnniwxwduvvqw` (region `us-east-2`). Until that's on the
+task def and the service is force-redeployed, the tab degrades gracefully but shows no orders.
+Same pattern as the PeptideU pooler URL on 2026-07-19 — plaintext env var on the task def works;
+a `ValueFrom` secret tripped the deploy circuit breaker last time.
+
+Verified: `tsc --noEmit` clean, `npm run build` clean. Local dev can't render the page without a
+Google sign-in (ops gate), so the visual check was done on prod after the ECS deploy landed —
+confirming the served bundle hash changed, per the silent-deploy lesson.
+
+Also backfilled this log — it had gone stale at 2026-07-19 while five commits shipped (below).
+
+---
+
+## 2026-07-23 → 07-31 — Backfill: PeptideU authoring/moderation + pawgen tab
+
+Log wasn't written at the time; reconstructed from commits `ef205fb…9f437e2`.
+
+- **`9f437e2` (07-31) — pawgen company tab.** Third company in the top-bar switcher
+  (FitScript / PeptideU / pawgen). `server/pawgen.ts` + a `pawgenPool` in `server/db.ts` read
+  pawgen's Supabase Postgres over raw SQL; `client/src/pages/pawgen-orders.tsx` lists orders with
+  headline stats (revenue, paid, to-fulfill, refunded), status filter, and an expandable
+  **one-click refund** panel. Card refunds hit **pawgen's own Stripe account**
+  (`PAWGEN_STRIPE_SECRET_KEY`, separate from FitScript's) and the `charge.refunded` webhook on the
+  pawgen side reverses loyalty points; crypto orders are flagged manual-refund-only. Both
+  connections are env-gated → 503 + "not connected" when unset.
+- **`b7fc90d` (07-29) — PeptideU features: moderation queue + approve gate + built reward.**
+  `pending` is now a real moderation state (members can't see a request until `approved`); the
+  queue sorts pending first, then by votes. Status transitions stamp `approved_at` / `built_at`,
+  and setting `built` fires `reward_feature_built($1)` — idempotent entries + points for the author.
+- **`64c0a83` (07-25) — Library Updates review queue.** `/peptideu/library` +
+  `GET/POST /api/ops/peptideu/library-updates(/:id/approve|dismiss)`. AI-drafted library edits land
+  in a queue for human approve/dismiss instead of publishing straight to the app.
+- **`bc3ee11` (07-24) — native AP Class authoring panel.** `/peptideu/ap` +
+  `GET/POST/DELETE /api/ops/peptideu/ap`. Authors AP classes in ops instead of hand-writing SQL.
+- **`a7c1a6b` (07-24) — PeptideU insights: daily auto-refresh + stored results.** Insight queries
+  compute on a daily cadence and persist, so `/peptideu/questions` reads stored rows instead of
+  re-running expensive aggregates on every page view.
+- Earlier in the window (`f349e4b`, `a8d6561`, `ef205fb`, 07-23): coach queue now includes Commons
+  posts with a source badge; drawing copy says "winner" (singular) when `num_winners = 1`;
+  Prize Lineup editor for the auto-create queue.
+
+---
+
 ## 2026-07-19 — PeptideU section: management + moderation + drawing (write-enabled)
 
 Extended the PeptideU section from read-only analytics into a full admin surface. All raw SQL on `peptidePool`; every mutation is admin-only for free (`opsGate` 403s viewers on non-GET). Deployed to ops.fitscript.me (commits through `32bf652`).

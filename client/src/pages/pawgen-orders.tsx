@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { PageHero } from "../components/page-hero";
 
 interface PawgenOrder {
@@ -20,11 +20,14 @@ interface PawgenOrder {
   carrier: string | null;
 }
 
+// Every field is optional: an error response (503 "not connected", 500) carries
+// only `error`, and the fetch below resolves it like any other body. Optional
+// fields make the compiler force a guard at each read.
 interface OrdersResponse {
-  orders: PawgenOrder[];
-  stats: { paidOrders: number; revenue: number; refunded: number; toFulfill: number };
-  statuses: Record<string, number>;
-  pagination: { page: number; limit: number; total: number; pages: number };
+  orders?: PawgenOrder[];
+  stats?: { paidOrders: number; revenue: number; refunded: number; toFulfill: number };
+  statuses?: Record<string, number>;
+  pagination?: { page: number; limit: number; total: number; pages: number };
   error?: string;
 }
 
@@ -167,10 +170,15 @@ export default function PawgenOrders() {
 
   const { data, isLoading } = useQuery<OrdersResponse>({
     queryKey: ["pawgen-orders", page, statusFilter],
-    queryFn: () => {
+    queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (statusFilter !== "all") params.set("status", statusFilter);
-      return fetch(`/api/ops/pawgen/orders?${params}`).then((r) => r.json());
+      const res = await fetch(`/api/ops/pawgen/orders?${params}`);
+      try {
+        return (await res.json()) as OrdersResponse;
+      } catch {
+        return { error: `Orders request failed (HTTP ${res.status})` };
+      }
     },
   });
 
@@ -185,7 +193,10 @@ export default function PawgenOrders() {
       <PageHero eyebrow="pawgen" title="Orders" subtitle="K9-REPAIR orders, fulfillment status, and refunds." />
 
       {data?.error && (
-        <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{data.error}</div>
+        <div className="mb-4 px-4 py-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+          <div className="font-medium">pawgen orders unavailable</div>
+          <div className="mt-0.5 opacity-90">{data.error}</div>
+        </div>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -235,11 +246,13 @@ export default function PawgenOrders() {
               </tr>
             ) : !data?.orders?.length ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-sm text-ops-text-muted">No orders found</td>
+                <td colSpan={8} className="px-5 py-12 text-center text-sm text-ops-text-muted">
+                  {data?.error ? "Not connected — no orders to show" : "No orders found"}
+                </td>
               </tr>
             ) : (
               data.orders.map((o) => (
-                <>
+                <Fragment key={o.id}>
                   <tr
                     key={o.id}
                     className={`border-t border-ops-border hover:bg-ops-surface-hover transition-colors cursor-pointer ${expanded === o.id ? "bg-ops-surface-hover" : ""}`}
@@ -285,14 +298,14 @@ export default function PawgenOrders() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))
             )}
           </tbody>
         </table>
       </div>
 
-      {data && data.pagination.pages > 1 && (
+      {data?.pagination && data.pagination.pages > 1 && (
         <div className="flex items-center justify-between mt-4">
           <div className="text-sm text-ops-text-muted">Page {data.pagination.page} of {data.pagination.pages}</div>
           <div className="flex gap-2">
@@ -305,7 +318,7 @@ export default function PawgenOrders() {
             </button>
             <button
               onClick={() => setPage((p) => p + 1)}
-              disabled={page >= data.pagination.pages}
+              disabled={page >= (data.pagination?.pages ?? 1)}
               className="px-3 py-1.5 text-sm bg-ops-surface border border-ops-border rounded-lg text-ops-text-muted hover:text-ops-text disabled:opacity-40"
             >
               Next
