@@ -24,17 +24,29 @@ straight through the guard into `undefined.pages` → React unmounted the whole 
 - Also fixed the React key warning in the same block — the row pair was wrapped in a bare `<>`
   with keys on the children; now a keyed `<Fragment key={o.id}>`.
 
-**2. Root cause — missing env var (Paul's action, AWS).** `server/pawgen.ts` correctly 503s with
-`pawgen database not connected (PAWGEN_DATABASE_URL unset)`. Only `PAWGEN_STRIPE_SECRET_KEY` made
-it onto the ECS task definition; **`PAWGEN_DATABASE_URL` was never added**. It's the Supabase
-**session-pooler** URI for project `nlejhymlnniwxwduvvqw` (region `us-east-2`). Until that's on the
-task def and the service is force-redeployed, the tab degrades gracefully but shows no orders.
-Same pattern as the PeptideU pooler URL on 2026-07-19 — plaintext env var on the task def works;
-a `ValueFrom` secret tripped the deploy circuit breaker last time.
+**2. Root cause — BAD credentials, not a missing env var (Paul's action, AWS).** The working
+assumption going in was that `PAWGEN_DATABASE_URL` had never been added to the ECS task def. The
+deployed page disproved it: with the crash gone, the real server message is visible and it is
+**`password authentication failed for user "postgres"`**, not
+`pawgen database not connected (PAWGEN_DATABASE_URL unset)`. So the var **is** on the task def —
+Postgres is rejecting it.
 
-Verified: `tsc --noEmit` clean, `npm run build` clean. Local dev can't render the page without a
-Google sign-in (ops gate), so the visual check was done on prod after the ECS deploy landed —
-confirming the served bundle hash changed, per the silent-deploy lesson.
+The user in the URI is plain `postgres`. Supabase's **session pooler** requires the project-scoped
+user **`postgres.nlejhymlnniwxwduvvqw`** — a direct-connection URI pointed at the pooler host
+fails exactly this way. Same shape that worked for `PEPTIDEU_DATABASE_URL` on 2026-07-19
+("Session pooler :5432, `postgres.…` user"). Fix = copy the Session-pooler URI from the Supabase
+dashboard (Connect → Session pooler, project `nlejhymlnniwxwduvvqw`, us-east-2), reset the DB
+password if it isn't at hand, update the task-def env var, force-redeploy. Plaintext on the task
+def works; a `ValueFrom` secret tripped the deploy circuit breaker last time.
+
+Note pawgen's own app can't supply a URI to copy — it talks to Supabase over the JS client with
+`SUPABASE_SERVICE_ROLE_KEY`, not a Postgres connection string.
+
+Verified: `tsc --noEmit` clean, `npm run build` clean, deploy green, **served bundle hash changed**
+`index-BqjAXZcs.js` → `index-B1yBo92e.js` (per the silent-deploy lesson), and `/pawgen` on prod now
+renders the banner + "—" stats + "Not connected — no orders to show" instead of white-screening.
+Local dev can't render the page without a Google sign-in (ops gate), so the visual check was done
+on prod.
 
 Also backfilled this log — it had gone stale at 2026-07-19 while five commits shipped (below).
 
