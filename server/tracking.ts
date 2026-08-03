@@ -33,6 +33,11 @@ function trackingCors(req: Request, res: Response, next: NextFunction) {
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    // navigator.sendBeacon always sends cookies, so the browser treats the
+    // pixel POST as a CREDENTIALED cross-origin request. Without this header
+    // the preflight fails on www.fitscript.me — every event silently dropped
+    // AND a CORS error logged to the console on every page load.
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Max-Age", "86400");
   }
   if (req.method === "OPTIONS") {
