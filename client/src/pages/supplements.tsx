@@ -6,6 +6,7 @@
  */
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "wouter";
 import { PageHero } from "../components/page-hero";
 
 const j = (url: string) => fetch(url).then((r) => r.json());
@@ -28,6 +29,7 @@ interface ListResp { items: Item[]; total: number; hosted: number; }
 
 export default function Supplements() {
   const qc = useQueryClient();
+  const [, navigate] = useLocation();
   const [q, setQ] = useState("");
   const [dq, setDq] = useState("");
   const [note, setNote] = useState<string | null>(null);
@@ -132,7 +134,7 @@ export default function Supplements() {
           <tbody>
             {list.isLoading && <tr><td colSpan={6} className="p-8 text-center text-ops-text-muted">Loading…</td></tr>}
             {d?.items.map((it) => (
-              <tr key={it.id} className="border-t border-ops-border">
+              <tr key={it.id} onClick={() => navigate(`/supplements/${it.id}`)} className="border-t border-ops-border cursor-pointer hover:bg-ops-bg/40">
                 <td className="p-3">
                   <div className="w-12 h-12 bg-ops-bg rounded flex items-center justify-center overflow-hidden">
                     {it.image_url ? <img src={it.image_url} alt="" className="max-w-full max-h-full object-contain" /> : <span className="text-ops-text-muted text-xs">—</span>}
@@ -148,10 +150,10 @@ export default function Supplements() {
                     {it.availability || "—"}
                   </span>
                 </td>
-                <td className="p-3">
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={it.active} onChange={(e) => patch.mutate({ id: it.id, body: { active: e.target.checked } })} />
                 </td>
-                <td className="p-3 text-right">
+                <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => pickImage(it)} disabled={uploadingId === it.id} className="text-xs text-fitscript-green hover:underline disabled:opacity-50">
                     {uploadingId === it.id ? "Uploading…" : "Replace image"}
                   </button>

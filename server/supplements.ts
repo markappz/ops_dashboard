@@ -51,12 +51,24 @@ export function registerSupplementsRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── Curation (direct DB): active / atlas_selected / sort_order ────────────
+  // ── Single product — full row (all pricing / info / curation / Fullscript refs) ─
+  app.get("/api/ops/supplements/:id", async (req, res) => {
+    try {
+      const r = await pool.query(`SELECT * FROM supplement_catalog WHERE id = $1`, [req.params.id]);
+      if (!r.rows.length) { res.status(404).json({ error: "Not found" }); return; }
+      res.json({ item: r.rows[0] });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Curation (direct DB). Pricing/description come from Fullscript (read-only). ─
   app.patch("/api/ops/supplements/:id", async (req, res) => {
     try {
       const sets: string[] = []; const vals: any[] = [req.params.id]; let i = 2;
-      for (const key of ["active", "atlas_selected", "sort_order"] as const) {
+      for (const key of ["active", "atlas_selected", "sort_order", "evidence_tier", "why_this_one", "primary_benefit", "typical_dose"] as const) {
         if (req.body[key] !== undefined) { sets.push(`${key} = $${i++}`); vals.push(req.body[key]); }
+      }
+      for (const key of ["biomarker_targets", "certifications"] as const) {
+        if (req.body[key] !== undefined) { sets.push(`${key} = $${i++}::jsonb`); vals.push(JSON.stringify(req.body[key])); }
       }
       if (!sets.length) { res.status(400).json({ error: "No updatable fields" }); return; }
       await pool.query(`UPDATE supplement_catalog SET ${sets.join(", ")} WHERE id = $1`, vals);
