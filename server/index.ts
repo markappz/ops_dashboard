@@ -25,6 +25,7 @@ import { registerTicketRoutes } from "./tickets";
 import { registerReportsRoutes, startEmailReportWarmer } from "./reports";
 import { registerDmarcRoutes } from "./dmarc";
 import { registerLabsRoutes } from "./labs";
+import { registerSupplementsRoutes } from "./supplements";
 import { registerPeptideURoutes } from "./peptideu";
 import { verifyPeptideuConnection } from "./db";
 import { registerPawgenRoutes } from "./pawgen";
@@ -77,6 +78,7 @@ registerTicketRoutes(app);
 registerReportsRoutes(app);
 registerDmarcRoutes(app);
 registerLabsRoutes(app);
+registerSupplementsRoutes(app);
 registerPeptideURoutes(app);
 registerPawgenRoutes(app);
 

@@ -7,6 +7,7 @@ import Members from "./pages/members";
 import MemberDetail from "./pages/member-detail";
 import Orders from "./pages/orders";
 import Labs from "./pages/labs";
+import Supplements from "./pages/supplements";
 import LabsEdit from "./pages/labs-edit";
 import LabsPanelEdit from "./pages/labs-panel-edit";
 import LabsBuilder from "./pages/labs-builder";
@@ -112,6 +113,7 @@ export default function App() {
           <Route path="/members/:id">{(params) => <MemberDetail id={params.id} />}</Route>
           <Route path="/orders" component={Orders} />
           <Route path="/labs" component={Labs} />
+          <Route path="/supplements" component={Supplements} />
           <Route path="/labs/builder" component={LabsBuilder} />
           <Route path="/labs/mapping/:id">{(params) => <LabsEdit id={params.id} />}</Route>
           <Route path="/labs/panel/:slug">{(params) => <LabsPanelEdit slug={params.slug} />}</Route>
