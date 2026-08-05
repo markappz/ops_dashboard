@@ -8,17 +8,38 @@
 import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
 import { pawgenPool } from "./db";
+import * as rest from "./pawgen-rest";
 
 const pawgenStripe = process.env.PAWGEN_STRIPE_SECRET_KEY
   ? new Stripe(process.env.PAWGEN_STRIPE_SECRET_KEY)
   : null;
 
-function ensurePool(res: Response): boolean {
-  if (!pawgenPool) {
-    res.status(503).json({ error: "pawgen database not connected (PAWGEN_DATABASE_URL unset)" });
-    return false;
+/**
+ * Two ways in, because the Postgres route needs the project DB password AND the
+ * session-pooler's `postgres.<ref>` user — the exact thing that was failing with
+ * `password authentication failed for user "postgres"`. The REST route reuses the
+ * service-role key pawgen's own app already runs on.
+ *
+ * Pool wins when it's configured: it keeps the aggregate SQL server-side.
+ */
+type Source = "pool" | "rest";
+
+function source(): Source | null {
+  if (pawgenPool) return "pool";
+  if (rest.pawgenRestConfigured()) return "rest";
+  return null;
+}
+
+function ensureSource(res: Response): Source | null {
+  const s = source();
+  if (!s) {
+    res.status(503).json({
+      error:
+        "pawgen database not connected — set PAWGEN_SUPABASE_URL + PAWGEN_SUPABASE_SERVICE_ROLE_KEY (or a valid PAWGEN_DATABASE_URL)",
+    });
+    return null;
   }
-  return true;
+  return s;
 }
 
 const PACK_LABELS: Record<string, string> = {
@@ -30,12 +51,30 @@ const PACK_LABELS: Record<string, string> = {
 export function registerPawgenRoutes(app: Express) {
   // ── Orders list + headline stats ──────────────────────────────────────────
   app.get("/api/ops/pawgen/orders", async (req: Request, res: Response) => {
-    if (!ensurePool(res)) return;
+    const src = ensureSource(res);
+    if (!src) return;
     try {
       const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
       const limit = 50;
       const offset = (page - 1) * limit;
       const status = String(req.query.status ?? "all");
+
+      if (src === "rest") {
+        const [{ rows, total }, { stats, statuses }] = await Promise.all([
+          rest.listOrders(status, limit, offset),
+          rest.ordersSummary(),
+        ]);
+        return res.json({
+          orders: rows.map((o) => ({
+            ...o,
+            pack_label: PACK_LABELS[o.pack_id] ?? o.pack_id,
+            amount_usd: Number(o.amount_usd),
+          })),
+          stats,
+          statuses,
+          pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
+        });
+      }
 
       const where: string[] = [];
       const params: any[] = [];
@@ -95,18 +134,23 @@ export function registerPawgenRoutes(app: Express) {
   // Card orders → Stripe refund (full or partial) + status + point reversal.
   // Crypto orders → flagged for manual refund (crypto can't be reversed).
   app.post("/api/ops/pawgen/orders/:id/refund", async (req: Request, res: Response) => {
-    if (!ensurePool(res)) return;
+    const src = ensureSource(res);
+    if (!src) return;
     try {
       const { id } = req.params;
       const amount = req.body?.amount != null ? Number(req.body.amount) : null; // dollars, optional (partial)
       const reason = req.body?.reason as string | undefined;
 
-      const { rows } = await pawgenPool!.query(
-        `SELECT id, source, method, external_id, payment_status, amount_usd, customer_email
-           FROM orders WHERE id = $1`,
-        [id]
-      );
-      const order = rows[0];
+      const order =
+        src === "rest"
+          ? await rest.getOrder(id)
+          : (
+              await pawgenPool!.query(
+                `SELECT id, source, method, external_id, payment_status, amount_usd, customer_email
+                   FROM orders WHERE id = $1`,
+                [id]
+              )
+            ).rows[0];
       if (!order) return res.status(404).json({ error: "Order not found" });
       if (order.payment_status !== "paid") {
         return res.status(400).json({ error: `Order is ${order.payment_status}, not refundable` });
@@ -139,22 +183,30 @@ export function registerPawgenRoutes(app: Express) {
       if (!isPartial) {
         // Full refund → mark refunded/cancelled. Earned points auto-reverse (they're
         // computed only from paid orders). Restore any points the customer redeemed.
-        await pawgenPool!.query(
-          `UPDATE orders SET payment_status = 'refunded', fulfillment_status = 'cancelled' WHERE id = $1`,
-          [id]
-        );
-        const redeem = await pawgenPool!.query(
-          `SELECT email, delta FROM points_ledger WHERE order_id = $1 AND reason = 'redeem' LIMIT 1`,
-          [id]
-        );
-        const r = redeem.rows[0];
-        if (r && Number(r.delta) < 0) {
+        if (src === "rest") {
+          await rest.markRefunded(id);
+          const r = await rest.findRedemption(id);
+          if (r && Number(r.delta) < 0) {
+            await rest.restorePoints(r.email, -Number(r.delta), id);
+          }
+        } else {
           await pawgenPool!.query(
-            `INSERT INTO points_ledger (email, delta, reason, order_id, note)
-               VALUES ($1, $2, 'adjust', $3, 'refund: restored redeemed points')
-             ON CONFLICT (email, reason, order_id) WHERE order_id IS NOT NULL DO NOTHING`,
-            [r.email, -Number(r.delta), id]
+            `UPDATE orders SET payment_status = 'refunded', fulfillment_status = 'cancelled' WHERE id = $1`,
+            [id]
           );
+          const redeem = await pawgenPool!.query(
+            `SELECT email, delta FROM points_ledger WHERE order_id = $1 AND reason = 'redeem' LIMIT 1`,
+            [id]
+          );
+          const r = redeem.rows[0];
+          if (r && Number(r.delta) < 0) {
+            await pawgenPool!.query(
+              `INSERT INTO points_ledger (email, delta, reason, order_id, note)
+                 VALUES ($1, $2, 'adjust', $3, 'refund: restored redeemed points')
+               ON CONFLICT (email, reason, order_id) WHERE order_id IS NOT NULL DO NOTHING`,
+              [r.email, -Number(r.delta), id]
+            );
+          }
         }
       }
 

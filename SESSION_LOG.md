@@ -4,6 +4,58 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-05 — pawgen orders: second way in (Supabase REST), no DB password needed
+
+Paul: *"i'm still seeing that the ops dashboard doesn't show pawgen orders"* — prod still shows
+"pawgen orders unavailable / password authentication failed for user \"postgres\"".
+
+The 08-01 diagnosis was right (bad creds on `PAWGEN_DATABASE_URL`, needs the session-pooler
+`postgres.nlejhymlnniwxwduvvqw` user) but the fix was blocked on a **Supabase DB password nobody
+has to hand** — it isn't in this repo's `.env`, and pawgen's own app can't supply one because it
+talks to Supabase over the JS client with a service-role key.
+
+**So: added a REST path that reuses the credential that already exists and already works in
+pawgen production.** `server/pawgen-rest.ts` reads/writes pawgen's Supabase over PostgREST with
+`PAWGEN_SUPABASE_URL` + `PAWGEN_SUPABASE_SERVICE_ROLE_KEY`. `server/pawgen.ts` now picks a source:
+**`pawgenPool` still wins whenever `PAWGEN_DATABASE_URL` is set** (keeps the aggregate SQL
+server-side); REST is the fallback. Fixing the pooler URI later needs no code change.
+
+Covers everything the tab does: orders list (+status filter, +pagination via `Prefer: count=exact`),
+headline stats, per-status counts, single-order lookup, and the refund reconciliation writes
+(`markRefunded`, `findRedemption`, `restorePoints` — the last idempotent against the unique
+`(email, reason, order_id)` index).
+
+**Verified against LIVE pawgen data** (ran the real module, not a mock):
+```
+STATS    → { paidOrders: 5, revenue: 978, refunded: 0, toFulfill: 3 }
+STATUSES → { unfulfilled: 3, shipped: 2 }
+ORDERS   → 5 rows  (Sabine Scales 4-pack $256 unfulfilled · Patrick gaffney 4-pack $256 shipped ·
+            AIRFIX LLC 1-pack $110 shipped · Sam Cheow 4-pack $276 unfulfilled ·
+            Paul Clotar 1-pack $80 unfulfilled)
+FILTER unfulfilled → 3 · PAGINATION limit2 → total=5 pages=3 · getOrder(bogus) → null
+```
+So there IS real data behind the banner — **$978 across 5 paid orders and 3 still unfulfilled.**
+
+`tsc --noEmit` clean, `npm run build` clean. **NOT pushed, NOT deployed** — awaiting Paul.
+
+**To go live, 2 env vars on the ECS task def** (the deploy workflow pulls the LIVE task def via
+`describe-task-definition`, so they persist across deploys — the static-file footgun from 06-03
+doesn't apply):
+- `PAWGEN_SUPABASE_URL` — not secret, plaintext env is fine (`https://nlejhymlnniwxwduvvqw.supabase.co`)
+- `PAWGEN_SUPABASE_SERVICE_ROLE_KEY` — **secret**; belongs in `prod/ops-secrets` + a `valueFrom`
+  ref like the other 21, NOT plaintext. Note the 08-01 warning that a `valueFrom` addition once
+  tripped the deploy circuit breaker — if it does again, that's a bad ARN/permission, not this code.
+Values are in `~/Projects/pawgen/.env.local` as `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`.
+
+**Caveat worth revisiting:** the service-role key bypasses RLS on all of pawgen's database, while
+the tab only needs orders + points_ledger. Acceptable for an internal admin dashboard behind the
+Google gate; a scoped Supabase key or a read-only DB role would be tighter if the surface grows.
+
+**Scale note:** PostgREST can't SUM without an RPC, so `ordersSummary()` reduces in JS over a
+capped fetch. Fine in the hundreds; past ~10k orders move it to a view or RPC.
+
+---
+
 ## 2026-08-01 — pawgen tab crash fix (prod white-screen) + log backfill
 
 `ops.fitscript.me/pawgen` was **white-screening in production** with `Cannot read properties of

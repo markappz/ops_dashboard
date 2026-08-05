@@ -1,0 +1,174 @@
+/**
+ * pawgen data access over Supabase's REST API (PostgREST), used when
+ * PAWGEN_SUPABASE_URL + PAWGEN_SUPABASE_SERVICE_ROLE_KEY are set.
+ *
+ * Why this exists alongside `pawgenPool`: the Postgres route needs the project's
+ * DB password AND the session-pooler's project-scoped user (`postgres.<ref>`),
+ * which is exactly what kept failing with `password authentication failed for
+ * user "postgres"`. The service-role key is the same credential pawgen's own app
+ * already uses in production, so there's no second secret to keep in sync.
+ *
+ * Repo rule is "raw SQL, no ORM" — that's about not putting Drizzle in front of
+ * OUR Postgres. This is a foreign database we reach over HTTP; there's no pool to
+ * use. `server/pawgen.ts` still prefers `pawgenPool` whenever it's configured.
+ *
+ * Scale note: PostgREST can't SUM/aggregate without an RPC, so the stats below
+ * fetch the amount/status columns and reduce in JS. Fine for a brand in its first
+ * hundreds of orders; if pawgen passes ~10k, move stats to a Postgres view or an
+ * RPC rather than paging more rows through here.
+ */
+
+const REST_PAGE_MAX = 10_000; // hard cap so a bad filter can't pull the table forever
+
+export function pawgenRestConfigured(): boolean {
+  return Boolean(process.env.PAWGEN_SUPABASE_URL && process.env.PAWGEN_SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function base(): { url: string; key: string } {
+  const url = (process.env.PAWGEN_SUPABASE_URL ?? "").replace(/\/+$/, "");
+  const key = process.env.PAWGEN_SUPABASE_SERVICE_ROLE_KEY ?? "";
+  if (!url || !key) throw new Error("pawgen Supabase REST not configured");
+  return { url, key };
+}
+
+type RestOpts = {
+  method?: string;
+  body?: unknown;
+  /** Ask PostgREST for an exact row count in the Content-Range header. */
+  count?: boolean;
+  range?: { from: number; to: number };
+  /** Extra Prefer directives (e.g. "resolution=ignore-duplicates"). */
+  prefer?: string[];
+};
+
+async function rest<T>(path: string, opts: RestOpts = {}): Promise<{ rows: T[]; total: number | null }> {
+  const { url, key } = base();
+  const prefer = [...(opts.prefer ?? [])];
+  if (opts.count) prefer.push("count=exact");
+  if (opts.method && opts.method !== "GET") prefer.push("return=representation");
+
+  const headers: Record<string, string> = {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+  };
+  if (prefer.length) headers.Prefer = prefer.join(",");
+  if (opts.range) headers.Range = `${opts.range.from}-${opts.range.to}`;
+
+  const res = await fetch(`${url}/rest/v1/${path}`, {
+    method: opts.method ?? "GET",
+    headers,
+    body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    // Surface PostgREST's own message — it names the column/constraint, which is
+    // far more useful in the UI banner than "request failed".
+    let msg = text;
+    try {
+      const j = JSON.parse(text);
+      msg = j.message || j.hint || text;
+    } catch {
+      /* keep raw text */
+    }
+    throw new Error(`pawgen Supabase: ${msg || res.statusText}`);
+  }
+
+  // "0-24/137" → 137
+  const total = (() => {
+    const cr = res.headers.get("content-range");
+    const n = cr?.split("/")?.[1];
+    return n && n !== "*" ? Number(n) : null;
+  })();
+
+  return { rows: text ? (JSON.parse(text) as T[]) : [], total };
+}
+
+// ── Reads ───────────────────────────────────────────────────────────────────
+const ORDER_COLS =
+  "id,created_at,source,method,payment_status,amount_usd,pack_id,quantity," +
+  "bac_addon_qty,customer_name,customer_email,fulfillment_status,tracking_number,carrier";
+
+export async function listOrders(status: string, limit: number, offset: number) {
+  const filter = status !== "all" ? `&fulfillment_status=eq.${encodeURIComponent(status)}` : "";
+  const { rows, total } = await rest<Record<string, any>>(
+    `orders?select=${ORDER_COLS}${filter}&order=created_at.desc`,
+    { count: true, range: { from: offset, to: offset + limit - 1 } }
+  );
+  return { rows, total: total ?? rows.length };
+}
+
+/** Headline stats + per-status counts, reduced in JS (see scale note above). */
+export async function ordersSummary() {
+  const { rows } = await rest<{ payment_status: string; fulfillment_status: string; amount_usd: string }>(
+    `orders?select=payment_status,fulfillment_status,amount_usd`,
+    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  );
+
+  const stats = { paidOrders: 0, revenue: 0, refunded: 0, toFulfill: 0 };
+  const statuses: Record<string, number> = {};
+
+  for (const o of rows) {
+    if (o.payment_status === "paid") {
+      stats.paidOrders += 1;
+      stats.revenue += Number(o.amount_usd) || 0;
+    }
+    if (o.payment_status === "refunded") stats.refunded += 1;
+    if (o.fulfillment_status === "unfulfilled" || o.fulfillment_status === "processing") {
+      stats.toFulfill += 1;
+    }
+    statuses[o.fulfillment_status] = (statuses[o.fulfillment_status] ?? 0) + 1;
+  }
+
+  stats.revenue = Math.round(stats.revenue * 100) / 100;
+  return { stats, statuses };
+}
+
+export async function getOrder(id: string) {
+  const { rows } = await rest<Record<string, any>>(
+    `orders?select=id,source,method,external_id,payment_status,amount_usd,customer_email&id=eq.${encodeURIComponent(id)}&limit=1`
+  );
+  return rows[0] ?? null;
+}
+
+// ── Writes (refund reconciliation) ──────────────────────────────────────────
+export async function markRefunded(id: string) {
+  await rest(`orders?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: { payment_status: "refunded", fulfillment_status: "cancelled" },
+  });
+}
+
+export async function findRedemption(orderId: string) {
+  const { rows } = await rest<{ email: string; delta: number }>(
+    `points_ledger?select=email,delta&order_id=eq.${encodeURIComponent(orderId)}&reason=eq.redeem&limit=1`
+  );
+  return rows[0] ?? null;
+}
+
+/** Idempotent: the unique (email, reason, order_id) index makes a repeat a no-op. */
+export async function restorePoints(email: string, delta: number, orderId: string) {
+  try {
+    await rest(`points_ledger`, {
+      method: "POST",
+      body: [{ email, delta, reason: "adjust", order_id: orderId, note: "refund: restored redeemed points" }],
+      prefer: ["resolution=ignore-duplicates"],
+    });
+  } catch (e: any) {
+    if (!/duplicate|unique/i.test(e?.message ?? "")) throw e;
+  }
+}
+
+/** Connection check for boot logging. */
+export async function verifyPawgenRest(): Promise<boolean> {
+  if (!pawgenRestConfigured()) return false;
+  try {
+    await rest(`orders?select=id&limit=1`);
+    console.log("[OPS DB] Connected to pawgen via Supabase REST");
+    return true;
+  } catch (e: any) {
+    console.error("[OPS DB] pawgen Supabase REST failed:", e.message);
+    return false;
+  }
+}
