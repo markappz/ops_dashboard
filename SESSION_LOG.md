@@ -36,7 +36,21 @@ FILTER unfulfilled → 3 · PAGINATION limit2 → total=5 pages=3 · getOrder(bo
 ```
 So there IS real data behind the banner — **$978 across 5 paid orders and 3 still unfulfilled.**
 
-`tsc --noEmit` clean, `npm run build` clean. **NOT pushed, NOT deployed** — awaiting Paul.
+**SHIPPED + VERIFIED LIVE.** Paul added the secret + the two task-def entries; deployed in three
+commits (`bce554a` → `307f100` → the 416 fix). `ops.fitscript.me/pawgen` now renders
+**$978.00 revenue · 5 paid orders · 3 to fulfill · 0 refunded** with the full order table.
+Filters verified against prod: all=5, unfulfilled=3, shipped=2.
+
+**Two bugs the deploy caught that local testing could not:**
+1. **Precedence was backwards.** First deploy still showed the identical
+   `password authentication failed for user "postgres"`. `new Pool()` never connects eagerly,
+   so `pawgenPool` is non-null whenever `PAWGEN_DATABASE_URL` is merely SET — invalid creds
+   included. The stale bad DSN silently shadowed the working REST config. **REST now wins when
+   configured**; "pool exists" is not evidence the pool works.
+2. **`?page=2` returned HTTP 500.** PostgREST answers **416** when a Range starts past the last
+   row; SQL `OFFSET` just returns nothing. `rest()` now maps 416 → empty page (keeping the count
+   off `Content-Range`), matching the SQL path. Verified: offset 50/5000 → 0 rows total=5,
+   in-range paging unaffected.
 
 **To go live, 2 env vars on the ECS task def** (the deploy workflow pulls the LIVE task def via
 `describe-task-definition`, so they persist across deploys — the static-file footgun from 06-03

@@ -63,6 +63,15 @@ async function rest<T>(path: string, opts: RestOpts = {}): Promise<{ rows: T[]; 
     body: opts.body != null ? JSON.stringify(opts.body) : undefined,
   });
 
+  // 416 = the Range asked for rows past the end of the table. PostgREST treats that
+  // as an error; SQL's OFFSET just returns nothing. Match the SQL behaviour so a
+  // stale ?page=N is an empty page, not a 500. The count still rides on Content-Range.
+  if (res.status === 416) {
+    const cr = res.headers.get("content-range");
+    const n = cr?.split("/")?.[1];
+    return { rows: [], total: n && n !== "*" ? Number(n) : 0 };
+  }
+
   const text = await res.text();
   if (!res.ok) {
     // Surface PostgREST's own message — it names the column/constraint, which is
