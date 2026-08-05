@@ -20,13 +20,18 @@ const pawgenStripe = process.env.PAWGEN_STRIPE_SECRET_KEY
  * `password authentication failed for user "postgres"`. The REST route reuses the
  * service-role key pawgen's own app already runs on.
  *
- * Pool wins when it's configured: it keeps the aggregate SQL server-side.
+ * REST wins when it's configured. That ordering matters: `new Pool()` never
+ * connects eagerly, so `pawgenPool` is non-null whenever PAWGEN_DATABASE_URL is
+ * merely *set* — including when its credentials are garbage. "Pool exists" is
+ * therefore no evidence the pool works, while the REST vars being present is an
+ * explicit choice someone made. Preferring the pool here meant a stale, broken
+ * DATABASE_URL silently shadowed a working REST config.
  */
 type Source = "pool" | "rest";
 
 function source(): Source | null {
-  if (pawgenPool) return "pool";
   if (rest.pawgenRestConfigured()) return "rest";
+  if (pawgenPool) return "pool";
   return null;
 }
 

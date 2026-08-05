@@ -10,7 +10,9 @@
  *
  * Repo rule is "raw SQL, no ORM" — that's about not putting Drizzle in front of
  * OUR Postgres. This is a foreign database we reach over HTTP; there's no pool to
- * use. `server/pawgen.ts` still prefers `pawgenPool` whenever it's configured.
+ * use. `server/pawgen.ts` prefers this over `pawgenPool` when both are configured,
+ * because a Pool object exists whenever PAWGEN_DATABASE_URL is set even if its
+ * credentials are invalid — see the note on `source()` there.
  *
  * Scale note: PostgREST can't SUM/aggregate without an RPC, so the stats below
  * fetch the amount/status columns and reduce in JS. Fine for a brand in its first
