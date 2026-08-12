@@ -11,21 +11,24 @@ import { PageHero } from "../components/page-hero";
  * what to do — not an empty chart implying zero traffic.
  */
 
+// Shapes match what the endpoints ACTUALLY return (verified against prod) — the
+// GA4 route sends `totals`/`sources[].channel`, not `summary`/`sources[].source`.
 interface Ga4 {
   connected?: boolean;
   error?: string;
-  summary?: { users?: number; sessions?: number; pageViews?: number; bounceRate?: number; avgDuration?: number };
-  byDate?: { date: string; users: number; sessions: number }[];
-  topPages?: { page: string; views: number }[];
-  sources?: { source: string; users: number }[];
+  totals?: { sessions?: number; users?: number; newUsers?: number; pageViews?: number };
+  daily?: { date: string; sessions: number; users: number; pageViews: number; bounceRate: number; avgDuration: number }[];
+  sources?: { channel: string; sessions: number; users: number; pageViews: number }[];
+  topPages?: { page: string; views: number; avgDuration: number }[];
 }
 
 interface Gsc {
   connected?: boolean;
   error?: string;
-  summary?: { clicks?: number; impressions?: number; ctr?: number; position?: number };
-  queries?: { query: string; clicks: number; impressions: number; ctr: number; position: number }[];
-  pages?: { page: string; clicks: number; impressions: number }[];
+  totals?: { clicks?: number; impressions?: number; ctr?: number; position?: number };
+  daily?: { date: string; clicks: number; impressions: number }[];
+  topQueries?: { query: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  topPages?: { page: string; clicks: number; impressions: number }[];
 }
 
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
@@ -107,17 +110,23 @@ export function PawgenTraffic() {
       {!isLoading && data?.connected !== false && data?.error && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
       )}
-      {data?.summary && (
+      {data?.totals && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat label="Users" value={num(data.summary.users)} />
-            <Stat label="Sessions" value={num(data.summary.sessions)} />
-            <Stat label="Page views" value={num(data.summary.pageViews)} />
-            <Stat label="Bounce rate" value={pct(data.summary.bounceRate)} />
+            <Stat label="Users" value={num(data.totals.users)} />
+            <Stat label="Sessions" value={num(data.totals.sessions)} />
+            <Stat label="New users" value={num(data.totals.newUsers)} />
+            <Stat label="Page views" value={num(data.totals.pageViews)} />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
-            <Table head={["Top page", "Views"]} rows={(data.topPages ?? []).map((p) => [p.page, num(p.views)])} />
-            <Table head={["Source", "Users"]} rows={(data.sources ?? []).map((s) => [s.source, num(s.users)])} />
+            <Table
+              head={["Top page", "Views", "Avg time"]}
+              rows={(data.topPages ?? []).map((p) => [p.page, num(p.views), `${Math.round(p.avgDuration)}s`])}
+            />
+            <Table
+              head={["Channel", "Users", "Sessions"]}
+              rows={(data.sources ?? []).map((s) => [s.channel, num(s.users), num(s.sessions)])}
+            />
           </div>
         </>
       )}
@@ -142,20 +151,26 @@ export function PawgenSeo() {
       {!isLoading && data?.connected !== false && data?.error && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
       )}
-      {data?.summary && (
+      {data?.totals && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat label="Clicks" value={num(data.summary.clicks)} />
-            <Stat label="Impressions" value={num(data.summary.impressions)} />
-            <Stat label="CTR" value={pct(data.summary.ctr)} />
-            <Stat label="Avg position" value={(data.summary.position ?? 0).toFixed(1)} />
+            <Stat label="Clicks" value={num(data.totals.clicks)} />
+            <Stat label="Impressions" value={num(data.totals.impressions)} />
+            <Stat label="CTR" value={pct(data.totals.ctr)} />
+            <Stat label="Avg position" value={(data.totals.position ?? 0).toFixed(1)} />
           </div>
+          {(data.topQueries ?? []).length === 0 && (
+            <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface p-4 text-sm text-ops-text-muted">
+              Search Console has no data for pawgen.com yet. It typically takes a couple of days after
+              verification before Google reports impressions — this fills in on its own.
+            </div>
+          )}
           <div className="grid gap-4">
             <Table
               head={["Query", "Clicks", "Impressions", "CTR", "Position"]}
-              rows={(data.queries ?? []).map((q) => [q.query, num(q.clicks), num(q.impressions), pct(q.ctr), q.position.toFixed(1)])}
+              rows={(data.topQueries ?? []).map((q) => [q.query, num(q.clicks), num(q.impressions), pct(q.ctr), q.position.toFixed(1)])}
             />
-            <Table head={["Page", "Clicks", "Impressions"]} rows={(data.pages ?? []).map((p) => [p.page, num(p.clicks), num(p.impressions)])} />
+            <Table head={["Page", "Clicks", "Impressions"]} rows={(data.topPages ?? []).map((p) => [p.page, num(p.clicks), num(p.impressions)])} />
           </div>
         </>
       )}
