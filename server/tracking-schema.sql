@@ -149,3 +149,51 @@ CREATE TABLE IF NOT EXISTS channel_daily_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_cdm_date ON channel_daily_metrics(date);
 CREATE INDEX IF NOT EXISTS idx_cdm_channel ON channel_daily_metrics(channel);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Multi-brand (2026-08-12): every tracking row belongs to a site.
+--
+-- This whole file re-runs on every boot, so each statement must be idempotent.
+-- Constraint names below were read off the live RDS, not guessed — dropping a
+-- name that doesn't exist is a silent no-op, which would leave the old
+-- single-brand UNIQUE in place and cause collisions the moment a second brand
+-- writes. Verify with \d after deploy.
+--
+-- Backfill is 'fitscript' because every existing row predates multi-brand.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+ALTER TABLE visitor_sessions      ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+ALTER TABLE touchpoints           ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+ALTER TABLE campaigns             ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+ALTER TABLE daily_metrics         ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+ALTER TABLE channel_daily_metrics ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+
+-- Reports always filter by site and then by time, so index the pair.
+CREATE INDEX IF NOT EXISTS idx_vs_site_created  ON visitor_sessions(site, created_at);
+CREATE INDEX IF NOT EXISTS idx_tp_site_created  ON touchpoints(site, created_at);
+CREATE INDEX IF NOT EXISTS idx_tp_site_event    ON touchpoints(site, event_type);
+CREATE INDEX IF NOT EXISTS idx_camp_site        ON campaigns(site);
+
+-- ── Uniques that would collide across brands ──────────────────────────────
+-- Two brands can each have a "summer-sale" campaign, and each needs its own
+-- row per date. Without site in the key the second brand's write either fails
+-- or overwrites the first brand's numbers.
+
+-- campaigns.slug UNIQUE → (site, slug)
+ALTER TABLE campaigns DROP CONSTRAINT IF EXISTS campaigns_slug_key;
+CREATE UNIQUE INDEX IF NOT EXISTS campaigns_site_slug_key ON campaigns(site, slug);
+
+-- daily_metrics.date UNIQUE → (site, date)
+ALTER TABLE daily_metrics DROP CONSTRAINT IF EXISTS daily_metrics_date_key;
+CREATE UNIQUE INDEX IF NOT EXISTS daily_metrics_site_date_key ON daily_metrics(site, date);
+
+-- channel_daily_metrics (date, channel, utm_campaign) UNIQUE → + site
+ALTER TABLE channel_daily_metrics DROP CONSTRAINT IF EXISTS channel_daily_metrics_date_channel_utm_campaign_key;
+CREATE UNIQUE INDEX IF NOT EXISTS cdm_site_date_channel_campaign_key
+  ON channel_daily_metrics(site, date, channel, utm_campaign);
+
+-- NOTE on `attribution`: deliberately NOT given a site column. Its user_id is
+-- NOT NULL REFERENCES users(id) — FitScript's user table — and pawgen customers
+-- live in a different database entirely (Supabase), so they can never satisfy
+-- that FK. pawgen attribution is computed from `touchpoints`, which carries
+-- revenue and utm data and is site-scoped. Don't "fix" this by dropping the FK.
