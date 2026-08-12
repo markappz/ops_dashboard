@@ -135,6 +135,103 @@ export function registerPawgenRoutes(app: Express) {
     }
   });
 
+  // ── Overview ──────────────────────────────────────────────────────────────
+  // Everything here comes from real orders, so this tab is useful before any
+  // analytics integration is connected.
+  app.get("/api/ops/pawgen/overview", async (req: Request, res: Response) => {
+    const src = ensureSource(res);
+    if (!src) return;
+    try {
+      const days = Math.min(365, Math.max(7, parseInt(String(req.query.days ?? "30"), 10) || 30));
+      const rows =
+        src === "rest"
+          ? await rest.ordersForAnalytics()
+          : (
+              await pawgenPool!.query(
+                `SELECT created_at, amount_usd, shipping_cost, pack_id, method, source,
+                        payment_status, fulfillment_status, customer_email
+                   FROM orders ORDER BY created_at DESC`
+              )
+            ).rows;
+
+      const since = Date.now() - days * 86400_000;
+      const paid = rows.filter((o: any) => o.payment_status === "paid");
+      const inWindow = paid.filter((o: any) => new Date(o.created_at).getTime() >= since);
+      const money = (o: any) => Number(o.amount_usd) || 0;
+      const sum = (list: any[]) => Math.round(list.reduce((s, o) => s + money(o), 0) * 100) / 100;
+
+      // Revenue per day, zero-filled so the chart has no gaps.
+      const byDay = new Map<string, { revenue: number; orders: number }>();
+      for (let i = days - 1; i >= 0; i--) {
+        byDay.set(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10), { revenue: 0, orders: 0 });
+      }
+      for (const o of inWindow) {
+        const k = new Date(o.created_at).toISOString().slice(0, 10);
+        const cur = byDay.get(k);
+        if (cur) {
+          cur.revenue = Math.round((cur.revenue + money(o)) * 100) / 100;
+          cur.orders += 1;
+        }
+      }
+
+      const tally = (key: string) => {
+        const m: Record<string, { orders: number; revenue: number }> = {};
+        for (const o of paid) {
+          const k = String((o as any)[key] ?? "—");
+          m[k] ??= { orders: 0, revenue: 0 };
+          m[k].orders += 1;
+          m[k].revenue = Math.round((m[k].revenue + money(o)) * 100) / 100;
+        }
+        return Object.entries(m)
+          .map(([k, v]) => ({ key: k, ...v }))
+          .sort((a, b) => b.revenue - a.revenue);
+      };
+
+      // Repeat buyers — the cheapest signal of whether the product lands.
+      const byEmail = new Map<string, number>();
+      for (const o of paid) {
+        const e = (o.customer_email ?? "").trim().toLowerCase();
+        if (e) byEmail.set(e, (byEmail.get(e) ?? 0) + 1);
+      }
+      const repeatCustomers = [...byEmail.values()].filter((n) => n > 1).length;
+
+      const backlog = rows.filter(
+        (o: any) =>
+          o.payment_status === "paid" &&
+          (o.fulfillment_status === "unfulfilled" || o.fulfillment_status === "processing")
+      );
+      const oldestBacklogAt = backlog.length
+        ? backlog.map((o: any) => new Date(o.created_at).getTime()).sort((a, b) => a - b)[0]
+        : null;
+
+      res.json({
+        window: { days },
+        totals: {
+          revenueAllTime: sum(paid),
+          ordersAllTime: paid.length,
+          revenueWindow: sum(inWindow),
+          ordersWindow: inWindow.length,
+          aov: paid.length ? Math.round((sum(paid) / paid.length) * 100) / 100 : 0,
+          pendingPayments: rows.filter((o: any) => o.payment_status === "pending").length,
+          refunded: rows.filter((o: any) => o.payment_status === "refunded").length,
+          customers: byEmail.size,
+          repeatCustomers,
+        },
+        backlog: {
+          count: backlog.length,
+          value: sum(backlog),
+          oldestAt: oldestBacklogAt ? new Date(oldestBacklogAt).toISOString() : null,
+        },
+        series: [...byDay.entries()].map(([date, v]) => ({ date, ...v })),
+        byPack: tally("pack_id"),
+        byMethod: tally("method"),
+      });
+    } catch (e: any) {
+      console.error("[OPS pawgen] overview error:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Refund ────────────────────────────────────────────────────────────────
   // Card orders → Stripe refund (full or partial) + status + point reversal.
   // Crypto orders → flagged for manual refund (crypto can't be reversed).

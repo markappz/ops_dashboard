@@ -1,0 +1,164 @@
+import { useQuery } from "@tanstack/react-query";
+import { PageHero } from "../components/page-hero";
+
+/**
+ * Traffic (GA4) and SEO (Search Console) for pawgen.
+ *
+ * Both read the SAME company-scoped endpoints FitScript uses, with ?company=pawgen,
+ * so pawgen gets its own property/site rather than FitScript's numbers.
+ *
+ * Until Google is connected these render an honest "not connected" state that says
+ * what to do — not an empty chart implying zero traffic.
+ */
+
+interface Ga4 {
+  connected?: boolean;
+  error?: string;
+  summary?: { users?: number; sessions?: number; pageViews?: number; bounceRate?: number; avgDuration?: number };
+  byDate?: { date: string; users: number; sessions: number }[];
+  topPages?: { page: string; views: number }[];
+  sources?: { source: string; users: number }[];
+}
+
+interface Gsc {
+  connected?: boolean;
+  error?: string;
+  summary?: { clicks?: number; impressions?: number; ctr?: number; position?: number };
+  queries?: { query: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  pages?: { page: string; clicks: number; impressions: number }[];
+}
+
+const num = (n: number | undefined) => (n ?? 0).toLocaleString();
+const pct = (n: number | undefined) => `${((n ?? 0) * (n && n <= 1 ? 100 : 1)).toFixed(1)}%`;
+
+function NotConnected({ what }: { what: "traffic" | "seo" }) {
+  const label = what === "traffic" ? "Google Analytics" : "Search Console";
+  return (
+    <div className="rounded-xl border border-ops-border bg-ops-surface p-8 text-center shadow-card">
+      <div className="text-lg font-medium text-ops-text">{label} isn&apos;t connected for pawgen</div>
+      <p className="mx-auto mt-2 max-w-md text-sm text-ops-text-muted">
+        pawgen&apos;s tag is installed and collecting on the site — this tab just needs authorisation to read it back.
+        Connect the Google account that owns the pawgen property, then pick it from the list.
+      </p>
+      <a
+        href="/api/ops/google/connect?company=pawgen"
+        className="mt-5 inline-block rounded-lg bg-fitscript-green px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+      >
+        Connect Google for pawgen
+      </a>
+      <p className="mt-3 text-xs text-ops-text-muted">
+        This is separate from FitScript&apos;s connection — connecting here won&apos;t disturb it.
+      </p>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
+      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-ops-text">{value}</div>
+    </div>
+  );
+}
+
+function Table({ head, rows }: { head: string[]; rows: (string | number)[][] }) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted">
+            {head.map((h) => (
+              <th key={h} className="px-4 py-3 font-medium">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={head.length} className="px-4 py-8 text-center text-ops-text-muted">No data yet.</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-ops-border/50 last:border-0">
+              {r.map((c, j) => (
+                <td key={j} className={`px-4 py-2.5 ${j === 0 ? "text-ops-text" : "text-ops-text-muted"}`}>{c}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function PawgenTraffic() {
+  const { data, isLoading } = useQuery<Ga4>({
+    queryKey: ["pawgen-ga4"],
+    queryFn: async () => {
+      const r = await fetch("/api/ops/ga4/overview?company=pawgen&range=30", { credentials: "include" });
+      try { return await r.json(); } catch { return { error: `Traffic request failed (HTTP ${r.status})` }; }
+    },
+  });
+
+  return (
+    <div>
+      <PageHero eyebrow="pawgen" title="Site Traffic" subtitle="Visitors, sessions and sources from Google Analytics." />
+      {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
+      {!isLoading && data?.connected === false && <NotConnected what="traffic" />}
+      {!isLoading && data?.connected !== false && data?.error && (
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
+      )}
+      {data?.summary && (
+        <>
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Stat label="Users" value={num(data.summary.users)} />
+            <Stat label="Sessions" value={num(data.summary.sessions)} />
+            <Stat label="Page views" value={num(data.summary.pageViews)} />
+            <Stat label="Bounce rate" value={pct(data.summary.bounceRate)} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Table head={["Top page", "Views"]} rows={(data.topPages ?? []).map((p) => [p.page, num(p.views)])} />
+            <Table head={["Source", "Users"]} rows={(data.sources ?? []).map((s) => [s.source, num(s.users)])} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function PawgenSeo() {
+  const { data, isLoading } = useQuery<Gsc>({
+    queryKey: ["pawgen-gsc"],
+    queryFn: async () => {
+      const r = await fetch("/api/ops/gsc/overview?company=pawgen&range=30", { credentials: "include" });
+      try { return await r.json(); } catch { return { error: `SEO request failed (HTTP ${r.status})` }; }
+    },
+  });
+
+  return (
+    <div>
+      <PageHero eyebrow="pawgen" title="SEO" subtitle="Search impressions, clicks and ranking queries from Search Console." />
+      {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
+      {!isLoading && data?.connected === false && <NotConnected what="seo" />}
+      {!isLoading && data?.connected !== false && data?.error && (
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
+      )}
+      {data?.summary && (
+        <>
+          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Stat label="Clicks" value={num(data.summary.clicks)} />
+            <Stat label="Impressions" value={num(data.summary.impressions)} />
+            <Stat label="CTR" value={pct(data.summary.ctr)} />
+            <Stat label="Avg position" value={(data.summary.position ?? 0).toFixed(1)} />
+          </div>
+          <div className="grid gap-4">
+            <Table
+              head={["Query", "Clicks", "Impressions", "CTR", "Position"]}
+              rows={(data.queries ?? []).map((q) => [q.query, num(q.clicks), num(q.impressions), pct(q.ctr), q.position.toFixed(1)])}
+            />
+            <Table head={["Page", "Clicks", "Impressions"]} rows={(data.pages ?? []).map((p) => [p.page, num(p.clicks), num(p.impressions)])} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

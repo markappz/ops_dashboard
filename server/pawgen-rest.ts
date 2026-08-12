@@ -136,6 +136,25 @@ export async function ordersSummary() {
   return { stats, statuses };
 }
 
+/** Every field the overview tab aggregates over. Same capped fetch as ordersSummary. */
+export async function ordersForAnalytics() {
+  const { rows } = await rest<{
+    created_at: string;
+    amount_usd: string;
+    shipping_cost: string | null;
+    pack_id: string;
+    method: string;
+    source: string;
+    payment_status: string;
+    fulfillment_status: string;
+    customer_email: string | null;
+  }>(
+    `orders?select=created_at,amount_usd,shipping_cost,pack_id,method,source,payment_status,fulfillment_status,customer_email&order=created_at.desc`,
+    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  );
+  return rows;
+}
+
 export async function getOrder(id: string) {
   const { rows } = await rest<Record<string, any>>(
     `orders?select=id,source,method,external_id,payment_status,amount_usd,customer_email&id=eq.${encodeURIComponent(id)}&limit=1`

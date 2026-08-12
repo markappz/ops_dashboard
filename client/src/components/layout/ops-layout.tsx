@@ -30,7 +30,12 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
 const PAWGEN_NAV_SECTIONS: NavSection[] = [
   {
     label: "pawgen",
-    items: [{ path: "/pawgen", label: "Orders & Refunds", icon: "package" }],
+    items: [
+      { path: "/pawgen", label: "Overview", icon: "grid" },
+      { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
+      { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
+      { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
+    ],
   },
 ];
 

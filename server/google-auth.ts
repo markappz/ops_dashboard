@@ -270,9 +270,9 @@ export function registerGoogleAuthRoutes(app: Express) {
   // ─── GA4 Data ────────────────────────────────────────────────────
 
   // List GA4 properties for picker
-  app.get("/api/ops/ga4/properties", async (_req, res) => {
+  app.get("/api/ops/ga4/properties", async (req, res) => {
     try {
-      const auth = await getAuthenticatedClient();
+      const auth = await getAuthenticatedClient(normalizeCompany(req.query.company));
       if (!auth) return res.json({ properties: [] });
 
       const admin = google.analyticsadmin({ version: "v1beta", auth });
@@ -294,10 +294,13 @@ export function registerGoogleAuthRoutes(app: Express) {
   // GA4 overview data
   app.get("/api/ops/ga4/overview", async (req, res) => {
     try {
-      const auth = await getAuthenticatedClient();
+      const company = normalizeCompany(req.query.company);
+      const auth = await getAuthenticatedClient(company);
       if (!auth) return res.json({ connected: false });
 
-      const conn = await getConnection();
+      // getConnection() without a company would read FitScript's property while
+      // serving pawgen's tab — silently showing the wrong brand's traffic.
+      const conn = await getConnection(company);
       const propertyId = conn?.ga4_property_id;
       if (!propertyId) return res.json({ connected: true, error: "No GA4 property selected. Go to Settings to select one." });
 
@@ -387,9 +390,9 @@ export function registerGoogleAuthRoutes(app: Express) {
   // ─── GSC Data ────────────────────────────────────────────────────
 
   // List GSC sites for picker
-  app.get("/api/ops/gsc/sites", async (_req, res) => {
+  app.get("/api/ops/gsc/sites", async (req, res) => {
     try {
-      const auth = await getAuthenticatedClient();
+      const auth = await getAuthenticatedClient(normalizeCompany(req.query.company));
       if (!auth) return res.json({ sites: [] });
 
       const webmasters = google.webmasters({ version: "v3", auth });
@@ -408,10 +411,11 @@ export function registerGoogleAuthRoutes(app: Express) {
   // GSC overview data
   app.get("/api/ops/gsc/overview", async (req, res) => {
     try {
-      const auth = await getAuthenticatedClient();
+      const company = normalizeCompany(req.query.company);
+      const auth = await getAuthenticatedClient(company);
       if (!auth) return res.json({ connected: false });
 
-      const conn = await getConnection();
+      const conn = await getConnection(company);
       const siteUrl = conn?.gsc_site_url;
       if (!siteUrl) return res.json({ connected: true, error: "No GSC site selected. Go to Settings to select one." });
 
