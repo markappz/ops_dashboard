@@ -104,7 +104,8 @@ export function registerPawgenRoutes(app: Express) {
              count(*) FILTER (WHERE payment_status = 'paid')::int AS paid_orders,
              coalesce(sum(amount_usd) FILTER (WHERE payment_status = 'paid'), 0)::numeric AS revenue,
              count(*) FILTER (WHERE payment_status = 'refunded')::int AS refunded,
-             count(*) FILTER (WHERE fulfillment_status IN ('unfulfilled','processing'))::int AS to_fulfill
+             count(*) FILTER (WHERE payment_status = 'paid'
+                              AND fulfillment_status IN ('unfulfilled','processing'))::int AS to_fulfill
            FROM orders`
         ),
         pawgenPool!.query(`SELECT fulfillment_status, count(*)::int AS n FROM orders GROUP BY fulfillment_status`),

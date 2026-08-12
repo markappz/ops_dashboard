@@ -126,7 +126,12 @@ export async function ordersSummary() {
       stats.revenue += Number(o.amount_usd) || 0;
     }
     if (o.payment_status === "refunded") stats.refunded += 1;
-    if (o.fulfillment_status === "unfulfilled" || o.fulfillment_status === "processing") {
+    // Paid only — an unpaid order isn't something to ship, and counting it made
+    // this disagree with the Overview tab's backlog figure.
+    if (
+      o.payment_status === "paid" &&
+      (o.fulfillment_status === "unfulfilled" || o.fulfillment_status === "processing")
+    ) {
       stats.toFulfill += 1;
     }
     statuses[o.fulfillment_status] = (statuses[o.fulfillment_status] ?? 0) + 1;
