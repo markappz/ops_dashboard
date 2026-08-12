@@ -14,7 +14,17 @@ import type { Express } from "express";
 import { pool } from "./db";
 
 function getRedirectUri() {
-  return process.env.OPS_GOOGLE_REDIRECT_URI || "http://localhost:5001/api/ops/google/callback";
+  const raw = process.env.OPS_GOOGLE_REDIRECT_URI || "http://localhost:5001/api/ops/google/callback";
+  // Google rejects http:// redirect URIs for anything except localhost, with
+  // `Error 400: redirect_uri_mismatch`. The ECS task def holds the http variant,
+  // which is why this OAuth flow had never once completed — the connection table
+  // was empty for every brand. Upgrade rather than depend on someone editing an
+  // env var, and leave localhost alone so dev still works.
+  const isLocal = /^http:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(raw);
+  if (raw.startsWith("http://") && !isLocal) {
+    return `https://${raw.slice("http://".length)}`;
+  }
+  return raw;
 }
 
 function getOAuth2Client() {
