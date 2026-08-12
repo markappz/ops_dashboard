@@ -325,10 +325,14 @@ const READ_TOOLS: ToolDef[] = [
         bedrock: { configured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY), connected: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY), detail: process.env.AWS_ACCESS_KEY_ID ? `AWS Bedrock (${process.env.AWS_REGION || "us-east-1"})` : "not configured — AI tools won't run" },
       };
       try {
-        const g = await pool.query(`SELECT email, ga4_property_id, gsc_site_url FROM ops_google_connection LIMIT 1`);
-        if (g.rows[0]) {
+        // One row per company now — LIMIT 1 would have reported whichever brand
+        // happened to sort first and called the others disconnected.
+        const g = await pool.query(`SELECT company, email, ga4_property_id, gsc_site_url FROM ops_google_connection ORDER BY company`);
+        if (g.rows.length) {
           status.google.connected = true;
-          status.google.detail = `${g.rows[0].email} · GA4:${g.rows[0].ga4_property_id || "—"} · GSC:${g.rows[0].gsc_site_url || "—"}`;
+          status.google.detail = g.rows
+            .map((r: any) => `${r.company}: ${r.email} · GA4:${r.ga4_property_id || "—"} · GSC:${r.gsc_site_url || "—"}`)
+            .join("  |  ");
         } else {
           status.google.detail = status.google.configured ? "OAuth client set but no completed flow" : "not configured";
         }

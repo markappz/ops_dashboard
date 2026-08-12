@@ -49,17 +49,39 @@ async function ensureTables() {
       updated_at TIMESTAMP DEFAULT NOW()
     )
   `);
+  // One Google connection PER COMPANY. This table used to hold a single row and
+  // the connect flow DELETEd everything before inserting — so connecting pawgen
+  // would have silently disconnected FitScript's GA4 and Search Console.
+  await pool.query(
+    `ALTER TABLE ops_google_connection ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'fitscript'`
+  );
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS ops_google_connection_company_key ON ops_google_connection(company)`
+  );
+}
+
+// Companies allowed to hold a connection. The value round-trips through the
+// OAuth `state` param, so it is never used in SQL without passing this gate.
+const COMPANIES = new Set(["fitscript", "peptideu", "pawgen"]);
+export const DEFAULT_COMPANY = "fitscript";
+export function normalizeCompany(v: unknown): string {
+  const s = String(v ?? "").toLowerCase();
+  return COMPANIES.has(s) ? s : DEFAULT_COMPANY;
 }
 
 // ─── Token management ──────────────────────────────────────────────
 
-export async function getConnection() {
-  const result = await pool.query("SELECT * FROM ops_google_connection ORDER BY created_at DESC LIMIT 1");
+// Defaults to fitscript so every existing caller keeps its current behaviour.
+export async function getConnection(company: string = DEFAULT_COMPANY) {
+  const result = await pool.query(
+    "SELECT * FROM ops_google_connection WHERE company = $1 ORDER BY created_at DESC LIMIT 1",
+    [normalizeCompany(company)]
+  );
   return result.rows[0] || null;
 }
 
-export async function getAuthenticatedClient() {
-  const conn = await getConnection();
+export async function getAuthenticatedClient(company: string = DEFAULT_COMPANY) {
+  const conn = await getConnection(company);
   if (!conn) return null;
 
   const client = getOAuth2Client();
@@ -93,12 +115,14 @@ export function registerGoogleAuthRoutes(app: Express) {
   ensureTables().catch(console.error);
 
   // Connection status
-  app.get("/api/ops/connections", async (_req, res) => {
+  app.get("/api/ops/connections", async (req, res) => {
     try {
-      const conn = await getConnection();
+      const company = normalizeCompany(req.query.company);
+      const conn = await getConnection(company);
       const configured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
       res.json({
+        company,
         googleConfigured: configured,
         google: conn ? {
           connected: true,
@@ -114,10 +138,14 @@ export function registerGoogleAuthRoutes(app: Express) {
   });
 
   // Start OAuth — returns URL for frontend to redirect to
-  app.get("/api/ops/google/connect", (_req, res) => {
+  app.get("/api/ops/google/connect", (req, res) => {
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
       return res.status(400).json({ error: "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET not configured" });
     }
+
+    // Which company this connection is for has to survive the round-trip to
+    // Google — `state` is the only channel that comes back to the callback.
+    const company = normalizeCompany(req.query.company);
 
     const client = getOAuth2Client();
     const url = client.generateAuthUrl({
@@ -125,10 +153,11 @@ export function registerGoogleAuthRoutes(app: Express) {
       prompt: "select_account consent",
       scope: SCOPES,
       include_granted_scopes: true,
+      state: company,
     });
 
     // Return URL for AJAX or redirect for direct navigation
-    if (_req.headers.accept?.includes("application/json")) {
+    if (req.headers.accept?.includes("application/json")) {
       return res.json({ url });
     }
     res.redirect(url);
@@ -151,9 +180,13 @@ export function registerGoogleAuthRoutes(app: Express) {
       // re-connects without revoking access (or hits `select_account consent`
       // again), Google may omit it. Preserve any existing refresh_token in
       // that case so the connection doesn't silently break later.
+      // normalizeCompany() gates this before it reaches SQL — `state` is
+      // attacker-influencable in general, so it is never trusted raw.
+      const company = normalizeCompany(req.query.state);
+
       let refreshToken: string | null = tokens.refresh_token || null;
       if (!refreshToken) {
-        const existing = await getConnection();
+        const existing = await getConnection(company);
         refreshToken = existing?.refresh_token || null;
       }
       if (!refreshToken) {
@@ -173,12 +206,14 @@ export function registerGoogleAuthRoutes(app: Express) {
       // Upsert connection (single connection for the ops dashboard).
       // Preserve property/site selections across re-connects so the operator
       // doesn't have to re-pick them.
-      const existing = await getConnection();
-      await pool.query("DELETE FROM ops_google_connection");
+      // Replace only THIS company's row. The old code deleted every row, so
+      // connecting a second brand disconnected the first.
+      const existing = await getConnection(company);
+      await pool.query("DELETE FROM ops_google_connection WHERE company = $1", [company]);
       await pool.query(
         `INSERT INTO ops_google_connection
-         (access_token, refresh_token, token_expiry, email, ga4_property_id, gsc_site_url)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         (access_token, refresh_token, token_expiry, email, ga4_property_id, gsc_site_url, company)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           tokens.access_token,
           refreshToken,
@@ -186,11 +221,12 @@ export function registerGoogleAuthRoutes(app: Express) {
           email,
           existing?.ga4_property_id || null,
           existing?.gsc_site_url || null,
+          company,
         ],
       );
 
-      console.log(`[OPS] Google connected: ${email}`);
-      res.redirect("/integrations?google_connected=true");
+      console.log(`[OPS] Google connected for ${company}: ${email}`);
+      res.redirect(`/integrations?google_connected=true&company=${company}`);
     } catch (error: any) {
       console.error("[OPS] Google callback error:", error.message);
       res.redirect("/integrations?google_error=callback_failed");
@@ -198,9 +234,10 @@ export function registerGoogleAuthRoutes(app: Express) {
   });
 
   // Disconnect
-  app.post("/api/ops/google/disconnect", async (_req, res) => {
+  app.post("/api/ops/google/disconnect", async (req, res) => {
     try {
-      await pool.query("DELETE FROM ops_google_connection");
+      const company = normalizeCompany(req.body?.company ?? req.query.company);
+      await pool.query("DELETE FROM ops_google_connection WHERE company = $1", [company]);
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -211,6 +248,7 @@ export function registerGoogleAuthRoutes(app: Express) {
   app.patch("/api/ops/google/config", async (req, res) => {
     try {
       const { ga4PropertyId, gscSiteUrl } = req.body;
+      const company = normalizeCompany(req.body?.company ?? req.query.company);
       const updates: string[] = [];
       const params: any[] = [];
       let i = 1;
@@ -220,7 +258,9 @@ export function registerGoogleAuthRoutes(app: Express) {
       if (updates.length === 0) return res.json({ ok: true });
 
       updates.push("updated_at = NOW()");
-      await pool.query(`UPDATE ops_google_connection SET ${updates.join(", ")}`, params);
+      // WHERE company — without it this rewrote every brand's property selection.
+      params.push(company);
+      await pool.query(`UPDATE ops_google_connection SET ${updates.join(", ")} WHERE company = $${i}`, params);
       res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
