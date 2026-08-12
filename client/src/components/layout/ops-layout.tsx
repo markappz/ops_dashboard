@@ -23,6 +23,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
       { path: "/peptideu/ap", label: "AP Class", icon: "clipboard" },
       { path: "/peptideu/library", label: "Library Updates", icon: "flask" },
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
+      { path: "/peptideu/integrations", label: "Integrations", icon: "link" },
     ],
   },
 ];
@@ -35,6 +36,7 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
       { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
       { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
+      { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
     ],
   },
 ];

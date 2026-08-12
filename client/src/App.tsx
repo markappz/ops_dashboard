@@ -46,6 +46,7 @@ import PeptideuLibrary from "./pages/peptideu-library";
 import PawgenOrders from "./pages/pawgen-orders";
 import PawgenOverview from "./pages/pawgen-overview";
 import { PawgenTraffic, PawgenSeo } from "./pages/pawgen-google";
+import CompanyIntegrations from "./pages/company-integrations";
 
 interface Me {
   email: string;
@@ -166,6 +167,8 @@ export default function App() {
           <Route path="/pawgen/orders" component={PawgenOrders} />
           <Route path="/pawgen/traffic" component={PawgenTraffic} />
           <Route path="/pawgen/seo" component={PawgenSeo} />
+          <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
+          <Route path="/peptideu/integrations">{() => <CompanyIntegrations company="peptideu" label="PeptideU" />}</Route>
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
           <Route path="/tracking"><Redirect to="/marketing" /></Route>
