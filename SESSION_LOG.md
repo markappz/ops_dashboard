@@ -4,6 +4,32 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-11 — pawgen tab re-verified; `PAWGEN_DATABASE_URL` creds finally corrected
+
+Confirmed live: **$1,397.95 revenue · 7 paid orders · 5 to fulfill · 0 refunded**, order table
+with pack/BAC add-on/fulfillment, refund panel expanding correctly ("Paid $256.00 by card" +
+partial field + reason + the points-reversal note). Growth from the 08-05 numbers ($978 / 5) is
+just new orders.
+
+**Correction to what I told Paul in-session:** I said the tab was "still broken" without
+re-checking it — I was repeating an observation from 08-01 and had not read the 08-05 entry
+below. It had been working for six days via the REST path. **Re-read this log before asserting
+the state of anything; a claim from earlier in a long session is not a current fact.**
+
+Paul did update `PAWGEN_DATABASE_URL` on the task def to the proper session-pooler URI
+(user `postgres.<project-ref>`, host `*.pooler.supabase.com:5432`, plaintext Value on
+`fitscript-ops-task`, then force-deploy). That was **not what made the tab work** — REST takes
+precedence per `307f100` — but it does retire the footgun documented on 08-05: a set-but-invalid
+DSN no longer sits there as a trap if precedence is ever flipped back.
+
+**The username gotcha, recorded for the next time this comes up:** Supabase's *Direct connection*
+string uses the bare `postgres` user; the **session pooler** requires the project-scoped
+`postgres.<project-ref>`. The mismatch surfaces as `password authentication failed for user
+"postgres"` — which reads like a wrong password and sends the diagnosis down the wrong path
+entirely. Check the username before touching the password.
+
+---
+
 ## 2026-08-05 — pawgen orders: second way in (Supabase REST), no DB password needed
 
 Paul: *"i'm still seeing that the ops dashboard doesn't show pawgen orders"* — prod still shows
