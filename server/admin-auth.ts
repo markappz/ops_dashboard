@@ -46,7 +46,7 @@ function getSessionSecret(): string {
 
 // Admin allowlist. DB is authoritative; ENV is bootstrap-only seed for first run.
 // In-process cache with 60s TTL keeps auth hot-path off the DB.
-let allowlistCache: { emails: Set<string>; viewers: Set<string>; at: number } | null = null;
+let allowlistCache: { emails: Set<string>; viewers: Set<string>; perms: Map<string, string[]>; at: number } | null = null;
 const ALLOWLIST_TTL_MS = 60 * 1000;
 
 function envAllowlist(): string[] {
@@ -95,6 +95,10 @@ async function ensureAdminTable() {
   // needs an ECS task-def change to edit, which makes granting read-only access a
   // deploy instead of a database write.
   await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'`);
+  // Scoped grants for read-only accounts. Support needs to refund pawgen orders
+  // without gaining the ability to edit integrations or manage admins, so a
+  // binary admin/viewer split isn't enough.
+  await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS permissions TEXT[] NOT NULL DEFAULT '{}'`);
   await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMP`);
 }
 
@@ -149,17 +153,43 @@ async function seedFromEnvIfEmpty(): Promise<void> {
   console.log(`[OPS][AUTH] Seeded ${seed.length} admin email(s) from ADMIN_EMAILS env`);
 }
 
-async function loadAllowlistFromDb(): Promise<{ emails: Set<string>; viewers: Set<string> }> {
+async function loadAllowlistFromDb(): Promise<{ emails: Set<string>; viewers: Set<string>; perms: Map<string, string[]> }> {
   await seedFromEnvIfEmpty();
-  const r = await pool.query("SELECT email, role FROM ops_admins");
+  const r = await pool.query("SELECT email, role, permissions FROM ops_admins");
   const emails = new Set<string>();
   const viewers = new Set<string>();
+  const perms = new Map<string, string[]>();
   for (const row of r.rows as any[]) {
     const e = String(row.email).toLowerCase();
     if (String(row.role ?? "admin") === "viewer") viewers.add(e);
     else emails.add(e);
+    perms.set(e, Array.isArray(row.permissions) ? row.permissions.map(String) : []);
   }
-  return { emails, viewers };
+  return { emails, viewers, perms };
+}
+
+/**
+ * Scoped write grants for non-admins. Each permission maps to an explicit
+ * method + path pattern — no wildcards, so a grant can never widen by accident.
+ */
+const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> = {
+  // Refund a pawgen order (and nothing else under /pawgen).
+  "pawgen:refund": [
+    { method: "POST", pattern: /^\/api\/ops\/pawgen\/orders\/[^/]+\/refund\/?$/ },
+  ],
+};
+
+function permitsRequest(granted: string[], method: string, path: string): boolean {
+  for (const g of granted) {
+    for (const route of PERMISSION_ROUTES[g] ?? []) {
+      if (route.method === method.toUpperCase() && route.pattern.test(path)) return true;
+    }
+  }
+  return false;
+}
+
+function permissionsFor(email: string): string[] {
+  return allowlistCache?.perms.get(email.toLowerCase()) ?? [];
 }
 
 function getAllowlist(): Set<string> {
@@ -172,8 +202,8 @@ function getAllowlist(): Set<string> {
   }
   // Kick off async refresh — non-blocking.
   loadAllowlistFromDb()
-    .then(({ emails, viewers }) => {
-      allowlistCache = { emails, viewers, at: Date.now() };
+    .then(({ emails, viewers, perms }) => {
+      allowlistCache = { emails, viewers, perms, at: Date.now() };
     })
     .catch((e) => {
       console.warn("[OPS][AUTH] allowlist DB refresh failed:", e.message);
@@ -194,8 +224,8 @@ function getDbViewers(): Set<string> {
 // is in flight.)
 export async function refreshAllowlistCache(): Promise<void> {
   try {
-    const { emails, viewers } = await loadAllowlistFromDb();
-    allowlistCache = { emails, viewers, at: Date.now() };
+    const { emails, viewers, perms } = await loadAllowlistFromDb();
+    allowlistCache = { emails, viewers, perms, at: Date.now() };
   } catch (e: any) {
     console.warn("[OPS][AUTH] forced cache refresh failed:", e.message);
     allowlistCache = null;
@@ -331,9 +361,13 @@ export function requireAuth(
   const role = resolveRole(claims.email);
   if (!role) return res.status(403).json({ error: "not_authorized" });
   if (req.method !== "GET" && role !== "admin") {
-    return res
-      .status(403)
-      .json({ error: "read_only", message: "Read-only access — this action requires an admin account" });
+    // A viewer may still hold explicit, narrowly-scoped grants (e.g. support
+    // refunding pawgen orders). Anything not matched stays blocked.
+    if (!permitsRequest(permissionsFor(claims.email), req.method, req.path)) {
+      return res
+        .status(403)
+        .json({ error: "read_only", message: "Read-only access — this action requires an admin account" });
+    }
   }
   req.adminEmail = claims.email;
   req.role = role;
@@ -362,8 +396,8 @@ export function registerAdminAuthRoutes(app: Express) {
   }
   // Warm the allowlist cache from DB at boot (also triggers env-seed if empty).
   loadAllowlistFromDb()
-    .then(({ emails, viewers }) => {
-      allowlistCache = { emails, viewers, at: Date.now() };
+    .then(({ emails, viewers, perms }) => {
+      allowlistCache = { emails, viewers, perms, at: Date.now() };
       if (emails.size === 0) {
         console.warn("[OPS][AUTH] No admins configured (DB empty, ADMIN_EMAILS env empty) — no one can log in");
       } else {
