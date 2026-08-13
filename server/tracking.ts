@@ -16,9 +16,26 @@ import { pool } from "./db";
 // browsers will block POSTs without explicit CORS allow.
 //
 // Keep this list narrow — it's NOT a generic CORS — and case-insensitive.
+// Origin → brand. The site is derived from the BROWSER-SET Origin header, never
+// from a field in the request body: a client-supplied site would let anyone write
+// rows into another brand's numbers.
+const ORIGIN_SITE: Record<string, string> = {
+  "https://fitscript.me": "fitscript",
+  "https://www.fitscript.me": "fitscript",
+  "https://pawgen.com": "pawgen",
+  "https://www.pawgen.com": "pawgen",
+};
+function siteForOrigin(origin: string | undefined): string {
+  // Same-origin requests send no Origin header; those can only come from the
+  // dashboard's own host, so fitscript is the correct default.
+  return ORIGIN_SITE[origin ?? ""] ?? "fitscript";
+}
+
 const TRACKING_ALLOWED_ORIGINS = new Set([
   "https://fitscript.me",
   "https://www.fitscript.me",
+  "https://pawgen.com",
+  "https://www.pawgen.com",
   "http://localhost:5000",
   "http://localhost:5173",
   "http://localhost:3000",
@@ -63,6 +80,8 @@ export function registerTrackingRoutes(app: Express) {
         return res.status(400).json({ error: "visitor_id and event_type required" });
       }
 
+      const site = siteForOrigin(req.headers.origin);
+
       // Upsert visitor session
       if (event_type === "page_view") {
         const existing = await pool.query(
@@ -75,13 +94,13 @@ export function registerTrackingRoutes(app: Express) {
           await pool.query(`
             INSERT INTO visitor_sessions (visitor_id, session_id, landing_page, exit_page, referrer,
               utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-              gclid, fbclid, ttclid, device_type, ip_address, user_agent, page_count)
-            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1)
+              gclid, fbclid, ttclid, device_type, ip_address, user_agent, page_count, site)
+            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 1, $16)
           `, [
             visitor_id, session_id, page_url, referrer,
             utm_source, utm_medium, utm_campaign, utm_content, utm_term,
             gclid, fbclid, ttclid, device_type,
-            req.ip, req.headers["user-agent"],
+            req.ip, req.headers["user-agent"], site,
           ]);
         } else {
           // Update existing session
@@ -95,22 +114,23 @@ export function registerTrackingRoutes(app: Express) {
 
       // Record touchpoint
       await pool.query(`
-        INSERT INTO touchpoints (visitor_id, session_id, event_type, page_url, utm_source, utm_campaign, event_data, revenue)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO touchpoints (visitor_id, session_id, event_type, page_url, utm_source, utm_campaign, event_data, revenue, site)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `, [
         visitor_id, session_id, event_type, page_url,
         utm_source, utm_campaign,
         JSON.stringify(event_data || {}),
         event_data?.revenue || 0,
+        site,
       ]);
 
       // Auto-discover campaigns
       if (utm_campaign) {
         await pool.query(`
-          INSERT INTO campaigns (name, slug, channel, medium)
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT (slug) DO NOTHING
-        `, [utm_campaign, utm_campaign, utm_source || "unknown", utm_medium || "unknown"]);
+          INSERT INTO campaigns (name, slug, channel, medium, site)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (site, slug) DO NOTHING
+        `, [utm_campaign, utm_campaign, utm_source || "unknown", utm_medium || "unknown", site]);
       }
 
       res.json({ ok: true });
@@ -277,8 +297,11 @@ export function registerTrackingRoutes(app: Express) {
             COUNT(DISTINCT CASE WHEN tp.event_type = 'subscription_started' THEN tp.user_id END) AS paid,
             COALESCE(SUM(tp.revenue), 0) AS revenue
           FROM touchpoints tp
-          WHERE tp.utm_campaign = c.slug
+          -- Join on site too: campaign slugs are only unique per brand now, so
+          -- without this one brand's traffic lands in another's campaign stats.
+          WHERE tp.utm_campaign = c.slug AND tp.site = c.site
         ) t ON true
+        WHERE c.site = 'fitscript'
         ORDER BY c.created_at DESC
       `);
 
@@ -318,11 +341,11 @@ export function registerTrackingRoutes(app: Express) {
     try {
       const result = await pool.query(`
         SELECT
-          (SELECT COUNT(DISTINCT visitor_id) FROM visitor_sessions) AS visitors,
-          (SELECT COUNT(DISTINCT visitor_id) FROM touchpoints WHERE event_type = 'quiz_started') AS quiz_started,
-          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE event_type = 'signup') AS signups,
-          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE event_type = 'subscription_started') AS paid,
-          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE event_type = 'lab_uploaded') AS labs_uploaded,
+          (SELECT COUNT(DISTINCT visitor_id) FROM visitor_sessions WHERE site = 'fitscript') AS visitors,
+          (SELECT COUNT(DISTINCT visitor_id) FROM touchpoints WHERE site = 'fitscript' AND event_type = 'quiz_started') AS quiz_started,
+          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE site = 'fitscript' AND event_type = 'signup') AS signups,
+          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE site = 'fitscript' AND event_type = 'subscription_started') AS paid,
+          (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE site = 'fitscript' AND event_type = 'lab_uploaded') AS labs_uploaded,
           (SELECT COUNT(*) FROM attribution WHERE total_revenue > 0) AS revenue_users
       `);
 

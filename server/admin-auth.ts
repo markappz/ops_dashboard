@@ -85,6 +85,46 @@ async function ensureAdminTable() {
       note TEXT
     )
   `);
+  // Password login exists because not every team address is a Google account.
+  // hello@pawgen.com and support@realpeptides.co are mail aliases, so
+  // "Sign in with Google" has nothing to authenticate against.
+  await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS password_hash TEXT`);
+  await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMP`);
+}
+
+// ── Password hashing ────────────────────────────────────────────────────────
+// scrypt from Node's stdlib: a proper memory-hard KDF with no new dependency,
+// which suits a repo that deliberately keeps its dependency surface small.
+// Format: scrypt$<saltHex>$<hashHex>
+const SCRYPT_KEYLEN = 64;
+
+export function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(plain, salt, SCRYPT_KEYLEN);
+  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+export function verifyPassword(plain: string, stored: string | null | undefined): boolean {
+  if (!stored) return false;
+  const [scheme, saltHex, hashHex] = stored.split("$");
+  if (scheme !== "scrypt" || !saltHex || !hashHex) return false;
+  try {
+    const expected = Buffer.from(hashHex, "hex");
+    const actual = crypto.scryptSync(plain, Buffer.from(saltHex, "hex"), expected.length);
+    return crypto.timingSafeEqual(expected, actual);
+  } catch {
+    return false;
+  }
+}
+
+export async function setAdminPassword(email: string, plain: string): Promise<void> {
+  await ensureAdminTable();
+  const e = email.trim().toLowerCase();
+  const { rowCount } = await pool.query(
+    `UPDATE ops_admins SET password_hash = $1, password_set_at = NOW() WHERE email = $2`,
+    [hashPassword(plain), e],
+  );
+  if (rowCount === 0) throw new Error(`${e} is not an ops admin`);
 }
 
 async function seedFromEnvIfEmpty(): Promise<void> {
@@ -425,6 +465,38 @@ export function registerAdminAuthRoutes(app: Express) {
     } catch (e: any) {
       console.error("[OPS][AUTH] callback error:", e.message);
       res.status(500).send("auth failed");
+    }
+  });
+
+  // Email + password login, for team addresses that aren't Google accounts.
+  // Issues the exact same signed session cookie as the Google flow, so every
+  // downstream check (requireAdmin, viewer gating) is unchanged.
+  app.post("/api/ops/auth/password", async (req, res) => {
+    const email = String(req.body?.email ?? "").trim().toLowerCase();
+    const password = String(req.body?.password ?? "");
+    // One message for every failure mode: never reveal whether an address is an
+    // admin, whether it has a password set, or which half was wrong.
+    const deny = () => res.status(401).json({ error: "Invalid email or password." });
+    if (!email || !password) return deny();
+
+    try {
+      const role = resolveRole(email);
+      if (role !== "admin") return deny();
+
+      const r = await pool.query(`SELECT password_hash FROM ops_admins WHERE email = $1`, [email]);
+      const stored = r.rows[0]?.password_hash as string | undefined;
+      if (!verifyPassword(password, stored)) {
+        console.warn(`[OPS][AUTH] failed password login: ${email}`);
+        return deny();
+      }
+
+      const exp = Date.now() + COOKIE_TTL_MS;
+      res.cookie(COOKIE_NAME, sign({ email, exp }), cookieOptions(COOKIE_TTL_MS));
+      console.log(`[OPS][AUTH] password login: ${email}`);
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[OPS][AUTH] password login error:", e.message);
+      res.status(500).json({ error: "Login failed." });
     }
   });
 

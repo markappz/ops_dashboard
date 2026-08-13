@@ -636,7 +636,7 @@ async function fetchFirstPartyChannels(cutoff: Date): Promise<FirstPartyChannels
          COUNT(*)::text AS sessions,
          COUNT(DISTINCT COALESCE(user_id, visitor_id))::text AS users
        FROM visitor_sessions
-       WHERE created_at >= $1
+       WHERE site = 'fitscript' AND created_at >= $1
        GROUP BY 1
        ORDER BY COUNT(*) DESC
        LIMIT 12`,
@@ -644,7 +644,7 @@ async function fetchFirstPartyChannels(cutoff: Date): Promise<FirstPartyChannels
     );
     const totalRow = await pool.query<{ sessions: string; users: string }>(
       `SELECT COUNT(*)::text AS sessions, COUNT(DISTINCT COALESCE(user_id, visitor_id))::text AS users
-       FROM visitor_sessions WHERE created_at >= $1`,
+       FROM visitor_sessions WHERE site = 'fitscript' AND created_at >= $1`,
       [cutoff],
     );
     return {
@@ -680,7 +680,7 @@ async function fetchFirstPartyAttribution(cutoff: Date): Promise<{ topSources: A
          NULL::text AS medium,
          COUNT(*)::text AS events
        FROM touchpoints
-       WHERE created_at >= $1
+       WHERE site = 'fitscript' AND created_at >= $1
        GROUP BY 1
        ORDER BY COUNT(*) DESC
        LIMIT 10`,

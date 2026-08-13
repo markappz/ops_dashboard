@@ -124,7 +124,7 @@ export function registerLeadsRoutes(app: Express) {
              MAX(vs.created_at) AS last_touch_at,
              COUNT(*) AS session_count
            FROM visitor_sessions vs
-           WHERE vs.created_at >= $1
+           WHERE vs.site = 'fitscript' AND vs.created_at >= $1
            GROUP BY vs.visitor_id
          ),
          touch_agg AS (
@@ -136,7 +136,7 @@ export function registerLeadsRoutes(app: Express) {
              BOOL_OR(tp.event_type = 'lab_uploaded' OR tp.event_type = 'lab_order_paid') AS has_lab,
              BOOL_OR(tp.event_type = 'signup' OR tp.event_type = 'subscription_started') AS has_signup
            FROM touchpoints tp
-           WHERE tp.created_at >= $1
+           WHERE tp.site = 'fitscript' AND tp.created_at >= $1
            GROUP BY tp.visitor_id
          )
          SELECT
@@ -254,9 +254,9 @@ export function registerLeadsRoutes(app: Express) {
 
       const r = await pool.query(
         `SELECT
-           (SELECT COUNT(DISTINCT visitor_id) FROM visitor_sessions WHERE created_at >= $1) AS visitors,
-           (SELECT COUNT(DISTINCT visitor_id) FROM touchpoints WHERE event_type IN ('quiz_started','quiz_completed') AND created_at >= $1) AS quiz_started,
-           (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE event_type IN ('signup','subscription_started') AND created_at >= $1 AND user_id IS NOT NULL) AS signups,
+           (SELECT COUNT(DISTINCT visitor_id) FROM visitor_sessions WHERE site = 'fitscript' AND created_at >= $1) AS visitors,
+           (SELECT COUNT(DISTINCT visitor_id) FROM touchpoints WHERE site = 'fitscript' AND event_type IN ('quiz_started','quiz_completed') AND created_at >= $1) AS quiz_started,
+           (SELECT COUNT(DISTINCT user_id) FROM touchpoints WHERE site = 'fitscript' AND event_type IN ('signup','subscription_started') AND created_at >= $1 AND user_id IS NOT NULL) AS signups,
            (SELECT COUNT(*) FROM attribution WHERE total_revenue > 0 AND first_payment_at >= $1) AS paid`,
         [sinceDate],
       );

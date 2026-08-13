@@ -1,4 +1,38 @@
+import { useState } from "react";
+
 export default function Login({ error }: { error?: string }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  // Password login exists for team addresses that aren't Google accounts —
+  // hello@pawgen.com and support@realpeptides.co are mail aliases, so
+  // "Sign in with Google" has nothing to authenticate against.
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFormError("");
+    try {
+      const r = await fetch("/api/ops/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      });
+      if (r.ok) {
+        window.location.href = "/";
+        return;
+      }
+      const d = await r.json().catch(() => ({}));
+      setFormError(d.error || "Invalid email or password.");
+    } catch {
+      setFormError("Login failed. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-ops-bg px-4 relative overflow-hidden">
       {/* Branded gradient backdrop — mirrors FitScript marketing hero */}
@@ -17,7 +51,7 @@ export default function Login({ error }: { error?: string }) {
           </div>
           <h1 className="text-2xl font-bold text-ops-text tracking-tight">Welcome back</h1>
           <p className="text-sm text-ops-text-muted mt-1.5">
-            Authorized admins only — sign in with your Google account.
+            Authorized admins only.
           </p>
         </div>
 
@@ -39,6 +73,45 @@ export default function Login({ error }: { error?: string }) {
           </svg>
           Sign in with Google
         </a>
+
+        <div className="flex items-center gap-3 my-5">
+          <div className="h-px flex-1 bg-ops-border" />
+          <span className="text-[11px] uppercase tracking-wider text-ops-text-muted">or</span>
+          <div className="h-px flex-1 bg-ops-border" />
+        </div>
+
+        <form onSubmit={submit} className="space-y-3">
+          <input
+            type="email"
+            required
+            autoComplete="username"
+            placeholder="you@company.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg bg-ops-bg border border-ops-border text-sm text-ops-text placeholder:text-ops-text-muted focus:outline-none focus:border-brand-blue-500"
+          />
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg bg-ops-bg border border-ops-border text-sm text-ops-text placeholder:text-ops-text-muted focus:outline-none focus:border-brand-blue-500"
+          />
+          {formError && (
+            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-300">
+              {formError}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full px-4 py-2.5 rounded-lg border border-ops-border text-sm font-medium text-ops-text hover:border-brand-blue-500 disabled:opacity-60 transition-colors"
+          >
+            {busy ? "Signing in…" : "Sign in with password"}
+          </button>
+        </form>
       </div>
     </div>
   );
