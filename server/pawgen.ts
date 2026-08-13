@@ -304,6 +304,122 @@ export function registerPawgenRoutes(app: Express) {
     }
   });
 
+  // ── Marketing / attribution ───────────────────────────────────────────────
+  // First-touch attribution lives on the order itself (ref_source/medium/
+  // campaign/landing), captured at checkout. Those columns are recent, so most
+  // historical orders have none — the response reports coverage explicitly
+  // rather than letting the UI imply the unattributed ones were direct traffic.
+  app.get("/api/ops/pawgen/marketing", async (_req: Request, res: Response) => {
+    const src = ensureSource(res);
+    if (!src) return;
+    try {
+      const rows =
+        src === "rest"
+          ? await rest.ordersForAnalytics()
+          : (await pawgenPool!.query(`SELECT * FROM orders ORDER BY created_at DESC`)).rows;
+
+      const paid = rows.filter((o: any) => o.payment_status === "paid");
+      const money = (o: any) => Number(o.amount_usd) || 0;
+      const attributed = paid.filter((o: any) => o.ref_source);
+
+      const group = (key: string) => {
+        const m: Record<string, { orders: number; revenue: number }> = {};
+        for (const o of paid) {
+          const k = (o as any)[key] || null;
+          if (!k) continue;
+          m[k] ??= { orders: 0, revenue: 0 };
+          m[k].orders += 1;
+          m[k].revenue = Math.round((m[k].revenue + money(o)) * 100) / 100;
+        }
+        return Object.entries(m)
+          .map(([k, v]) => ({ key: k, ...v }))
+          .sort((a, b) => b.revenue - a.revenue);
+      };
+
+      res.json({
+        coverage: {
+          paidOrders: paid.length,
+          attributed: attributed.length,
+          unattributed: paid.length - attributed.length,
+          attributedRevenue:
+            Math.round(attributed.reduce((s: number, o: any) => s + money(o), 0) * 100) / 100,
+        },
+        bySource: group("ref_source"),
+        byMedium: group("ref_medium"),
+        byCampaign: group("ref_campaign"),
+        byLanding: group("ref_landing"),
+        byReferrer: group("ref_referrer"),
+      });
+    } catch (e: any) {
+      console.error("[OPS pawgen] marketing error:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── Leads ─────────────────────────────────────────────────────────────────
+  app.get("/api/ops/pawgen/leads", async (_req: Request, res: Response) => {
+    const src = ensureSource(res);
+    if (!src) return;
+    try {
+      const [leads, orders] = await Promise.all([
+        src === "rest"
+          ? rest.fetchLeads()
+          : (await pawgenPool!.query(`SELECT id,email,source,created_at,guide_sent FROM leads ORDER BY created_at DESC`)).rows,
+        src === "rest"
+          ? rest.ordersForAnalytics()
+          : (await pawgenPool!.query(`SELECT customer_email, amount_usd, payment_status FROM orders`)).rows,
+      ]);
+
+      // Which leads went on to buy — the only number that says whether the
+      // magnet is worth running.
+      const buyers = new Map<string, number>();
+      for (const o of orders as any[]) {
+        if (o.payment_status !== "paid") continue;
+        const e = (o.customer_email ?? "").trim().toLowerCase();
+        if (e) buyers.set(e, (buyers.get(e) ?? 0) + (Number(o.amount_usd) || 0));
+      }
+
+      const rows = (leads as any[]).map((l) => {
+        const e = (l.email ?? "").trim().toLowerCase();
+        return {
+          email: l.email,
+          source: l.source,
+          created_at: l.created_at,
+          guide_sent: l.guide_sent,
+          converted: buyers.has(e),
+          revenue: Math.round((buyers.get(e) ?? 0) * 100) / 100,
+        };
+      });
+
+      const converted = rows.filter((r) => r.converted);
+      const bySource: Record<string, number> = {};
+      for (const l of rows) bySource[l.source || "—"] = (bySource[l.source || "—"] ?? 0) + 1;
+
+      // Zero-filled 30-day signup series.
+      const byDay = new Map<string, number>();
+      for (let i = 29; i >= 0; i--) byDay.set(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10), 0);
+      for (const l of rows) {
+        const k = String(l.created_at).slice(0, 10);
+        if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + 1);
+      }
+
+      res.json({
+        totals: {
+          leads: rows.length,
+          converted: converted.length,
+          conversionRate: rows.length ? Math.round((converted.length / rows.length) * 1000) / 10 : 0,
+          revenueFromLeads: Math.round(converted.reduce((s, r) => s + r.revenue, 0) * 100) / 100,
+        },
+        bySource,
+        series: [...byDay.entries()].map(([date, n]) => ({ date, leads: n })),
+        recent: rows.slice(0, 100),
+      });
+    } catch (e: any) {
+      console.error("[OPS pawgen] leads error:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Refund ────────────────────────────────────────────────────────────────
   // Card orders → Stripe refund (full or partial) + status + point reversal.
   // Crypto orders → flagged for manual refund (crypto can't be reversed).

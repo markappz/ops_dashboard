@@ -34,6 +34,8 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
     items: [
       { path: "/pawgen", label: "Overview", icon: "grid" },
       { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
+      { path: "/pawgen/leads", label: "Leads", icon: "funnel" },
+      { path: "/pawgen/marketing", label: "Marketing", icon: "megaphone" },
       { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
       { path: "/pawgen/integrations", label: "Integrations", icon: "link" },

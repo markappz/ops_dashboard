@@ -47,6 +47,7 @@ import PawgenOrders from "./pages/pawgen-orders";
 import PawgenOverview from "./pages/pawgen-overview";
 import { PawgenTraffic, PawgenSeo } from "./pages/pawgen-google";
 import CompanyIntegrations from "./pages/company-integrations";
+import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
 
 interface Me {
   email: string;
@@ -165,6 +166,8 @@ export default function App() {
           {/* pawgen */}
           <Route path="/pawgen" component={PawgenOverview} />
           <Route path="/pawgen/orders" component={PawgenOrders} />
+          <Route path="/pawgen/leads" component={PawgenLeads} />
+          <Route path="/pawgen/marketing" component={PawgenMarketing} />
           <Route path="/pawgen/traffic" component={PawgenTraffic} />
           <Route path="/pawgen/seo" component={PawgenSeo} />
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>

@@ -160,6 +160,15 @@ export async function ordersForAnalytics() {
   return rows;
 }
 
+/** Guide-magnet leads. */
+export async function fetchLeads() {
+  const { rows } = await rest<{ id: string; email: string; source: string | null; created_at: string; guide_sent: boolean | null }>(
+    `leads?select=id,email,source,created_at,guide_sent&order=created_at.desc`,
+    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  );
+  return rows;
+}
+
 export async function getOrder(id: string) {
   const { rows } = await rest<Record<string, any>>(
     `orders?select=id,source,method,external_id,payment_status,amount_usd,customer_email&id=eq.${encodeURIComponent(id)}&limit=1`
