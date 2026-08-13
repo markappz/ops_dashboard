@@ -4,6 +4,34 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-13 — pawgen referral breakdown ("Where orders come from")
+
+chootherescue.com ($CHOO) is live and about to send real traffic to pawgen, so partner performance
+needed to be visible without hand-running SQL.
+
+- **`GET /api/ops/pawgen/referrals`**, implemented on **both** source paths. REST wins per `307f100`,
+  but the pool branch is kept in step so precedence can flip without silently losing the feature.
+  PostgREST has no GROUP BY, so the REST path pulls the (small) order set and aggregates in Node —
+  fine at this volume, revisit past five figures of orders.
+- **NULL `ref_source` is bucketed as `(direct)`, never dropped.** It's genuinely direct traffic plus
+  every order placed before attribution existed. Hiding it would make the totals lie.
+- **`link_clicks` is optional.** It only exists once `db/partner_links.sql` has run on the pawgen
+  database, so a missing table degrades to clicks/conversion "—" plus a hint, rather than breaking
+  the panel. (Paul ran it 2026-08-13; the panel now shows real click counts.)
+- UI sits between the stat cards and the orders table on `/pawgen/orders`: source · clicks · orders ·
+  paid · conversion · revenue · last order, sorted by revenue.
+
+Verified live: panel renders `direct / untagged · 0 clicks · 17 orders · 16 paid · $2,828.55`.
+
+**Two things worth knowing:**
+1. **The shared checkout swept up my work.** Commit `891fda1` ("Fulfilment status…") from another
+   terminal included my 65-line `referrals()` addition to `server/pawgen-rest.ts` — it ran
+   `git add -A` while my edit was uncommitted. No damage, but the code shipped under someone else's
+   message. **Use a worktree when two terminals share this repo.**
+2. **`tsc` is red** in `client/src/pages/supplements-detail.tsx` — two implicit-`any` params from
+   `f63a2d5`. Not mine, left alone. The Vite build doesn't typecheck, so deploys still pass — which
+   is exactly how this hides a real error later.
+
 ## 2026-08-11 — pawgen tab re-verified; `PAWGEN_DATABASE_URL` creds finally corrected
 
 Confirmed live: **$1,397.95 revenue · 7 paid orders · 5 to fulfill · 0 refunded**, order table
