@@ -153,8 +153,15 @@ export async function ordersForAnalytics() {
     payment_status: string;
     fulfillment_status: string;
     customer_email: string | null;
+    ref_source: string | null;
+    ref_medium: string | null;
+    ref_campaign: string | null;
+    ref_landing: string | null;
+    ref_referrer: string | null;
   }>(
-    `orders?select=created_at,amount_usd,shipping_cost,pack_id,method,source,payment_status,fulfillment_status,customer_email&order=created_at.desc`,
+    // ref_* are the first-touch attribution the site records at checkout. Omitting
+    // them made the Marketing tab report 0 attributed orders when there were 3.
+    `orders?select=created_at,amount_usd,shipping_cost,pack_id,method,source,payment_status,fulfillment_status,customer_email,ref_source,ref_medium,ref_campaign,ref_landing,ref_referrer&order=created_at.desc`,
     { range: { from: 0, to: REST_PAGE_MAX - 1 } }
   );
   return rows;
