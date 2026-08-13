@@ -9,6 +9,7 @@ import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
 import { pawgenPool } from "./db";
 import * as rest from "./pawgen-rest";
+import { statusForOrderIds, isShippingEasyConfigured } from "./shippingeasy";
 
 const pawgenStripe = process.env.PAWGEN_STRIPE_SECRET_KEY
   ? new Stripe(process.env.PAWGEN_STRIPE_SECRET_KEY)
@@ -69,14 +70,21 @@ export function registerPawgenRoutes(app: Express) {
           rest.listOrders(status, limit, offset),
           rest.ordersSummary(),
         ]);
+        // Ask ShippingEasy what it actually knows about these orders. Our own
+        // fulfillment_status only moves when the shipment webhook fires, so a
+        // failed push and an order simply awaiting shipment look identical
+        // without this.
+        const se = await statusForOrderIds(rows.map((o) => String(o.id)));
         return res.json({
           orders: rows.map((o) => ({
             ...o,
             pack_label: PACK_LABELS[o.pack_id] ?? o.pack_id,
             amount_usd: Number(o.amount_usd),
+            shipping_easy: se[String(o.id)] ?? { state: "unconfigured" },
           })),
           stats,
           statuses,
+          shippingEasyConfigured: isShippingEasyConfigured(),
           pagination: { page, limit, total, pages: Math.max(1, Math.ceil(total / limit)) },
         });
       }
@@ -115,11 +123,14 @@ export function registerPawgenRoutes(app: Express) {
       for (const r of statusRes.rows) statuses[r.fulfillment_status] = r.n;
       const s = statsRes.rows[0] ?? {};
 
+      const seSql = await statusForOrderIds(rowsRes.rows.map((o: any) => String(o.id)));
       res.json({
+        shippingEasyConfigured: isShippingEasyConfigured(),
         orders: rowsRes.rows.map((o) => ({
           ...o,
           pack_label: PACK_LABELS[o.pack_id] ?? o.pack_id,
           amount_usd: Number(o.amount_usd),
+          shipping_easy: seSql[String(o.id)] ?? { state: "unconfigured" },
         })),
         stats: {
           paidOrders: s.paid_orders ?? 0,

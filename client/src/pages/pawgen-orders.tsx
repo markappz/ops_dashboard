@@ -18,6 +18,13 @@ interface PawgenOrder {
   fulfillment_status: string;
   tracking_number: string | null;
   carrier: string | null;
+  // What ShippingEasy itself reports for this order — distinguishes "waiting to
+  // be shipped" from "never made it into fulfilment at all".
+  shipping_easy?:
+    | { state: "unconfigured" }
+    | { state: "error"; message: string }
+    | { state: "missing" }
+    | { state: "present"; seStatus: string | null; seOrderId: string | null; trackingNumber: string | null };
 }
 
 // Every field is optional: an error response (503 "not connected", 500) carries
@@ -28,7 +35,25 @@ interface OrdersResponse {
   stats?: { paidOrders: number; revenue: number; refunded: number; toFulfill: number };
   statuses?: Record<string, number>;
   pagination?: { page: number; limit: number; total: number; pages: number };
+  shippingEasyConfigured?: boolean;
   error?: string;
+}
+
+function SeCell({ se }: { se: PawgenOrder["shipping_easy"] }) {
+  if (!se || se.state === "unconfigured") return <span className="text-ops-text-muted">—</span>;
+  if (se.state === "error") return <span className="text-yellow-500" title={se.message}>check failed</span>;
+  if (se.state === "missing") {
+    return (
+      <span className="rounded px-2 py-0.5 text-xs font-medium bg-red-500/15 text-red-400" title="This order was never found in ShippingEasy — the push most likely failed.">
+        not in ShippingEasy
+      </span>
+    );
+  }
+  return (
+    <span className="text-ops-text-muted" title={se.seOrderId ? `ShippingEasy order ${se.seOrderId}` : undefined}>
+      {(se.seStatus ?? "in ShippingEasy").replace(/_/g, " ")}
+    </span>
+  );
 }
 
 function Badge({ status }: { status: string }) {
@@ -232,6 +257,7 @@ export default function PawgenOrders() {
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Pack</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Payment</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Fulfillment</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">ShippingEasy</th>
               <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Amount</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Date</th>
               <th className="px-5 py-3"></th>
@@ -272,6 +298,7 @@ export default function PawgenOrders() {
                       <span className="text-xs text-ops-text-muted">{o.method}</span>
                     </td>
                     <td className="px-5 py-3"><Badge status={o.fulfillment_status} /></td>
+                    <td className="px-5 py-3 text-sm"><SeCell se={o.shipping_easy} /></td>
                     <td className="px-5 py-3 text-right text-sm font-medium text-ops-text">${o.amount_usd.toFixed(2)}</td>
                     <td className="px-5 py-3 text-sm text-ops-text-muted">{new Date(o.created_at).toLocaleDateString()}</td>
                     <td className="px-5 py-3 text-right">
