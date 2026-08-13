@@ -208,9 +208,17 @@ function getAllowlist(): Set<string> {
     .catch((e) => {
       console.warn("[OPS][AUTH] allowlist DB refresh failed:", e.message);
     });
-  // Use cached value if present, else env fallback for this request.
+  // Use cached value if present.
   if (allowlistCache) return allowlistCache.emails;
-  return new Set(envAllowlist());
+  // Cold cache. The env list is a BOOTSTRAP seed, not a grant — falling back to
+  // it here made revocation leaky: removing someone from the DB still left them
+  // an admin for the window between process start and the first DB load, because
+  // ADMIN_EMAILS still named them. Fail closed instead; the refresh kicked off
+  // above lands in milliseconds and the next request succeeds.
+  //
+  // The one case env must still work is a genuinely empty DB on first boot,
+  // which seedFromEnvIfEmpty() handles by writing those emails INTO the table.
+  return new Set<string>();
 }
 
 /** Read-only accounts stored in the DB (role='viewer'). */
