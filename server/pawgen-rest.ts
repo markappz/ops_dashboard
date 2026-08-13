@@ -207,3 +207,68 @@ export async function verifyPawgenRest(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Referral breakdown: orders + revenue by first-touch source, plus short-link
+ * clicks where we have them.
+ *
+ * PostgREST has no GROUP BY, so we pull the (small) order set and aggregate in
+ * Node. Fine at this volume; revisit if orders ever run to five figures.
+ */
+export async function referrals() {
+  const { rows } = await rest<{
+    ref_source: string | null;
+    amount_usd: string | null;
+    payment_status: string | null;
+    created_at: string;
+  }>(
+    `orders?select=ref_source,amount_usd,payment_status,created_at&order=created_at.desc`,
+    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  );
+
+  type Agg = { source: string; orders: number; paidOrders: number; revenue: number; lastOrderAt: string | null };
+  const bySource = new Map<string, Agg>();
+
+  for (const r of rows) {
+    // NULL ref_source is real and meaningful: direct traffic + everything that
+    // predates attribution. Bucket it rather than dropping it.
+    const key = r.ref_source ?? "(direct)";
+    const a =
+      bySource.get(key) ?? { source: key, orders: 0, paidOrders: 0, revenue: 0, lastOrderAt: null };
+    a.orders += 1;
+    if (r.payment_status === "paid" || r.payment_status === "refunded") {
+      a.paidOrders += 1;
+      a.revenue += Number(r.amount_usd ?? 0);
+    }
+    if (!a.lastOrderAt || r.created_at > a.lastOrderAt) a.lastOrderAt = r.created_at;
+    bySource.set(key, a);
+  }
+
+  // Clicks are optional — the table only exists once db/partner_links.sql has
+  // been run on the pawgen database. Missing table must not break the panel.
+  const clicks = new Map<string, number>();
+  try {
+    const { rows: clickRows } = await rest<{ ref_source: string }>(
+      `link_clicks?select=ref_source`,
+      { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+    );
+    for (const c of clickRows) clicks.set(c.ref_source, (clicks.get(c.ref_source) ?? 0) + 1);
+  } catch {
+    /* table not created yet — report clicks as null below */
+  }
+
+  const list = [...bySource.values()]
+    .map((a) => ({
+      ...a,
+      revenue: Math.round(a.revenue * 100) / 100,
+      clicks: clicks.size ? clicks.get(a.source) ?? 0 : null,
+      // Only meaningful once we have both numbers for that source.
+      conversion:
+        clicks.size && (clicks.get(a.source) ?? 0) > 0
+          ? Math.round((a.paidOrders / (clicks.get(a.source) as number)) * 1000) / 10
+          : null,
+    }))
+    .sort((x, y) => y.revenue - x.revenue || y.orders - x.orders);
+
+  return { sources: list, clicksTracked: clicks.size > 0 };
+}

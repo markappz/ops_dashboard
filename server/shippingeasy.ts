@@ -1,113 +1,34 @@
 /**
- * ShippingEasy read client for the ops dashboard.
+ * Fulfilment status for pawgen orders.
  *
- * pawgen's site PUSHES paid orders into ShippingEasy fire-and-forget
- * (`push(...).catch(console.error)`), and our `fulfillment_status` only ever
- * changes when ShippingEasy calls the shipment webhook back. So a push that
- * failed, or a webhook that never arrived, both look identical in our DB:
- * "unfulfilled" forever, with nothing to distinguish "waiting to be shipped"
- * from "never reached fulfilment at all".
+ * pawgen's site PUSHES paid orders into ShippingEasy fire-and-forget, and our
+ * `fulfillment_status` only changes when ShippingEasy calls the shipment webhook
+ * back. So a push that failed and an order merely awaiting shipment look
+ * identical in our data: "unfulfilled" forever. This tells them apart.
  *
- * This reads the truth back out of ShippingEasy so the dashboard can tell those
- * apart. Signing matches pawgen's lib/shippingeasy.server.ts exactly — HMAC-SHA256
- * over METHOD&path&sorted-params&body, with the signature appended afterwards.
+ * It asks pawgen rather than ShippingEasy directly. pawgen already holds the
+ * ShippingEasy credentials to do the push; copying them here would mean two
+ * systems to keep in sync and a regenerated key silently breaking order flow.
+ * One shared bearer token instead of three replicated secrets.
  *
- * Needs SHIPPINGEASY_API_KEY / _API_SECRET / _STORE_API_KEY. Unset → every call
- * reports `configured: false` and the UI degrades instead of erroring.
+ * Needs PAWGEN_OPS_TOKEN (and optionally PAWGEN_OPS_URL, default
+ * https://pawgen.com). Unset → every order reports `unconfigured` and the UI
+ * shows "—" instead of erroring.
  */
-import crypto from "crypto";
 
-const BASE_URL = "https://app.shippingeasy.com";
+const DEFAULT_BASE = "https://pawgen.com";
 
-const API_KEY = () => process.env.SHIPPINGEASY_API_KEY;
-const API_SECRET = () => process.env.SHIPPINGEASY_API_SECRET;
-const STORE_API_KEY = () => process.env.SHIPPINGEASY_STORE_API_KEY;
+function baseUrl(): string {
+  return (process.env.PAWGEN_OPS_URL || DEFAULT_BASE).replace(/\/+$/, "");
+}
+function token(): string {
+  return process.env.PAWGEN_OPS_TOKEN ?? "";
+}
 
 export function isShippingEasyConfigured(): boolean {
-  return Boolean(API_KEY() && API_SECRET() && STORE_API_KEY());
+  return Boolean(token());
 }
 
-function sign(method: string, path: string, params: Record<string, string>, body: string): string {
-  const sorted = Object.keys(params)
-    .sort()
-    .map((k) => `${k}=${params[k]}`)
-    .join("&");
-  return crypto
-    .createHmac("sha256", API_SECRET()!)
-    .update([method.toUpperCase(), path, sorted, body || ""].join("&"))
-    .digest("hex");
-}
-
-async function get<T>(path: string, extraParams: Record<string, string> = {}): Promise<T> {
-  const params: Record<string, string> = {
-    ...extraParams,
-    api_key: API_KEY()!,
-    api_timestamp: Math.floor(Date.now() / 1000).toString(),
-  };
-  // Signature covers every other param, so it must be computed before being added.
-  params.api_signature = sign("GET", path, params, "");
-  const query = Object.keys(params)
-    .map((k) => `${k}=${encodeURIComponent(params[k])}`)
-    .join("&");
-
-  const res = await fetch(`${BASE_URL}${path}?${query}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    cache: "no-store",
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`ShippingEasy API ${res.status}: ${text.slice(0, 300)}`);
-  }
-  return JSON.parse(text) as T;
-}
-
-export type SeOrder = {
-  externalId: string | null;
-  seOrderId: string | null;
-  status: string | null;
-  trackingNumber: string | null;
-  orderedAt: string | null;
-};
-
-type SeOrdersResponse = {
-  orders?: Array<Record<string, any>>;
-  meta?: { total_pages?: number; current_page?: number };
-};
-
-/**
- * Recent orders from the store, keyed by the external identifier we set on push
- * (pawgen's Supabase order UUID). Paged because a busy store will exceed one page
- * and a missing order is exactly what we're trying to detect — stopping early
- * would manufacture false "not in ShippingEasy" results.
- */
-export async function fetchSeOrders(maxPages = 5): Promise<Map<string, SeOrder>> {
-  const byExternalId = new Map<string, SeOrder>();
-  const path = `/api/stores/${STORE_API_KEY()}/orders`;
-
-  for (let page = 1; page <= maxPages; page++) {
-    const data = await get<SeOrdersResponse>(path, { page: String(page), per_page: "100" });
-    const orders = data.orders ?? [];
-    for (const o of orders) {
-      const externalId =
-        o.external_order_identifier ?? o.external_order_id ?? o.order_number ?? null;
-      if (!externalId) continue;
-      byExternalId.set(String(externalId), {
-        externalId: String(externalId),
-        seOrderId: o.id != null ? String(o.id) : null,
-        status: o.status ?? o.order_status ?? null,
-        trackingNumber: o.tracking_number ?? null,
-        orderedAt: o.ordered_at ?? null,
-      });
-    }
-    const totalPages = data.meta?.total_pages ?? 1;
-    if (orders.length === 0 || page >= totalPages) break;
-  }
-
-  return byExternalId;
-}
-
-/** Shape used by the dashboard: what ShippingEasy says about one of our orders. */
 export type SeStatus =
   | { state: "unconfigured" }
   | { state: "error"; message: string }
@@ -115,27 +36,60 @@ export type SeStatus =
   | { state: "present"; seStatus: string | null; seOrderId: string | null; trackingNumber: string | null };
 
 /**
- * Look up many of our order ids at once. Returns a per-id verdict, and never
- * throws — a ShippingEasy outage must not take down the orders tab.
+ * Verdict per order id. Never throws — a pawgen or ShippingEasy outage must not
+ * take down the orders tab, and must never be reported as "missing", which would
+ * wrongly imply the order never reached fulfilment.
  */
 export async function statusForOrderIds(ids: string[]): Promise<Record<string, SeStatus>> {
   const out: Record<string, SeStatus> = {};
+  if (ids.length === 0) return out;
+
   if (!isShippingEasyConfigured()) {
     for (const id of ids) out[id] = { state: "unconfigured" };
     return out;
   }
+
   try {
-    const map = await fetchSeOrders();
-    for (const id of ids) {
-      const hit = map.get(id);
-      out[id] = hit
-        ? { state: "present", seStatus: hit.status, seOrderId: hit.seOrderId, trackingNumber: hit.trackingNumber }
-        : { state: "missing" };
+    const res = await fetch(`${baseUrl()}/api/ops/fulfillment-status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token()}`,
+      },
+      body: JSON.stringify({ orderIds: ids }),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      let msg = `pawgen fulfilment lookup ${res.status}`;
+      try {
+        const j = JSON.parse(text);
+        if (j?.error) msg = j.error;
+      } catch {
+        /* keep the status-code message */
+      }
+      throw new Error(msg);
     }
+
+    const data = JSON.parse(text) as {
+      configured?: boolean;
+      statuses?: Record<string, SeStatus>;
+    };
+
+    if (data.configured === false) {
+      for (const id of ids) out[id] = { state: "unconfigured" };
+      return out;
+    }
+
+    for (const id of ids) {
+      out[id] = data.statuses?.[id] ?? { state: "missing" };
+    }
+    return out;
   } catch (e: any) {
-    const message = e?.message ?? "ShippingEasy request failed";
-    console.error("[OPS shippingeasy]", message);
+    const message = e?.name === "TimeoutError" ? "pawgen fulfilment lookup timed out" : e?.message ?? "lookup failed";
+    console.error("[OPS fulfilment]", message);
     for (const id of ids) out[id] = { state: "error", message };
+    return out;
   }
-  return out;
 }
