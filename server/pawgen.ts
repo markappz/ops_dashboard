@@ -150,6 +150,66 @@ export function registerPawgenRoutes(app: Express) {
   // ── Overview ──────────────────────────────────────────────────────────────
   // Everything here comes from real orders, so this tab is useful before any
   // analytics integration is connected.
+  // ── Referral breakdown: who is sending traffic that actually buys ─────────
+  app.get("/api/ops/pawgen/referrals", async (_req: Request, res: Response) => {
+    const src = ensureSource(res);
+    if (!src) return;
+    try {
+      if (src === "rest") {
+        return res.json(await rest.referrals());
+      }
+
+      // Pool path. `(direct)` covers NULL ref_source — genuinely direct traffic
+      // plus every order that predates attribution. Bucketed, never dropped.
+      const { rows } = await pawgenPool!.query(`
+        SELECT coalesce(ref_source, '(direct)') AS source,
+               count(*)::int                                                            AS orders,
+               count(*) FILTER (WHERE payment_status IN ('paid','refunded'))::int       AS paid_orders,
+               coalesce(sum(amount_usd) FILTER (WHERE payment_status IN ('paid','refunded')), 0)::numeric AS revenue,
+               max(created_at)                                                          AS last_order_at
+          FROM orders
+         GROUP BY 1
+         ORDER BY revenue DESC, orders DESC
+      `);
+
+      // link_clicks only exists once db/partner_links.sql has been run on the
+      // pawgen database — a missing table must not break the panel.
+      const clicks: Record<string, number> = {};
+      let clicksTracked = false;
+      try {
+        const c = await pawgenPool!.query(
+          `SELECT ref_source, count(*)::int AS n FROM link_clicks GROUP BY ref_source`
+        );
+        for (const r of c.rows) clicks[r.ref_source] = r.n;
+        clicksTracked = c.rows.length > 0;
+      } catch {
+        /* table not created yet */
+      }
+
+      res.json({
+        sources: rows.map((r) => {
+          const clickCount = clicksTracked ? clicks[r.source] ?? 0 : null;
+          return {
+            source: r.source,
+            orders: r.orders,
+            paidOrders: r.paid_orders,
+            revenue: Number(r.revenue),
+            lastOrderAt: r.last_order_at,
+            clicks: clickCount,
+            conversion:
+              clickCount && clickCount > 0
+                ? Math.round((r.paid_orders / clickCount) * 1000) / 10
+                : null,
+          };
+        }),
+        clicksTracked,
+      });
+    } catch (e: any) {
+      console.error("[OPS pawgen] referrals error:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/pawgen/overview", async (req: Request, res: Response) => {
     const src = ensureSource(res);
     if (!src) return;

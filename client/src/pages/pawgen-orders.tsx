@@ -185,6 +185,109 @@ function RefundPanel({ order, onDone }: { order: PawgenOrder; onDone: () => void
   );
 }
 
+interface ReferralSource {
+  source: string;
+  orders: number;
+  paidOrders: number;
+  revenue: number;
+  lastOrderAt: string | null;
+  clicks: number | null;      // null until db/partner_links.sql is run on pawgen
+  conversion: number | null;  // paid orders / clicks, %
+}
+interface ReferralsResponse {
+  sources?: ReferralSource[];
+  clicksTracked?: boolean;
+  error?: string;
+}
+
+/** Traffic + revenue by first-touch source. Partner links land here. */
+function Referrals() {
+  const { data, isLoading } = useQuery<ReferralsResponse>({
+    queryKey: ["pawgen-referrals"],
+    queryFn: async () => {
+      const res = await fetch("/api/ops/pawgen/referrals");
+      try {
+        return (await res.json()) as ReferralsResponse;
+      } catch {
+        return { error: `Referrals request failed (HTTP ${res.status})` };
+      }
+    },
+  });
+
+  const sources = data?.sources ?? [];
+  const money = (n: number) =>
+    `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card mb-6 overflow-hidden">
+      <div className="flex items-baseline justify-between px-5 py-3 border-b border-ops-border">
+        <h2 className="text-sm font-semibold text-ops-text">Where orders come from</h2>
+        <span className="text-xs text-ops-text-muted">first-touch attribution</span>
+      </div>
+
+      {data?.error && (
+        <div className="px-5 py-3 text-sm text-red-400">{data.error}</div>
+      )}
+
+      {isLoading ? (
+        <div className="px-5 py-8 text-center">
+          <div className="w-5 h-5 border-2 border-fitscript-green border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      ) : !sources.length ? (
+        <div className="px-5 py-8 text-center text-sm text-ops-text-muted">No orders yet</div>
+      ) : (
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-ops-border">
+              <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Source</th>
+              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Clicks</th>
+              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Orders</th>
+              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Paid</th>
+              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Conv.</th>
+              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Revenue</th>
+              <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Last order</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sources.map((s) => (
+              <tr key={s.source} className="border-t border-ops-border">
+                <td className="px-5 py-2.5 text-sm">
+                  {s.source === "(direct)" ? (
+                    <span className="text-ops-text-muted" title="Direct traffic, plus every order placed before attribution existed">
+                      direct / untagged
+                    </span>
+                  ) : (
+                    <span className="text-fitscript-green font-medium">{s.source}</span>
+                  )}
+                </td>
+                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
+                  {s.clicks === null ? "—" : s.clicks.toLocaleString()}
+                </td>
+                <td className="px-5 py-2.5 text-right text-sm text-ops-text">{s.orders}</td>
+                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">{s.paidOrders}</td>
+                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
+                  {s.conversion === null ? "—" : `${s.conversion}%`}
+                </td>
+                <td className="px-5 py-2.5 text-right text-sm font-medium text-ops-text">{money(s.revenue)}</td>
+                <td className="px-5 py-2.5 text-sm text-ops-text-muted">
+                  {s.lastOrderAt ? new Date(s.lastOrderAt).toLocaleDateString() : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {!isLoading && sources.length > 0 && data?.clicksTracked === false && (
+        <div className="px-5 py-2.5 text-xs text-ops-text-muted border-t border-ops-border">
+          Click counts need <code>db/partner_links.sql</code> run on the pawgen database — until then
+          partner links still work, they just aren&apos;t counted.
+        </div>
+      )}
+    </div>
+  );
+}
+
 const FILTERS = ["all", "unfulfilled", "processing", "shipped", "delivered", "cancelled"];
 
 export default function PawgenOrders() {
@@ -230,6 +333,8 @@ export default function PawgenOrders() {
         <StatCard label="To fulfill" value={stats?.toFulfill ?? "—"} />
         <StatCard label="Refunded" value={stats?.refunded ?? "—"} />
       </div>
+
+      <Referrals />
 
       <div className="mb-4">
         <select
