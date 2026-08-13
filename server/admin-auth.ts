@@ -46,7 +46,7 @@ function getSessionSecret(): string {
 
 // Admin allowlist. DB is authoritative; ENV is bootstrap-only seed for first run.
 // In-process cache with 60s TTL keeps auth hot-path off the DB.
-let allowlistCache: { emails: Set<string>; at: number } | null = null;
+let allowlistCache: { emails: Set<string>; viewers: Set<string>; at: number } | null = null;
 const ALLOWLIST_TTL_MS = 60 * 1000;
 
 function envAllowlist(): string[] {
@@ -72,6 +72,8 @@ function viewerAllowlist(): Set<string> {
 function resolveRole(email: string): OpsRole | null {
   const e = email.toLowerCase();
   if (getAllowlist().has(e)) return "admin";
+  // DB role='viewer' first, then the legacy env list.
+  if (getDbViewers().has(e)) return "viewer";
   if (viewerAllowlist().has(e)) return "viewer";
   return null;
 }
@@ -89,6 +91,10 @@ async function ensureAdminTable() {
   // hello@pawgen.com and support@realpeptides.co are mail aliases, so
   // "Sign in with Google" has nothing to authenticate against.
   await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS password_hash TEXT`);
+  // Roles live in the DB next to the accounts. VIEWER_EMAILS still works, but it
+  // needs an ECS task-def change to edit, which makes granting read-only access a
+  // deploy instead of a database write.
+  await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'`);
   await pool.query(`ALTER TABLE ops_admins ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMP`);
 }
 
@@ -143,10 +149,17 @@ async function seedFromEnvIfEmpty(): Promise<void> {
   console.log(`[OPS][AUTH] Seeded ${seed.length} admin email(s) from ADMIN_EMAILS env`);
 }
 
-async function loadAllowlistFromDb(): Promise<Set<string>> {
+async function loadAllowlistFromDb(): Promise<{ emails: Set<string>; viewers: Set<string> }> {
   await seedFromEnvIfEmpty();
-  const r = await pool.query("SELECT email FROM ops_admins");
-  return new Set(r.rows.map((row: any) => String(row.email).toLowerCase()));
+  const r = await pool.query("SELECT email, role FROM ops_admins");
+  const emails = new Set<string>();
+  const viewers = new Set<string>();
+  for (const row of r.rows as any[]) {
+    const e = String(row.email).toLowerCase();
+    if (String(row.role ?? "admin") === "viewer") viewers.add(e);
+    else emails.add(e);
+  }
+  return { emails, viewers };
 }
 
 function getAllowlist(): Set<string> {
@@ -159,8 +172,8 @@ function getAllowlist(): Set<string> {
   }
   // Kick off async refresh — non-blocking.
   loadAllowlistFromDb()
-    .then((emails) => {
-      allowlistCache = { emails, at: Date.now() };
+    .then(({ emails, viewers }) => {
+      allowlistCache = { emails, viewers, at: Date.now() };
     })
     .catch((e) => {
       console.warn("[OPS][AUTH] allowlist DB refresh failed:", e.message);
@@ -170,14 +183,19 @@ function getAllowlist(): Set<string> {
   return new Set(envAllowlist());
 }
 
+/** Read-only accounts stored in the DB (role='viewer'). */
+function getDbViewers(): Set<string> {
+  return allowlistCache?.viewers ?? new Set<string>();
+}
+
 // After write operations, AWAIT a synchronous cache refresh so the next
 // auth check sees the new state immediately. (Pure invalidation would
 // race the env fallback path in getAllowlist while the async refetch
 // is in flight.)
 export async function refreshAllowlistCache(): Promise<void> {
   try {
-    const emails = await loadAllowlistFromDb();
-    allowlistCache = { emails, at: Date.now() };
+    const { emails, viewers } = await loadAllowlistFromDb();
+    allowlistCache = { emails, viewers, at: Date.now() };
   } catch (e: any) {
     console.warn("[OPS][AUTH] forced cache refresh failed:", e.message);
     allowlistCache = null;
@@ -344,12 +362,12 @@ export function registerAdminAuthRoutes(app: Express) {
   }
   // Warm the allowlist cache from DB at boot (also triggers env-seed if empty).
   loadAllowlistFromDb()
-    .then((emails) => {
-      allowlistCache = { emails, at: Date.now() };
+    .then(({ emails, viewers }) => {
+      allowlistCache = { emails, viewers, at: Date.now() };
       if (emails.size === 0) {
         console.warn("[OPS][AUTH] No admins configured (DB empty, ADMIN_EMAILS env empty) — no one can log in");
       } else {
-        console.log(`[OPS][AUTH] ${emails.size} admin(s) loaded`);
+        console.log(`[OPS][AUTH] ${emails.size} admin(s), ${viewers.size} viewer(s) loaded`);
       }
     })
     .catch((e) => {
@@ -480,8 +498,10 @@ export function registerAdminAuthRoutes(app: Express) {
     if (!email || !password) return deny();
 
     try {
+      // Viewers log in the same way — the read-only restriction is enforced on
+      // every request by requireAuth, not by refusing the login.
       const role = resolveRole(email);
-      if (role !== "admin") return deny();
+      if (!role) return deny();
 
       const r = await pool.query(`SELECT password_hash FROM ops_admins WHERE email = $1`, [email]);
       const stored = r.rows[0]?.password_hash as string | undefined;
@@ -492,7 +512,7 @@ export function registerAdminAuthRoutes(app: Express) {
 
       const exp = Date.now() + COOKIE_TTL_MS;
       res.cookie(COOKIE_NAME, sign({ email, exp }), cookieOptions(COOKIE_TTL_MS));
-      console.log(`[OPS][AUTH] password login: ${email}`);
+      console.log(`[OPS][AUTH] password login: ${email} (${role})`);
       res.json({ ok: true });
     } catch (e: any) {
       console.error("[OPS][AUTH] password login error:", e.message);

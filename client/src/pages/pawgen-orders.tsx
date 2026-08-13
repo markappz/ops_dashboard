@@ -4,6 +4,7 @@ import { PageHero } from "../components/page-hero";
 
 interface PawgenOrder {
   id: string;
+  order_no?: number | null;
   created_at: string;
   source: "stripe" | "nowpayments";
   method: "card" | "crypto";
@@ -389,7 +390,9 @@ export default function PawgenOrders() {
                     className={`border-t border-ops-border hover:bg-ops-surface-hover transition-colors cursor-pointer ${expanded === o.id ? "bg-ops-surface-hover" : ""}`}
                     onClick={() => setExpanded(expanded === o.id ? null : o.id)}
                   >
-                    <td className="px-5 py-3 text-sm font-mono text-fitscript-green">{o.id.slice(0, 8)}</td>
+                    <td className="px-5 py-3 text-sm font-mono text-fitscript-green" title={o.id}>
+                      {o.order_no ? `PG-${o.order_no}` : `PG-${o.id.slice(0, 8)}`}
+                    </td>
                     <td className="px-5 py-3">
                       <div className="text-sm text-ops-text">{o.customer_name || "—"}</div>
                       <div className="text-xs text-ops-text-muted">{o.customer_email || "—"}</div>

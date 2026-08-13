@@ -98,7 +98,7 @@ export function registerPawgenRoutes(app: Express) {
       const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
       const cols =
-        "id, created_at, source, method, payment_status, amount_usd, pack_id, quantity, " +
+        "id, order_no, created_at, source, method, payment_status, amount_usd, pack_id, quantity, " +
         "bac_addon_qty, customer_name, customer_email, fulfillment_status, tracking_number, carrier";
 
       const [rowsRes, countRes, statsRes, statusRes] = await Promise.all([
