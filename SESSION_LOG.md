@@ -4,6 +4,42 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-13 — pawgen dashboard complete · auth roles · the Neon trap
+
+**The day's biggest lesson: `~/Projects/ops-dashboard/.env` had TWO database urls.**
+The code reads `DATABASE_URL`, which held a dead **Neon** url from the Replit era, while
+production ECS reads a different `DATABASE_URL` (RDS) from Secrets Manager. The correct one
+sat beside it the whole time as `RDS_DATABASE_URL`. Every local script wrote to Neon while
+production read RDS — silently, no error. It produced a chain of confident wrong answers:
+admins "added" that a teammate couldn't use, passwords "set", a migration "verified", and a
+claim that "FitScript's pixel was never deployed, 2 test rows" when prod had 682 sessions
+and 1,040 touchpoints. **Print the DB host before trusting any local script.** Fixed here
+and in ~/Projects/fitscript (both repointed to RDS, Neon line commented, backups kept).
+**clomark is NOT the same** — its Neon DB is live with 36 tables and real data; leave it.
+
+**pawgen tabs (7, all on real data):** Overview, Orders & Refunds, Leads, Marketing,
+Site Traffic, SEO, Integrations. Leads shows 178 signups → 10 customers → $1,715 traced.
+Marketing reads first-touch `ref_*` off orders and states attribution coverage honestly
+rather than lumping unknowns into "direct".
+
+**Auth, now role-aware and DB-backed:**
+- password login (scrypt, Node stdlib) for team addresses that aren't Google accounts
+- `role` on ops_admins: admin | viewer. Viewers read everything, mutate nothing
+- `permissions TEXT[]` for scoped grants — `pawgen:refund` lets support refund pawgen
+  orders and nothing else. Matcher verified against traversal, other brands, other methods
+- **revocation is now absolute**: getAllowlist() used to fall back to ADMIN_EMAILS on a
+  cold cache, so a removed admin was re-admitted for the window after every restart
+
+**Google connection is per-company.** It was a single row and connect DELETEd the table, so
+adding pawgen would have silently disconnected FitScript. Also fixed: both GA4/GSC overview
+routes called getConnection() with no company and would have shown FitScript's numbers on
+pawgen's tab; and OPS_GOOGLE_REDIRECT_URI was `http://`, which Google rejects — that flow
+had never once completed, for any brand.
+
+**Tracking is multi-brand.** `site` column across the pipeline, ingest derives the brand
+from the browser-set Origin (never a client field), FitScript aggregates scoped. Verified
+live: fitscript 732 / pawgen 9, side by side, no bleed.
+
 ## 2026-08-13 — pawgen referral breakdown ("Where orders come from")
 
 chootherescue.com ($CHOO) is live and about to send real traffic to pawgen, so partner performance
