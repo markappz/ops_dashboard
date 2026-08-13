@@ -98,7 +98,7 @@ async function rest<T>(path: string, opts: RestOpts = {}): Promise<{ rows: T[]; 
 
 // ── Reads ───────────────────────────────────────────────────────────────────
 const ORDER_COLS =
-  "id,created_at,source,method,payment_status,amount_usd,pack_id,quantity," +
+  "id,order_no,created_at,source,method,payment_status,amount_usd,pack_id,quantity," +
   "bac_addon_qty,customer_name,customer_email,fulfillment_status,tracking_number,carrier";
 
 export async function listOrders(status: string, limit: number, offset: number) {

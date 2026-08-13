@@ -391,7 +391,7 @@ export default function PawgenOrders() {
                     onClick={() => setExpanded(expanded === o.id ? null : o.id)}
                   >
                     <td className="px-5 py-3 text-sm font-mono text-fitscript-green" title={o.id}>
-                      {o.order_no ? `PG-${o.order_no}` : `PG-${o.id.slice(0, 8)}`}
+                      {o.order_no ? `PG-${o.order_no}` : o.id.slice(0, 8)}
                     </td>
                     <td className="px-5 py-3">
                       <div className="text-sm text-ops-text">{o.customer_name || "—"}</div>
