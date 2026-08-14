@@ -41,11 +41,21 @@ Rebuilt on both real platforms:
   (same bundle hash `index-B_U8SI-4.js`), no `ops.fitscript.me` anywhere. It's a Vite SPA carrying
   Moosend's `mootrack` and a Meta pixel, so tags do land there; ours isn't in the deployed build. Needs
   to be in `index.html` + a rebuild — editing a component won't do it.
-- **The COA token deploy was half-done.** Both new task-def revisions were correct
-  (`realpeptides-coa-task:14`, `fitscript-ops-task:167`, valid ARNs, matching 64-char token in both
-  secrets) but **neither service was updated to point at them** — still running `:12` and `:166`.
-  "Create new revision" without "Update service → Force new deployment" changes nothing. Endpoint was
-  still 503 at the time of writing.
+- **The COA token deploy took three tries, and the lesson is worth keeping.** Both new task-def
+  revisions were correct from the start (`realpeptides-coa-task:14`, `fitscript-ops-task:167`, valid
+  ARNs, matching 64-char token in both secrets) but the *services* were never repointed — still on
+  `:12` and `:166`. Then a second attempt ticked "Force new deployment" while leaving the **Revision
+  dropdown on the current revision**, which cleanly redeployed the old config. The dropdown defaults
+  to current, not latest. Resolved by calling `UpdateService` directly with
+  `taskDefinition: realpeptides-coa-task:14`. The ops side fixed itself: the deploy workflow builds
+  from the family's *latest* revision, so my push produced `:168` carrying the token.
+
+**COA endpoint VERIFIED live** — the path that had never run. `GET /api/ops-summary` returns 200 with
+real data: **83 tracked SKUs — 47 expired, 31 never tested, 5 fresh**, `validityDays: 90`. So the SQL,
+the status derivation and the sort all work against the production schema.
+
+**That number is a business finding, not just a green test:** 78 of 83 SKUs have no current COA.
+`lab_name` is null on every row too, so the lab column will render "—" until COAs are attached.
 
 ---
 
