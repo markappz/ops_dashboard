@@ -52,8 +52,8 @@ function Detail({ item }: { item: any }) {
         why_this_one: f.why_this_one, primary_benefit: f.primary_benefit, typical_dose: f.typical_dose,
         evidence_tier: f.evidence_tier === "" ? null : Number(f.evidence_tier),
         sort_order: f.sort_order === "" ? 0 : Number(f.sort_order),
-        biomarker_targets: f.biomarker_targets.split(",").map((s) => s.trim()).filter(Boolean),
-        certifications: f.certifications.split(",").map((s) => s.trim()).filter(Boolean),
+        biomarker_targets: f.biomarker_targets.split(",").map((s: string) => s.trim()).filter(Boolean),
+        certifications: f.certifications.split(",").map((s: string) => s.trim()).filter(Boolean),
         active: f.active, atlas_selected: f.atlas_selected,
       };
       return fetch(`/api/ops/supplements/${item.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());

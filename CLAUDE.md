@@ -26,7 +26,10 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `ADMIN_EMAILS` — comma-separated allowlist (e.g. `paulclotar@gmail.com,michael@...`)
 - `OPS_PORT` — defaults to 5001
 - `NODE_ENV=production` in deploys
-- `KLAVIYO_API_KEY` — `pk_*` private key (read-only connector for now)
+- `KLAVIYO_API_KEY` — `pk_*` private key (read-only connector for now). **FitScript's account.**
+- `RP_KLAVIYO_API_KEY` — Real Peptides' own `pk_*` key. Separate account; never reuse the one above
+- `COA_OPS_TOKEN` — shared bearer token for reading coa.realpeptides.co's `/api/ops-summary`
+- `COA_API_URL` — optional override, defaults to `https://coa.realpeptides.co`
 
 ## Structure
 - `server/index.ts` — bootstraps express, mounts auth gate, registers routes
@@ -43,7 +46,18 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - Cookie: `ops_session` httpOnly, signed JSON `{email, exp}` with HMAC-SHA256
 - Logout: `POST /api/ops/auth/logout` clears cookie
 
+## Companies
+Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**. Adding one means a
+`Company` union member, a nav section + routes, and the `COMPANIES` set in `server/google-auth.ts`.
+GA4/GSC, Integrations and the Traffic/SEO pages (`company-google.tsx`) are already company-scoped.
+
+Real Peptides has **no order data** — realpeptides.co is WooCommerce and no API key exists. Its tabs
+run on the tracking pixel, its own Klaviyo, and the COA tracker. No page under `/realpeptides/*` may
+show a currency figure until a WooCommerce key lands.
+
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
 - Use raw SQL (`pool.query`) for everything. Drizzle ORM crashes here.
 - Tracking tables are auto-created at startup from `server/tracking-schema.sql`.
+- `GET /t.js` is a public standalone pixel for non-React sites (WordPress, funnels). One script tag.
+  Brand is always derived server-side from the Origin — the script never sends one.

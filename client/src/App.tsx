@@ -45,9 +45,14 @@ import PeptideuAp from "./pages/peptideu-ap";
 import PeptideuLibrary from "./pages/peptideu-library";
 import PawgenOrders from "./pages/pawgen-orders";
 import PawgenOverview from "./pages/pawgen-overview";
-import { PawgenTraffic, PawgenSeo } from "./pages/pawgen-google";
+import { CompanyTraffic, CompanySeo } from "./pages/company-google";
 import CompanyIntegrations from "./pages/company-integrations";
 import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
+import RealPeptidesLeads from "./pages/realpeptides-leads";
+import RealPeptidesMarketing from "./pages/realpeptides-marketing";
+import RealPeptidesCoa from "./pages/realpeptides-coa";
+
+const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
 
 interface Me {
   email: string;
@@ -168,10 +173,20 @@ export default function App() {
           <Route path="/pawgen/orders" component={PawgenOrders} />
           <Route path="/pawgen/leads" component={PawgenLeads} />
           <Route path="/pawgen/marketing" component={PawgenMarketing} />
-          <Route path="/pawgen/traffic" component={PawgenTraffic} />
-          <Route path="/pawgen/seo" component={PawgenSeo} />
+          <Route path="/pawgen/traffic">{() => <CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
+          <Route path="/pawgen/seo">{() => <CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
           <Route path="/peptideu/integrations">{() => <CompanyIntegrations company="peptideu" label="PeptideU" />}</Route>
+
+          {/* Real Peptides — no Overview/Orders tab: WooCommerce isn't readable yet, and an
+              overview with no revenue on it would just be a page of dashes. */}
+          <Route path="/realpeptides"><Redirect to="/realpeptides/leads" /></Route>
+          <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
+          <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
+          <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>
+          <Route path="/realpeptides/seo">{() => <CompanySeo {...RP} />}</Route>
+          <Route path="/realpeptides/coa" component={RealPeptidesCoa} />
+          <Route path="/realpeptides/integrations">{() => <CompanyIntegrations company="realpeptides" label="Real Peptides" />}</Route>
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
           <Route path="/tracking"><Redirect to="/marketing" /></Route>

@@ -29,6 +29,7 @@ import { registerSupplementsRoutes } from "./supplements";
 import { registerPeptideURoutes } from "./peptideu";
 import { verifyPeptideuConnection } from "./db";
 import { registerPawgenRoutes } from "./pawgen";
+import { registerRealPeptidesRoutes } from "./realpeptides";
 import { verifyPawgenConnection } from "./db";
 
 const app = express();
@@ -81,6 +82,7 @@ registerLabsRoutes(app);
 registerSupplementsRoutes(app);
 registerPeptideURoutes(app);
 registerPawgenRoutes(app);
+registerRealPeptidesRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {

@@ -4,6 +4,60 @@ Record of every important decision so we don't revisit settled questions.
 
 ---
 
+## 2026-08-14 — Real Peptides ships without WooCommerce, and says so on every page
+
+**Decision:** Build RP's section on the three sources that are readable today — the first-party pixel,
+RP's own Klaviyo, and the COA tracker — and give it **no Overview or Orders tab**. Every page states
+in plain text that revenue isn't shown and why.
+
+**Why this and not alternatives:**
+- **vs. waiting for a WooCommerce key:** the key doesn't exist and getting one runs through the RP dev
+  team. Traffic, leads and COA freshness are useful on their own, today.
+- **vs. shipping an Overview with dashes:** a stat card reading "—" is indistinguishable from a stat
+  card reading zero. Absent data should be absent, not rendered.
+- **vs. estimating revenue from sessions:** a made-up number in an ops dashboard is worse than no number.
+
+**How to apply:** when the Woo key lands, Marketing gains revenue-by-source and an Orders tab becomes
+worth building. Until then, no page in `/realpeptides/*` may display a currency figure.
+
+---
+
+## 2026-08-14 — The pixel is served from ops as `/t.js`, and the brand stays server-side
+
+**Decision:** Non-React sites (RP's WordPress store, the lead-magnet funnels) get a standalone script
+served by the ops app itself at `GET /t.js`, included with one tag. It sends no brand identifier; the
+server maps `Origin → site` exactly as it already did.
+
+**Why this and not alternatives:**
+- **vs. a `site` field in the payload:** a client-supplied brand lets anyone write rows into another
+  brand's numbers. This was already settled for the React pixel; the WordPress one must not reopen it.
+- **vs. hosting the file on each site:** four copies drift. One served file means fixing ingest once.
+- **vs. GA4 alone:** GA4 can't be joined to orders later and doesn't survive ad blockers as well as a
+  first-party endpoint on our own domain.
+
+**How to apply:** a new brand needs an `ORIGIN_SITE` entry (which now also feeds the CORS allowlist)
+and the same one-line tag. Nothing else.
+
+---
+
+## 2026-08-14 — Cross-app reads use a token-gated endpoint, never a second database credential
+
+**Decision:** The COA tab reads `coa.realpeptides.co/api/ops-summary` with a bearer token
+(`COA_OPS_TOKEN`), rather than ops holding a DSN for the COA tracker's RDS.
+
+**Why this and not alternatives:**
+- **vs. a database credential:** that RDS is private, in a different AWS account, and handing ops a DSN
+  would mean two systems can write to it. The endpoint is read-only by construction.
+- **vs. reusing the COA shared password:** that password is committed to that repo and was posted in a
+  Slack channel with an external member. It must not become an integration credential.
+- **vs. the ops session cookie:** service-to-service, no browser involved.
+
+**How to apply:** this is the same shape as pawgen's ShippingEasy endpoint. Any future cross-app read
+follows it — a scoped read-only endpoint on the owning app, one shared token, registered ahead of that
+app's human auth gate.
+
+---
+
 ## 2026-05-06 — Auth model: Google OAuth + HMAC session cookie + email allowlist
 
 **Decision:** Gate `/api/ops/*` (except `/api/ops/auth/*`) behind a Google sign-in flow. Email allowlist via `ADMIN_EMAILS` env. Session = HMAC-signed httpOnly cookie (`ops_session`), 7-day TTL, no DB row.

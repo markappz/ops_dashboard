@@ -4,6 +4,67 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-14 — Real Peptides added as the fourth company
+
+Paul: *"I need to add Real Peptides to the dashboard."* RP is the awkward brand — realpeptides.co is
+WordPress + WooCommerce and **no API credential for it exists anywhere on this machine** (grepped
+`~/Projects` for `WOOCOMMERCE|ck_*` — nothing). Paul's call: build on what's readable today rather
+than block on Woo keys. Tabs chosen: Leads, Marketing, Traffic, SEO, COA. **No Overview/Orders tab** —
+an overview with no revenue on it is a page of dashes.
+
+**Six tabs live at `/realpeptides/*`:** Leads · Marketing · Site Traffic · SEO · COA Tracker · Integrations.
+The company switcher is now a **2×2 grid** — a fourth pill in a 256px sidebar wraps the labels.
+
+**Each tab's real data source, and its honest empty state:**
+- **Marketing** — the first-party pixel, `site='realpeptides'`. Verified end-to-end: POSTed an event
+  with `Origin: https://realpeptides.co` against prod, confirmed `visitor_sessions.site` and
+  `touchpoints.site` both landed as `realpeptides`, saw it surface in the tab, then deleted both rows
+  (RP session count back to 0). Until a real event arrives the tab shows install instructions, not zeros.
+- **Leads** — RP's **own** Klaviyo via `RP_KLAVIYO_API_KEY`. Deliberately not the existing
+  `KLAVIYO_API_KEY`: that's FitScript's account and would report FitScript's subscribers under RP.
+- **Traffic / SEO** — already company-scoped server-side, so this was pure UI.
+- **COA** — proxied from coa.realpeptides.co's new token-gated endpoint (see below).
+- Everything says "no revenue on this page" out loud. WooCommerce isn't readable; nothing here pretends
+  otherwise.
+
+**New: a standalone pixel at `GET /t.js` (public).** WordPress can't import `client/src/lib/tracking.ts`,
+so ops now serves a ~2KB vanilla script — one `<script src="https://ops.fitscript.me/t.js" defer>` tag.
+It derives its ingest host from its own `src`, keeps first-touch UTMs in localStorage (a later organic
+visit must not overwrite the ad that won the visitor), and **never claims which brand it is** — the
+server still decides that from the Origin. realpeptides.co, fatlossbible.co, peptideplaybook.com and
+hairgrowthprotocol.com all map to `realpeptides`; the funnels are RP traffic, not brands of their own.
+`TRACKING_ALLOWED_ORIGINS` is now derived from `ORIGIN_SITE` so the two lists can't drift.
+
+**COA tracker (separate repo, `markappz/realpeptides-coa`):** added `GET /api/ops-summary`, read-only,
+bearer-token gated on `COA_OPS_TOKEN`, registered **before** the shared-password gate. Ops can't reach
+that app's RDS (different AWS account, private subnet), so this is the pawgen/ShippingEasy pattern —
+the credential stays in one system. Auth verified in every branch: token unset → 503, no header → 401,
+wrong token → 401, wrong token of equal length → 401 (timing-safe), correct token → past auth.
+**The 200 path's SQL is NOT verified** — no Docker and no local Postgres on this machine, so nothing
+could run the query. First real call against prod is the actual test.
+
+**Two pre-existing bugs fixed in passing:**
+1. `tsc` had been red since `f63a2d5` (two implicit-`any`s in `supplements-detail.tsx`). Fixed — the
+   repo typechecks clean again, which is what makes a *new* type error visible.
+2. Company-root nav items matched by prefix, so `/pawgen/orders` lit up "Overview" in the sidebar and
+   the breadcrumb read "pawgen / Overview" on every pawgen page. Roots now match exactly.
+
+`pawgen-google.tsx` became `company-google.tsx` (company/label/domain props); pawgen renders through
+the same component, verified in-browser after the swap.
+
+**Still needed from Paul, in priority order:**
+1. **Connect Google for Real Peptides** (Integrations tab) → Traffic + SEO light up immediately. Nothing
+   to deploy.
+2. **`RP_KLAVIYO_API_KEY`** — read-only `pk_*` from RP's Klaviyo → Leads.
+3. **`COA_OPS_TOKEN`** — one random value, set on *both* task definitions → COA tab.
+4. **The `t.js` tag on realpeptides.co + the three funnels** (devs, one line in the header) → Marketing.
+5. Optional later: a read-only WooCommerce key turns Marketing into real revenue attribution.
+
+Verified locally against prod RDS (`humn-production…rds.amazonaws.com` — checked the host first).
+`tsc` clean, `npm run build` clean in both repos. **Nothing pushed.**
+
+---
+
 ## 2026-08-13 — pawgen dashboard complete · auth roles · the Neon trap
 
 **The day's biggest lesson: `~/Projects/ops-dashboard/.env` had TWO database urls.**

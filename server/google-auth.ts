@@ -72,7 +72,7 @@ async function ensureTables() {
 
 // Companies allowed to hold a connection. The value round-trips through the
 // OAuth `state` param, so it is never used in SQL without passing this gate.
-const COMPANIES = new Set(["fitscript", "peptideu", "pawgen"]);
+const COMPANIES = new Set(["fitscript", "peptideu", "pawgen", "realpeptides"]);
 export const DEFAULT_COMPANY = "fitscript";
 export function normalizeCompany(v: unknown): string {
   const s = String(v ?? "").toLowerCase();

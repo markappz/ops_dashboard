@@ -2,10 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 
 /**
- * Traffic (GA4) and SEO (Search Console) for pawgen.
+ * Traffic (GA4) and SEO (Search Console) for ANY brand.
  *
- * Both read the SAME company-scoped endpoints FitScript uses, with ?company=pawgen,
- * so pawgen gets its own property/site rather than FitScript's numbers.
+ * Both read the same company-scoped endpoints FitScript uses, with ?company=<slug>,
+ * so each brand gets its own property/site rather than FitScript's numbers. Adding a
+ * brand is a route with props — there is no per-brand copy of this file.
  *
  * Until Google is connected these render an honest "not connected" state that says
  * what to do — not an empty chart implying zero traffic.
@@ -31,26 +32,35 @@ interface Gsc {
   topPages?: { page: string; clicks: number; impressions: number }[];
 }
 
+export interface BrandProps {
+  /** URL slug + ?company= value, e.g. "pawgen" */
+  company: string;
+  /** Display name, e.g. "Real Peptides" */
+  label: string;
+  /** Bare domain, used only in the empty-state copy */
+  domain: string;
+}
+
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
 const pct = (n: number | undefined) => `${((n ?? 0) * (n && n <= 1 ? 100 : 1)).toFixed(1)}%`;
 
-function NotConnected({ what }: { what: "traffic" | "seo" }) {
-  const label = what === "traffic" ? "Google Analytics" : "Search Console";
+function NotConnected({ what, company, label }: { what: "traffic" | "seo"; company: string; label: string }) {
+  const product = what === "traffic" ? "Google Analytics" : "Search Console";
   return (
     <div className="rounded-xl border border-ops-border bg-ops-surface p-8 text-center shadow-card">
-      <div className="text-lg font-medium text-ops-text">{label} isn&apos;t connected for pawgen</div>
+      <div className="text-lg font-medium text-ops-text">{product} isn&apos;t connected for {label}</div>
       <p className="mx-auto mt-2 max-w-md text-sm text-ops-text-muted">
-        pawgen&apos;s tag is installed and collecting on the site — this tab just needs authorisation to read it back.
-        Connect the Google account that owns the pawgen property, then pick it from the list.
+        This tab needs authorisation to read the data back. Connect the Google account that owns
+        the {label} property, then pick it from the list.
       </p>
       <a
-        href="/api/ops/google/connect?company=pawgen"
+        href={`/api/ops/google/connect?company=${company}`}
         className="mt-5 inline-block rounded-lg bg-fitscript-green px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
-        Connect Google for pawgen
+        Connect Google for {label}
       </a>
       <p className="mt-3 text-xs text-ops-text-muted">
-        This is separate from FitScript&apos;s connection — connecting here won&apos;t disturb it.
+        Each brand holds its own connection — connecting here won&apos;t disturb the others.
       </p>
     </div>
   );
@@ -93,20 +103,20 @@ function Table({ head, rows }: { head: string[]; rows: (string | number)[][] }) 
   );
 }
 
-export function PawgenTraffic() {
+export function CompanyTraffic({ company, label }: BrandProps) {
   const { data, isLoading } = useQuery<Ga4>({
-    queryKey: ["pawgen-ga4"],
+    queryKey: [`${company}-ga4`],
     queryFn: async () => {
-      const r = await fetch("/api/ops/ga4/overview?company=pawgen&range=30", { credentials: "include" });
+      const r = await fetch(`/api/ops/ga4/overview?company=${company}&range=30`, { credentials: "include" });
       try { return await r.json(); } catch { return { error: `Traffic request failed (HTTP ${r.status})` }; }
     },
   });
 
   return (
     <div>
-      <PageHero eyebrow="pawgen" title="Site Traffic" subtitle="Visitors, sessions and sources from Google Analytics." />
+      <PageHero eyebrow={label} title="Site Traffic" subtitle="Visitors, sessions and sources from Google Analytics." />
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
-      {!isLoading && data?.connected === false && <NotConnected what="traffic" />}
+      {!isLoading && data?.connected === false && <NotConnected what="traffic" company={company} label={label} />}
       {!isLoading && data?.connected !== false && data?.error && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
       )}
@@ -134,20 +144,20 @@ export function PawgenTraffic() {
   );
 }
 
-export function PawgenSeo() {
+export function CompanySeo({ company, label, domain }: BrandProps) {
   const { data, isLoading } = useQuery<Gsc>({
-    queryKey: ["pawgen-gsc"],
+    queryKey: [`${company}-gsc`],
     queryFn: async () => {
-      const r = await fetch("/api/ops/gsc/overview?company=pawgen&range=30", { credentials: "include" });
+      const r = await fetch(`/api/ops/gsc/overview?company=${company}&range=30`, { credentials: "include" });
       try { return await r.json(); } catch { return { error: `SEO request failed (HTTP ${r.status})` }; }
     },
   });
 
   return (
     <div>
-      <PageHero eyebrow="pawgen" title="SEO" subtitle="Search impressions, clicks and ranking queries from Search Console." />
+      <PageHero eyebrow={label} title="SEO" subtitle="Search impressions, clicks and ranking queries from Search Console." />
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
-      {!isLoading && data?.connected === false && <NotConnected what="seo" />}
+      {!isLoading && data?.connected === false && <NotConnected what="seo" company={company} label={label} />}
       {!isLoading && data?.connected !== false && data?.error && (
         <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>
       )}
@@ -161,7 +171,7 @@ export function PawgenSeo() {
           </div>
           {(data.topQueries ?? []).length === 0 && (
             <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface p-4 text-sm text-ops-text-muted">
-              Search Console has no data for pawgen.com yet. It typically takes a couple of days after
+              Search Console has no data for {domain} yet. It typically takes a couple of days after
               verification before Google reports impressions — this fills in on its own.
             </div>
           )}

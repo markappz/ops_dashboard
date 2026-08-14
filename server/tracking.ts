@@ -24,6 +24,16 @@ const ORIGIN_SITE: Record<string, string> = {
   "https://www.fitscript.me": "fitscript",
   "https://pawgen.com": "pawgen",
   "https://www.pawgen.com": "pawgen",
+  "https://realpeptides.co": "realpeptides",
+  "https://www.realpeptides.co": "realpeptides",
+  // The three lead-magnet funnels are Real Peptides traffic, not brands of their
+  // own — they all sell RP. The landing-page column keeps them distinguishable.
+  "https://fatlossbible.co": "realpeptides",
+  "https://www.fatlossbible.co": "realpeptides",
+  "https://peptideplaybook.com": "realpeptides",
+  "https://www.peptideplaybook.com": "realpeptides",
+  "https://hairgrowthprotocol.com": "realpeptides",
+  "https://www.hairgrowthprotocol.com": "realpeptides",
 };
 function siteForOrigin(origin: string | undefined): string {
   // Same-origin requests send no Origin header; those can only come from the
@@ -31,11 +41,11 @@ function siteForOrigin(origin: string | undefined): string {
   return ORIGIN_SITE[origin ?? ""] ?? "fitscript";
 }
 
+// Every origin that may POST events. Kept in step with ORIGIN_SITE above: an
+// origin that isn't in BOTH sets either gets blocked by CORS or lands in the
+// wrong brand's numbers.
 const TRACKING_ALLOWED_ORIGINS = new Set([
-  "https://fitscript.me",
-  "https://www.fitscript.me",
-  "https://pawgen.com",
-  "https://www.pawgen.com",
+  ...Object.keys(ORIGIN_SITE),
   "http://localhost:5000",
   "http://localhost:5173",
   "http://localhost:3000",
@@ -63,9 +73,77 @@ function trackingCors(req: Request, res: Response, next: NextFunction) {
   return next();
 }
 
+/**
+ * Standalone pixel for sites that aren't React apps — realpeptides.co is
+ * WordPress, so it can't import client/src/lib/tracking.ts. One script tag:
+ *
+ *   <script src="https://ops.fitscript.me/t.js" defer></script>
+ *
+ * The ingest host is read off the script's own src, so the same file works on
+ * staging and locally. Brand is still decided server-side from the Origin — this
+ * file never claims which site it is.
+ */
+const PIXEL_JS = `(function(){
+  var s = document.currentScript;
+  if (!s) return;
+  var api = new URL(s.src).origin + "/api/t";
+  var LS = "_fs_vid", SS = "_fs_sid", FT = "_fs_first";
+
+  function id(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,10); }
+  function get(store, key){ try { return store.getItem(key); } catch(e){ return null; } }
+  function set(store, key, val){ try { store.setItem(key, val); } catch(e){} }
+
+  var vid = get(localStorage, LS) || id(); set(localStorage, LS, vid);
+  var sid = get(sessionStorage, SS) || id(); set(sessionStorage, SS, sid);
+
+  var q = new URLSearchParams(location.search);
+  var touch = {
+    utm_source: q.get("utm_source"), utm_medium: q.get("utm_medium"),
+    utm_campaign: q.get("utm_campaign"), utm_content: q.get("utm_content"),
+    utm_term: q.get("utm_term"), gclid: q.get("gclid"),
+    fbclid: q.get("fbclid"), ttclid: q.get("ttclid")
+  };
+  var hasUtm = Object.keys(touch).some(function(k){ return touch[k]; });
+
+  // First touch wins and is remembered — a later organic visit must not
+  // overwrite the ad that originally brought this visitor in.
+  var stored = get(localStorage, FT);
+  if (hasUtm) { set(localStorage, FT, JSON.stringify(touch)); }
+  else if (stored) { try { touch = JSON.parse(stored); } catch(e){} }
+
+  function device(){
+    var w = window.innerWidth;
+    return w < 768 ? "mobile" : w < 1024 ? "tablet" : "desktop";
+  }
+
+  function send(event_type, event_data){
+    var body = JSON.stringify(Object.assign({
+      visitor_id: vid, session_id: sid, event_type: event_type,
+      page_url: location.href, referrer: document.referrer || null,
+      device_type: device(), event_data: event_data || {}
+    }, touch));
+    try {
+      fetch(api, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: body, credentials: "omit", keepalive: true
+      }).catch(function(){});
+    } catch(e){}
+  }
+
+  window.fsTrack = send;
+  send("page_view");
+})();`;
+
 export function registerTrackingRoutes(app: Express) {
   // Apply CORS to every /api/t/* route. No-op for same-origin requests.
   app.use("/api/t", trackingCors);
+
+  // Public — served to any site that includes it. Contains no secrets.
+  app.get("/t.js", (_req, res) => {
+    res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.send(PIXEL_JS);
+  });
 
   // ─── Receive tracking events ─────────────────────────────────────
   app.post("/api/t", async (req: Request, res) => {

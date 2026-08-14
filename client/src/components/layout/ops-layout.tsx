@@ -8,6 +8,8 @@ import { Dirt } from "../dirt/Dirt";
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
+const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen"]);
+
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   {
     label: "PeptideU",
@@ -39,6 +41,20 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
       { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
       { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
+    ],
+  },
+];
+
+const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Real Peptides",
+    items: [
+      { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
+      { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/realpeptides/traffic", label: "Site Traffic", icon: "chart" },
+      { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
+      { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
+      { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
     ],
   },
 ];
@@ -141,11 +157,21 @@ export function OpsLayout({
     ? "peptideu"
     : location.startsWith("/pawgen")
       ? "pawgen"
-      : "fitscript";
+      : location.startsWith("/realpeptides")
+        ? "realpeptides"
+        : "fitscript";
   const sections =
-    activeCompany === "peptideu" ? PEPTIDEU_NAV_SECTIONS : activeCompany === "pawgen" ? PAWGEN_NAV_SECTIONS : NAV_SECTIONS;
+    activeCompany === "peptideu"
+      ? PEPTIDEU_NAV_SECTIONS
+      : activeCompany === "pawgen"
+        ? PAWGEN_NAV_SECTIONS
+        : activeCompany === "realpeptides"
+          ? REALPEPTIDES_NAV_SECTIONS
+          : NAV_SECTIONS;
 
-  const companyHome = (c: Company) => (c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : "/");
+  // Real Peptides has no overview page (no order data to head it), so its home is Leads.
+  const companyHome = (c: Company) =>
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides/leads" : "/";
 
   // On first load, honor the remembered company preference.
   const didRedirect = useRef(false);
@@ -192,16 +218,18 @@ export function OpsLayout({
 
         {/* Company switcher */}
         <div className="px-4 py-3 border-b border-ops-border">
-          <div className="flex bg-ops-bg rounded-lg p-1 gap-1">
+          {/* 2×2 grid, not a row — a fourth brand in a 256px sidebar wraps the labels. */}
+          <div className="grid grid-cols-2 bg-ops-bg rounded-lg p-1 gap-1">
             {([
               { key: "fitscript" as Company, label: "FitScript" },
               { key: "peptideu" as Company, label: "PeptideU" },
               { key: "pawgen" as Company, label: "pawgen" },
+              { key: "realpeptides" as Company, label: "Real Peptides" },
             ]).map((o) => (
               <button
                 key={o.key}
                 onClick={() => selectCompany(o.key)}
-                className={`flex-1 text-xs font-semibold py-1.5 rounded-md transition-all ${
+                className={`w-full text-xs font-semibold py-1.5 rounded-md transition-all ${
                   activeCompany === o.key
                     ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"
                     : "text-ops-text-muted hover:text-ops-text"
@@ -221,7 +249,9 @@ export function OpsLayout({
                 {section.label}
               </div>
               {section.items.map((item) => {
-                const isHome = item.path === "/" || item.path === "/peptideu";
+                // A company root must match exactly, or every child route lights it up
+                // too (/pawgen was already doing that — /pawgen/orders lit Overview).
+                const isHome = COMPANY_ROOTS.has(item.path);
                 const isActive = isHome ? location === item.path : location.startsWith(item.path);
                 return (
                   <Link key={item.path} href={item.path}>
@@ -334,8 +364,13 @@ export function OpsLayout({
   );
 }
 
-const ALL_SECTIONS = [...NAV_SECTIONS, ...PEPTIDEU_NAV_SECTIONS, ...PAWGEN_NAV_SECTIONS];
-const isHomePath = (p: string) => p === "/" || p === "/peptideu";
+const ALL_SECTIONS = [
+  ...NAV_SECTIONS,
+  ...PEPTIDEU_NAV_SECTIONS,
+  ...PAWGEN_NAV_SECTIONS,
+  ...REALPEPTIDES_NAV_SECTIONS,
+];
+const isHomePath = (p: string) => COMPANY_ROOTS.has(p);
 
 function currentSectionLabel(path: string): string {
   for (const section of ALL_SECTIONS) {
