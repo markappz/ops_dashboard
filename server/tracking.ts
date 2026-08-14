@@ -30,8 +30,10 @@ const ORIGIN_SITE: Record<string, string> = {
   // own — they all sell RP. The landing-page column keeps them distinguishable.
   "https://fatlossbible.co": "realpeptides",
   "https://www.fatlossbible.co": "realpeptides",
-  "https://peptideplaybook.com": "realpeptides",
-  "https://www.peptideplaybook.com": "realpeptides",
+  // The Peptide Playbook guide lives on peptide101guide.com, NOT the
+  // peptideplaybook.com the ecosystem notes had. That domain answers nothing.
+  "https://peptide101guide.com": "realpeptides",
+  "https://www.peptide101guide.com": "realpeptides",
   "https://hairgrowthprotocol.com": "realpeptides",
   "https://www.hairgrowthprotocol.com": "realpeptides",
 };

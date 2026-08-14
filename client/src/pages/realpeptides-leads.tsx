@@ -2,52 +2,133 @@ import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 
 /**
- * Leads for Real Peptides — Klaviyo profiles from RP's own account.
+ * Leads for Real Peptides — Moosend + Campaign Refinery.
  *
- * Deliberately has no "became a customer" column: WooCommerce isn't readable,
- * so conversion is genuinely unknown here and is not guessed at.
+ * NOT Klaviyo: that's FitScript's platform. RP's lists live in these two, so
+ * both render as independent cards — one missing key or one API outage degrades
+ * that card alone.
+ *
+ * Deliberately no "became a customer" column: WooCommerce isn't readable, so
+ * conversion is genuinely unknown here and is not guessed at.
  */
 
-interface Leads {
+interface MoosendData {
   configured?: boolean;
   hint?: string;
+  error?: string;
+  totalActive?: number;
+  lists?: { id: string; name: string; active: number; unsubscribed: number; bounced: number }[];
+}
+
+interface CrData {
+  configured?: boolean;
+  hint?: string;
+  error?: string;
+  shape?: string;
+  returned?: number;
+  recentCount?: number;
+  datedContacts?: number;
+  recent?: { email: string; created_at: string | null }[];
+}
+
+interface Leads {
   range?: number;
-  truncated?: boolean;
-  totals?: { leads: number; lists: number };
-  lists?: { id: string; name: string; profiles: number }[];
-  series?: { date: string; leads: number }[];
-  bySource?: { key: string; leads: number }[];
-  recent?: { email: string; source: string; created_at: string | null }[];
+  moosend?: MoosendData;
+  campaignRefinery?: CrData;
   error?: string;
 }
 
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-ops-text">{value}</div>
-      {hint && <div className="mt-1 text-xs text-ops-text-muted">{hint}</div>}
+    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
+      <div className="mb-1 text-base font-medium text-ops-text">{title}</div>
+      <div className="mb-4 text-xs text-ops-text-muted">{subtitle}</div>
+      {children}
     </div>
   );
 }
 
 function NotConfigured({ hint }: { hint?: string }) {
+  return <div className="text-sm text-ops-text-muted">{hint ?? "Not configured."}</div>;
+}
+
+function Failed({ error }: { error: string }) {
   return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-6 shadow-card">
-      <div className="text-lg font-medium text-ops-text">Real Peptides&apos; Klaviyo isn&apos;t connected</div>
-      <p className="mt-2 max-w-2xl text-sm text-ops-text-muted">
-        {hint ?? "RP_KLAVIYO_API_KEY is not set."} This is a different account from FitScript&apos;s, so it
-        needs its own private key — the existing <code>KLAVIYO_API_KEY</code> would report FitScript&apos;s
-        subscribers under Real Peptides, which is worse than showing nothing.
-      </p>
-      <p className="mt-3 text-xs text-ops-text-muted">
-        Klaviyo → Settings → API keys → Create private key, read-only scopes for Profiles and Lists.
-        Store it in <code>prod/ops-secrets</code> and reference it <code>valueFrom</code> on the task
-        definition, like the other secrets.
-      </p>
-    </div>
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+  );
+}
+
+function Moosend({ d }: { d: MoosendData }) {
+  if (d.configured === false) return <NotConfigured hint={d.hint} />;
+  if (d.error) return <Failed error={d.error} />;
+  const lists = d.lists ?? [];
+  return (
+    <>
+      <div className="mb-4">
+        <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Active subscribers</div>
+        <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.totalActive)}</div>
+        <div className="mt-1 text-xs text-ops-text-muted">across {lists.length} list{lists.length === 1 ? "" : "s"}</div>
+      </div>
+      {lists.length === 0 ? (
+        <div className="text-sm text-ops-text-muted">No mailing lists in this account.</div>
+      ) : (
+        <div className="space-y-2">
+          {lists.map((l) => (
+            <div key={l.id} className="flex justify-between gap-3 text-sm">
+              <span className="truncate text-ops-text" title={l.name}>{l.name}</span>
+              <span className="shrink-0 text-ops-text-muted">
+                {num(l.active)} active
+                {l.unsubscribed > 0 && <span className="text-ops-text-subtle"> · {num(l.unsubscribed)} unsub</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function CampaignRefinery({ d, range }: { d: CrData; range?: number }) {
+  if (d.configured === false) return <NotConfigured hint={d.hint} />;
+  if (d.error) return <Failed error={d.error} />;
+  return (
+    <>
+      <div className="mb-4 grid grid-cols-2 gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">New ({range ?? 30}d)</div>
+          <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.recentCount)}</div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Contacts returned</div>
+          <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.returned)}</div>
+          <div className="mt-1 text-xs text-ops-text-muted">this page, not the account total</div>
+        </div>
+      </div>
+
+      {d.datedContacts === 0 && (d.returned ?? 0) > 0 && (
+        <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-500">
+          None of the returned contacts carry a signup date, so the {range ?? 30}-day count can&apos;t be
+          computed. Tell me the field name Campaign Refinery uses and it&apos;s a one-line fix.
+        </div>
+      )}
+
+      {(d.recent ?? []).length === 0 ? (
+        <div className="text-sm text-ops-text-muted">No signups in this window.</div>
+      ) : (
+        <div className="max-h-64 space-y-1.5 overflow-y-auto">
+          {(d.recent ?? []).map((c, i) => (
+            <div key={i} className="flex justify-between gap-3 text-sm">
+              <span className="truncate text-ops-text" title={c.email}>{c.email}</span>
+              <span className="shrink-0 text-ops-text-muted">
+                {c.created_at ? new Date(c.created_at).toLocaleDateString() : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -60,118 +141,35 @@ export default function RealPeptidesLeads() {
     },
   });
 
-  const max = Math.max(...(data?.series ?? []).map((d) => d.leads), 1);
-
   return (
     <div>
       <PageHero
         eyebrow="Real Peptides"
         title="Leads"
-        subtitle="Guide signups and list growth from Real Peptides' Klaviyo."
+        subtitle="List growth from Moosend and Campaign Refinery."
       />
 
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
       {data?.error && (
         <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{data.error}</div>
       )}
-      {!isLoading && data?.configured === false && <NotConfigured hint={data.hint} />}
 
-      {data?.configured && (
+      {data && !data.error && (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
-            <Stat label="New leads (30d)" value={num(data.totals?.leads)} />
-            <Stat label="Lists" value={num(data.totals?.lists)} hint="one per funnel, typically" />
-            <Stat
-              label="Largest list"
-              value={num(data.lists?.[0]?.profiles)}
-              hint={data.lists?.[0]?.name ?? "—"}
-            />
-          </div>
-
-          {data.truncated && (
-            <div className="mb-4 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">
-              More than 1,000 profiles were created in this window — the counts above cover the first 1,000
-              only. Say the word and this moves to a Klaviyo aggregate query instead of paging profiles.
-            </div>
-          )}
-
-          <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-            <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">Signups per day (30d, UTC)</div>
-            <div className="flex h-28 items-end gap-[3px]">
-              {(data.series ?? []).map((d) => (
-                <div
-                  key={d.date}
-                  className="flex-1 rounded-sm bg-fitscript-green/70 transition-colors hover:bg-fitscript-green"
-                  style={{ height: `${Math.max(2, (d.leads / max) * 100)}%` }}
-                  title={`${d.date} · ${d.leads} leads`}
-                />
-              ))}
-            </div>
-          </div>
-
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-              <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">Lists</div>
-              {(data.lists ?? []).length === 0 ? (
-                <div className="text-sm text-ops-text-muted">No lists in this account.</div>
-              ) : (
-                <div className="space-y-2">
-                  {(data.lists ?? []).map((l) => (
-                    <div key={l.id} className="flex justify-between gap-3 text-sm">
-                      <span className="truncate text-ops-text" title={l.name}>{l.name}</span>
-                      <span className="shrink-0 text-ops-text-muted">{num(l.profiles)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-              <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">By source (30d)</div>
-              {(data.bySource ?? []).length === 0 ? (
-                <div className="text-sm text-ops-text-muted">No signups in this window.</div>
-              ) : (
-                <div className="space-y-2">
-                  {(data.bySource ?? []).map((s) => (
-                    <div key={s.key} className="flex justify-between gap-3 text-sm">
-                      <span className="truncate text-ops-text" title={s.key}>{s.key}</span>
-                      <span className="shrink-0 text-ops-text-muted">{num(s.leads)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <p className="mt-3 text-xs text-ops-text-muted">
-                &ldquo;(not tagged)&rdquo; means the form didn&apos;t write a source property onto the profile —
-                fixable in the funnel, not here.
-              </p>
-            </div>
+            <Card title="Moosend" subtitle="Mailing lists and active subscriber counts">
+              <Moosend d={data.moosend ?? {}} />
+            </Card>
+            <Card title="Campaign Refinery" subtitle="Contacts and recent signups">
+              <CampaignRefinery d={data.campaignRefinery ?? {}} range={data.range} />
+            </Card>
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted">
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Source</th>
-                  <th className="px-4 py-3 font-medium">Signed up</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data.recent ?? []).length === 0 && (
-                  <tr><td colSpan={3} className="px-4 py-8 text-center text-ops-text-muted">No signups in the last 30 days.</td></tr>
-                )}
-                {(data.recent ?? []).map((l, i) => (
-                  <tr key={i} className="border-b border-ops-border/50 last:border-0">
-                    <td className="px-4 py-2.5 text-ops-text">{l.email}</td>
-                    <td className="px-4 py-2.5 text-ops-text-muted">{l.source}</td>
-                    <td className="px-4 py-2.5 text-ops-text-muted">
-                      {l.created_at ? new Date(l.created_at).toLocaleDateString() : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="mt-4 text-xs text-ops-text-muted">
+            No conversion or revenue figures here — WooCommerce isn&apos;t readable, so whether a lead
+            became a customer is genuinely unknown rather than zero. Each platform is configured
+            independently; one being down never blanks the other.
+          </p>
         </>
       )}
     </div>

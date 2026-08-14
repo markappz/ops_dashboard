@@ -9,7 +9,8 @@
  *   1. Traffic + attribution, from the first-party pixel already running on
  *      ops.fitscript.me (`site = 'realpeptides'`, set from the browser Origin).
  *      Covers realpeptides.co and the three lead-magnet funnels.
- *   2. Leads, from Real Peptides' own Klaviyo account (RP_KLAVIYO_API_KEY).
+ *   2. Leads, from RP's two email platforms — Moosend and Campaign Refinery.
+ *      NOT Klaviyo: that is FitScript's platform, and RP has never used it.
  *
  * Every surface degrades to an explicit "not configured / not installed" state
  * rather than a zero, because a zero here reads as "no traffic" when the truth
@@ -17,7 +18,6 @@
  */
 import type { Express, Response } from "express";
 import { pool } from "./db";
-import { KLAVIYO_BASE, KLAVIYO_REVISION } from "./klaviyo";
 
 const SITE = "realpeptides";
 
@@ -89,84 +89,96 @@ async function trafficByProperty(since: number) {
   return rows;
 }
 
-// ─── Klaviyo (Real Peptides' own account) ──────────────────────────
+// ─── Email platforms (Moosend + Campaign Refinery) ─────────────────
 
-function rpKlaviyoKey(): string | null {
-  const k = process.env.RP_KLAVIYO_API_KEY;
-  return k && k.startsWith("pk_") ? k : null;
-}
+/**
+ * Real Peptides does NOT use Klaviyo — that's FitScript's platform. RP's lists
+ * live in **Moosend** and **Campaign Refinery**, so both are read here and shown
+ * side by side. Each is configured independently: one missing key degrades that
+ * card alone, never the tab.
+ */
 
-async function rpKlaviyo<T = any>(path: string): Promise<T> {
-  const key = rpKlaviyoKey();
-  if (!key) throw Object.assign(new Error("RP_KLAVIYO_API_KEY not configured"), { status: 503 });
+/** Moosend: API key is a query param, and every response wraps data in `Context`. */
+async function moosend<T = any>(path: string): Promise<T> {
+  const key = process.env.RP_MOOSEND_API_KEY;
+  if (!key) throw Object.assign(new Error("RP_MOOSEND_API_KEY not configured"), { status: 503 });
 
-  const res = await fetch(path.startsWith("http") ? path : `${KLAVIYO_BASE}${path}`, {
-    headers: {
-      Authorization: `Klaviyo-API-Key ${key}`,
-      Accept: "application/vnd.api+json",
-      revision: KLAVIYO_REVISION,
-    },
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(`https://api.moosend.com/v3${path}${sep}apikey=${encodeURIComponent(key)}`, {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Klaviyo ${res.status}: ${text.slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Moosend ${res.status}: ${text.slice(0, 200)}`);
+  const body = JSON.parse(text);
+  // Moosend answers HTTP 200 with a non-zero Code on failure, so status alone lies.
+  if (body?.Code !== 0 && body?.Error) throw new Error(`Moosend: ${body.Error}`);
+  return body?.Context as T;
+}
+
+async function moosendLists() {
+  const ctx = await moosend<{ MailingLists?: any[] }>("/lists.json");
+  const lists = (ctx?.MailingLists ?? []).map((l) => ({
+    id: l.ID,
+    name: l.Name ?? l.ID,
+    active: l.ActiveMemberCount ?? 0,
+    unsubscribed: l.UnsubscribedMemberCount ?? 0,
+    bounced: l.BouncedMemberCount ?? 0,
+  }));
+  lists.sort((a, b) => b.active - a.active);
+  return { lists, totalActive: lists.reduce((s, l) => s + l.active, 0) };
+}
+
+/** Campaign Refinery: bearer token, base https://api.campaignrefinery.com. */
+async function campaignRefinery<T = any>(path: string): Promise<T> {
+  const key = process.env.RP_CAMPAIGN_REFINERY_API_KEY;
+  if (!key) throw Object.assign(new Error("RP_CAMPAIGN_REFINERY_API_KEY not configured"), { status: 503 });
+
+  const res = await fetch(`https://api.campaignrefinery.com${path}`, {
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`Campaign Refinery ${res.status}: ${text.slice(0, 200)}`);
   return (text ? JSON.parse(text) : null) as T;
 }
 
-interface KProfile {
-  id: string;
-  attributes?: { email?: string; created?: string; properties?: Record<string, unknown> };
-}
-
 /**
- * Profiles created in the window. Klaviyo pages at 100; we follow up to `maxPages`
- * so the count stays honest for normal volume and the cap is reported, never hidden.
+ * CR's response shape isn't published, so read it tolerantly and — if no contact
+ * array can be found — report the keys that WERE returned. A first-call mismatch
+ * becomes a ten-second fix instead of a silent zero.
  */
-async function recentProfiles(since: number, maxPages = 10) {
-  const from = new Date(Date.now() - since * 86400_000).toISOString();
-  let url: string | null =
-    `/profiles/?filter=greater-than(created,${from})&sort=-created&page[size]=100`;
-  const out: KProfile[] = [];
-  let pages = 0;
-
-  while (url && pages < maxPages) {
-    const body: { data?: KProfile[]; links?: { next?: string | null } } = await rpKlaviyo(url);
-    out.push(...(body.data ?? []));
-    url = body.links?.next ?? null;
-    pages++;
+function pickArray(body: any): { rows: any[]; shape: string } {
+  if (Array.isArray(body)) return { rows: body, shape: "array" };
+  for (const k of ["data", "contacts", "results", "items", "records"]) {
+    if (Array.isArray(body?.[k])) return { rows: body[k], shape: k };
   }
-  return { profiles: out, truncated: Boolean(url) };
+  const keys = body && typeof body === "object" ? Object.keys(body).join(", ") : typeof body;
+  throw new Error(`Campaign Refinery returned an unrecognised shape (top-level keys: ${keys})`);
 }
 
-/** Lists with their sizes — one list per lead magnet is how RP's funnels segment. */
-async function klaviyoLists() {
-  const body = await rpKlaviyo<{ data?: { id: string; attributes?: { name?: string; profile_count?: number } }[] }>(
-    "/lists/?additional-fields[list]=profile_count"
-  );
-  return (body.data ?? [])
-    .map((l) => ({ id: l.id, name: l.attributes?.name ?? l.id, profiles: l.attributes?.profile_count ?? 0 }))
-    .sort((a, b) => b.profiles - a.profiles);
-}
+const first = (o: any, keys: string[]) => keys.map((k) => o?.[k]).find((v) => typeof v === "string" && v);
 
-/** Best-effort signup source off whatever the funnel wrote onto the profile. */
-function profileSource(p: KProfile): string {
-  const props = p.attributes?.properties ?? {};
-  for (const k of ["source", "Source", "utm_source", "lead_source", "signup_source", "Sign Up Source"]) {
-    const v = props[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "(not tagged)";
-}
+async function campaignRefineryContacts(since: number) {
+  const body = await campaignRefinery("/rest/contacts");
+  const { rows, shape } = pickArray(body);
 
-function dailySeries(profiles: KProfile[], since: number) {
-  const buckets = new Map<string, number>();
-  for (let i = since - 1; i >= 0; i--) {
-    buckets.set(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10), 0);
-  }
-  for (const p of profiles) {
-    const day = (p.attributes?.created ?? "").slice(0, 10);
-    if (buckets.has(day)) buckets.set(day, (buckets.get(day) ?? 0) + 1);
-  }
-  return [...buckets].map(([date, leads]) => ({ date, leads }));
+  const cutoff = Date.now() - since * 86_400_000;
+  const contacts = rows.map((c: any) => ({
+    email: first(c, ["email", "email_address", "Email"]) ?? "(no email)",
+    created_at: first(c, ["created_at", "created", "subscribed_at", "createdAt"]) ?? null,
+  }));
+  const recent = contacts.filter((c) => c.created_at && Date.parse(c.created_at) >= cutoff);
+
+  return {
+    shape,
+    returned: contacts.length,
+    // The page total is what CR gave us, not the account total — say so rather
+    // than presenting a page size as if it were the list size.
+    recentCount: recent.length,
+    datedContacts: contacts.filter((c) => c.created_at).length,
+    recent: recent.slice(0, 100),
+  };
 }
 
 // ─── COA tracker (coa.realpeptides.co) ─────────────────────────────
@@ -238,43 +250,38 @@ export function registerRealPeptidesRoutes(app: Express) {
   });
 
   /**
-   * Leads from RP's Klaviyo. No revenue or conversion figures: WooCommerce isn't
-   * readable, so "became a customer" is genuinely unknown and is not guessed at.
+   * Leads from RP's two email platforms. **Not Klaviyo** — that's FitScript's.
+   * Each source is independent: one missing key or one API outage degrades that
+   * card alone. No conversion or revenue figures, because WooCommerce isn't
+   * readable and "became a customer" is genuinely unknown.
    */
   app.get("/api/ops/realpeptides/leads", async (req, res) => {
-    if (!rpKlaviyoKey()) {
-      return res.json({
-        configured: false,
-        hint: "Set RP_KLAVIYO_API_KEY (a pk_* private key from Real Peptides' own Klaviyo account) in the ECS task definition.",
-      });
-    }
-    try {
-      const since = days(req.query.range);
-      const [{ profiles, truncated }, lists] = await Promise.all([recentProfiles(since), klaviyoLists()]);
+    const since = days(req.query.range);
 
-      const bySource = new Map<string, number>();
-      for (const p of profiles) {
-        const s = profileSource(p);
-        bySource.set(s, (bySource.get(s) ?? 0) + 1);
+    const settle = async <T>(fn: () => Promise<T>, envVar: string, hint: string) => {
+      if (!process.env[envVar]) return { configured: false as const, hint };
+      try {
+        return { configured: true as const, ...(await fn()) };
+      } catch (e: any) {
+        console.error(`[OPS][RP] ${envVar}:`, e?.message ?? e);
+        return { configured: true as const, error: String(e?.message ?? e) };
       }
+    };
 
-      res.json({
-        configured: true,
-        range: since,
-        truncated,
-        totals: { leads: profiles.length, lists: lists.length },
-        lists,
-        series: dailySeries(profiles, since),
-        bySource: [...bySource].map(([key, leads]) => ({ key, leads })).sort((a, b) => b.leads - a.leads),
-        recent: profiles.slice(0, 100).map((p) => ({
-          email: p.attributes?.email ?? "(no email)",
-          source: profileSource(p),
-          created_at: p.attributes?.created ?? null,
-        })),
-      });
-    } catch (e) {
-      fail(res, "Real Peptides leads", e);
-    }
+    const [moosendData, crData] = await Promise.all([
+      settle(
+        moosendLists,
+        "RP_MOOSEND_API_KEY",
+        "Set RP_MOOSEND_API_KEY — Moosend → Settings → API Key.",
+      ),
+      settle(
+        () => campaignRefineryContacts(since),
+        "RP_CAMPAIGN_REFINERY_API_KEY",
+        "Set RP_CAMPAIGN_REFINERY_API_KEY — Campaign Refinery → API settings → create an API key.",
+      ),
+    ]);
+
+    res.json({ range: since, moosend: moosendData, campaignRefinery: crData });
   });
 
   /** COA freshness, proxied from the COA tracker's own read-only endpoint. */

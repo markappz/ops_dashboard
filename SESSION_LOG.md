@@ -4,6 +4,51 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-14 (later) — RP corrections during rollout: wrong funnel domain, wrong email platform
+
+Two things I had wrong, both caught by Paul actually rolling this out.
+
+**1. The Peptide Playbook funnel is `peptide101guide.com`, not `peptideplaybook.com`.** The ecosystem
+notes had the wrong domain and peptideplaybook.com answers nothing at all. This mattered: unknown
+origins get no CORS headers, so the tag was live on peptide101guide.com and **every event was being
+dropped at the preflight**. Both apex and `www.` added to `ORIGIN_SITE`. Verified locally — preflight
+returns 204 with the allow-origin header, and an event lands as `site='realpeptides'`.
+
+Worth remembering: a wrong origin fails *silently and completely*. Nothing errors in the dashboard;
+the tab just shows no traffic, which is indistinguishable from no visitors.
+
+**2. Real Peptides does NOT use Klaviyo — it uses Moosend and Campaign Refinery.** I built the Leads
+tab on Klaviyo because that's FitScript's platform and I assumed it carried across. It doesn't.
+Rebuilt on both real platforms:
+- **Moosend** — `api.moosend.com/v3/lists.json?apikey=`, mailing lists + active member counts.
+  Note Moosend answers **HTTP 200 with a non-zero `Code`** on failure, so status alone lies; the
+  client checks the body. Verified against the live API with a deliberately bad key → `API_KEY_NOT_VALID`
+  surfaced correctly, which also confirms the request shape.
+- **Campaign Refinery** — bearer token, base `https://api.campaignrefinery.com`, `GET /rest/contacts`.
+  Its response schema isn't published, so the parser accepts several common shapes and, when it can't
+  find a contact array, **reports the top-level keys it did receive** instead of showing a zero. First
+  real call diagnoses itself.
+- The two are independent: one missing key or one API outage degrades that card alone. Verified.
+
+`RP_KLAVIYO_API_KEY` is gone — do not add it. Env is now `RP_MOOSEND_API_KEY` and
+`RP_CAMPAIGN_REFINERY_API_KEY`.
+
+**Also confirmed live during rollout:**
+- Google connected for realpeptides — GA4 `494045509`, `sc-domain:realpeptides.co`, under
+  `pc@realpeptides.co`, its own row. Traffic + SEO are live.
+- Pixel tag confirmed serving on **fatlossbible.co** and **peptide101guide.com**.
+- **hairgrowthprotocol.com still isn't serving it** despite being added — served HTML is byte-identical
+  (same bundle hash `index-B_U8SI-4.js`), no `ops.fitscript.me` anywhere. It's a Vite SPA carrying
+  Moosend's `mootrack` and a Meta pixel, so tags do land there; ours isn't in the deployed build. Needs
+  to be in `index.html` + a rebuild — editing a component won't do it.
+- **The COA token deploy was half-done.** Both new task-def revisions were correct
+  (`realpeptides-coa-task:14`, `fitscript-ops-task:167`, valid ARNs, matching 64-char token in both
+  secrets) but **neither service was updated to point at them** — still running `:12` and `:166`.
+  "Create new revision" without "Update service → Force new deployment" changes nothing. Endpoint was
+  still 503 at the time of writing.
+
+---
+
 ## 2026-08-14 — Real Peptides added as the fourth company
 
 Paul: *"I need to add Real Peptides to the dashboard."* RP is the awkward brand — realpeptides.co is

@@ -20,10 +20,10 @@ interface AdminReq extends Request {
   adminEmail?: string;
 }
 
-export const KLAVIYO_BASE = "https://a.klaviyo.com/api";
+const KLAVIYO_BASE = "https://a.klaviyo.com/api";
 // Pin the revision so contract changes don't silently break us.
 // Bump deliberately when we want new endpoint behaviors.
-export const KLAVIYO_REVISION = "2025-04-15";
+const KLAVIYO_REVISION = "2025-04-15";
 
 interface KlaviyoErr extends Error {
   status?: number;

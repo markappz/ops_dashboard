@@ -27,7 +27,8 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `OPS_PORT` — defaults to 5001
 - `NODE_ENV=production` in deploys
 - `KLAVIYO_API_KEY` — `pk_*` private key (read-only connector for now). **FitScript's account.**
-- `RP_KLAVIYO_API_KEY` — Real Peptides' own `pk_*` key. Separate account; never reuse the one above
+- `RP_MOOSEND_API_KEY` — Real Peptides' Moosend key. **RP does not use Klaviyo**
+- `RP_CAMPAIGN_REFINERY_API_KEY` — Real Peptides' Campaign Refinery key (bearer token)
 - `COA_OPS_TOKEN` — shared bearer token for reading coa.realpeptides.co's `/api/ops-summary`
 - `COA_API_URL` — optional override, defaults to `https://coa.realpeptides.co`
 
@@ -52,8 +53,9 @@ Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**
 GA4/GSC, Integrations and the Traffic/SEO pages (`company-google.tsx`) are already company-scoped.
 
 Real Peptides has **no order data** — realpeptides.co is WooCommerce and no API key exists. Its tabs
-run on the tracking pixel, its own Klaviyo, and the COA tracker. No page under `/realpeptides/*` may
-show a currency figure until a WooCommerce key lands.
+run on the tracking pixel, its two email platforms (**Moosend + Campaign Refinery — never Klaviyo,
+that's FitScript's**), and the COA tracker. No page under `/realpeptides/*` may show a currency
+figure until a WooCommerce key lands.
 
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
