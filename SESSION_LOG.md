@@ -4,6 +4,33 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-14 (later still) — SEO tab crashed on real data: a type lie I introduced
+
+`/realpeptides/seo` white-screened with `a.position.toFixed is not a function` the moment it had
+actual Search Console data behind it.
+
+**Cause:** `server/google-auth.ts` already calls `.toFixed(1)` on per-row `ctr` and `position` before
+sending, so `topQueries[]` carries **strings** while `totals` carries **numbers**. My `Gsc` interface
+in `company-google.tsx` declared both as `number`, so `tsc` happily allowed `q.position.toFixed(1)`
+on a string. Confirmed against live RP data: `{'ctr': ('69.0', 'str'), 'position': ('2.3', 'str')}`
+alongside `totals.ctr: 2.83 (float)`.
+
+**`content.tsx` had it right all along** (`ctr: string; position: string`) — the pawgen page I
+generalized from had it wrong and never crashed only because pawgen has no GSC data to render. The
+bug shipped the moment a brand with real search traffic used it. When generalizing a component,
+check its types against a consumer that actually has data.
+
+**Second bug fixed in the same line.** `pct()` guessed the scale from magnitude —
+`n <= 1 ? n*100 : n` — but both routes already return percent units. A genuine 0.8% CTR would have
+rendered as 80%. No RP query is currently under 1% CTR so it never showed, but it was live and would
+have appeared as soon as one was. Replaced with a plain formatter plus a `toNum()` coercion.
+
+Verified locally against real RP data before pushing: SEO renders 20,827 clicks / 735,041 impressions
+/ 2.8% CTR / avg position 11.0 with 25 query rows; Site Traffic renders 83,838 users / 100,603
+sessions. tsc + build clean.
+
+---
+
 ## 2026-08-14 (later) — RP corrections during rollout: wrong funnel domain, wrong email platform
 
 Two things I had wrong, both caught by Paul actually rolling this out.

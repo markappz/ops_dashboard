@@ -23,12 +23,22 @@ interface Ga4 {
   topPages?: { page: string; views: number; avgDuration: number }[];
 }
 
+/**
+ * NOTE the string types on per-row `ctr`/`position`: the server already calls
+ * `.toFixed(1)` on both before sending (see google-auth.ts), so they arrive as
+ * STRINGS while the `totals` equivalents are numbers. Typing them as numbers is
+ * what crashed this page — `q.position.toFixed(1)` on a string. content.tsx had
+ * it right; the pawgen page this was generalized from did not, and only escaped
+ * because pawgen has no Search Console data to render.
+ *
+ * Both are already scaled to percent units too — never multiply them again.
+ */
 interface Gsc {
   connected?: boolean;
   error?: string;
   totals?: { clicks?: number; impressions?: number; ctr?: number; position?: number };
   daily?: { date: string; clicks: number; impressions: number }[];
-  topQueries?: { query: string; clicks: number; impressions: number; ctr: number; position: number }[];
+  topQueries?: { query: string; clicks: number; impressions: number; ctr: string; position: string }[];
   topPages?: { page: string; clicks: number; impressions: number }[];
 }
 
@@ -42,7 +52,19 @@ export interface BrandProps {
 }
 
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
-const pct = (n: number | undefined) => `${((n ?? 0) * (n && n <= 1 ? 100 : 1)).toFixed(1)}%`;
+
+/** Accepts the string-or-number the two Google routes mix, never NaN. */
+const toNum = (v: number | string | undefined) => {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Both routes hand back CTR already scaled to percent (e.g. 3.4 means 3.4%), so
+ * this only formats. The previous version guessed from magnitude — `n <= 1 ?
+ * n*100 : n` — which silently reported a genuine 0.8% CTR as 80%.
+ */
+const pct = (v: number | string | undefined) => `${toNum(v).toFixed(1)}%`;
 
 function NotConnected({ what, company, label }: { what: "traffic" | "seo"; company: string; label: string }) {
   const product = what === "traffic" ? "Google Analytics" : "Search Console";
@@ -167,7 +189,7 @@ export function CompanySeo({ company, label, domain }: BrandProps) {
             <Stat label="Clicks" value={num(data.totals.clicks)} />
             <Stat label="Impressions" value={num(data.totals.impressions)} />
             <Stat label="CTR" value={pct(data.totals.ctr)} />
-            <Stat label="Avg position" value={(data.totals.position ?? 0).toFixed(1)} />
+            <Stat label="Avg position" value={toNum(data.totals.position).toFixed(1)} />
           </div>
           {(data.topQueries ?? []).length === 0 && (
             <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface p-4 text-sm text-ops-text-muted">
@@ -178,7 +200,13 @@ export function CompanySeo({ company, label, domain }: BrandProps) {
           <div className="grid gap-4">
             <Table
               head={["Query", "Clicks", "Impressions", "CTR", "Position"]}
-              rows={(data.topQueries ?? []).map((q) => [q.query, num(q.clicks), num(q.impressions), pct(q.ctr), q.position.toFixed(1)])}
+              rows={(data.topQueries ?? []).map((q) => [
+                q.query,
+                num(q.clicks),
+                num(q.impressions),
+                pct(q.ctr),
+                toNum(q.position).toFixed(1),
+              ])}
             />
             <Table head={["Page", "Clicks", "Impressions"]} rows={(data.topPages ?? []).map((p) => [p.page, num(p.clicks), num(p.impressions)])} />
           </div>
