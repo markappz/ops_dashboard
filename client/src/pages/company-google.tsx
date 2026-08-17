@@ -166,6 +166,67 @@ export function CompanyTraffic({ company, label }: BrandProps) {
   );
 }
 
+interface ContentPerf {
+  days: number;
+  totals: {
+    articles: number; views: number; ctaClicks: number;
+    attributedPurchases: number; attributedRevenue: number;
+    influencedPurchases: number; influencedRevenue: number;
+  };
+  articles: {
+    path: string; kind: string; slug: string; views: number; visitors: number;
+    ctaClicks: number; stickyClicks: number; purchases: number; revenue: number;
+  }[];
+}
+
+const usd = (n: number) => `$${(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+/**
+ * Content → sales attribution, from the first-party pixel rather than Google.
+ * Views = article page_views; CTA clicks = homepage arrivals stamped
+ * utm_source=content by the article templates; purchase credit = the buyer's
+ * last content CTA before the purchase event (server-side, ad-blocker-proof).
+ */
+function ContentPerformance({ company, domain }: { company: string; domain: string }) {
+  const { data, isLoading } = useQuery<ContentPerf>({
+    queryKey: [`${company}-content-perf`],
+    queryFn: async () => {
+      const r = await fetch(`/api/ops/content-performance?site=${company}&days=30`, { credentials: "include" });
+      return r.json();
+    },
+  });
+
+  if (isLoading || !data?.totals) return null;
+  const t = data.totals;
+  return (
+    <div className="mt-8">
+      <h2 className="mb-1 text-lg font-medium text-ops-text">Content → sales</h2>
+      <p className="mb-4 text-sm text-ops-text-muted">
+        Last {data.days} days, tracked by the first-party pixel on {domain}. Purchase credit goes to the
+        buyer&apos;s last article CTA before checkout.
+      </p>
+      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <Stat label="Article views" value={num(t.views)} />
+        <Stat label="CTA clicks" value={num(t.ctaClicks)} />
+        <Stat label="Attributed sales" value={num(t.attributedPurchases)} />
+        <Stat label="Attributed revenue" value={usd(t.attributedRevenue)} />
+        <Stat label="Content-influenced rev" value={usd(t.influencedRevenue)} />
+      </div>
+      <Table
+        head={["Article", "Views", "CTA clicks", "CTA rate", "Sales", "Revenue"]}
+        rows={data.articles.slice(0, 100).map((a) => [
+          a.path,
+          num(a.views),
+          `${num(a.ctaClicks)}${a.stickyClicks ? ` (${a.stickyClicks} sticky)` : ""}`,
+          a.views > 0 ? `${((a.ctaClicks / a.views) * 100).toFixed(1)}%` : "—",
+          num(a.purchases),
+          usd(a.revenue),
+        ])}
+      />
+    </div>
+  );
+}
+
 export function CompanySeo({ company, label, domain }: BrandProps) {
   const { data, isLoading } = useQuery<Gsc>({
     queryKey: [`${company}-gsc`],
@@ -212,6 +273,7 @@ export function CompanySeo({ company, label, domain }: BrandProps) {
           </div>
         </>
       )}
+      <ContentPerformance company={company} domain={domain} />
     </div>
   );
 }

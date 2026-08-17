@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS touchpoints (
   page_url VARCHAR,
   utm_source VARCHAR,
   utm_campaign VARCHAR,
+  -- Per-EVENT medium/content/term: a content CTA click happens mid-session,
+  -- so session-level UTMs alone can't say which article sent the buyer.
+  utm_medium VARCHAR(120),
+  utm_content VARCHAR(255),
+  utm_term VARCHAR(120),
   revenue DECIMAL(10,2) DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW()
 );
@@ -164,6 +169,15 @@ CREATE INDEX IF NOT EXISTS idx_cdm_channel ON channel_daily_metrics(channel);
 
 ALTER TABLE visitor_sessions      ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
 ALTER TABLE touchpoints           ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
+
+-- Content → sales attribution (2026-08-17): per-EVENT medium/content/term —
+-- a content CTA click happens mid-session, so session-level UTMs alone can't
+-- say which article sent the buyer. Must run after the site column exists.
+ALTER TABLE touchpoints ADD COLUMN IF NOT EXISTS utm_medium VARCHAR(120);
+ALTER TABLE touchpoints ADD COLUMN IF NOT EXISTS utm_content VARCHAR(255);
+ALTER TABLE touchpoints ADD COLUMN IF NOT EXISTS utm_term VARCHAR(120);
+CREATE INDEX IF NOT EXISTS idx_touchpoints_site_content ON touchpoints (site, utm_content) WHERE utm_content IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_touchpoints_site_type_time ON touchpoints (site, event_type, created_at);
 ALTER TABLE campaigns             ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
 ALTER TABLE daily_metrics         ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';
 ALTER TABLE channel_daily_metrics ADD COLUMN IF NOT EXISTS site VARCHAR NOT NULL DEFAULT 'fitscript';

@@ -192,13 +192,16 @@ export function registerTrackingRoutes(app: Express) {
         }
       }
 
-      // Record touchpoint
+      // Record touchpoint. medium/content/term matter per-EVENT, not just per
+      // session: a content CTA click ("/?utm_content=<article-slug>") happens
+      // mid-session, so storing UTMs only on the session's first pageview
+      // silently discards which article sent the buyer.
       await pool.query(`
-        INSERT INTO touchpoints (visitor_id, session_id, event_type, page_url, utm_source, utm_campaign, event_data, revenue, site)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO touchpoints (visitor_id, session_id, event_type, page_url, utm_source, utm_medium, utm_campaign, utm_content, utm_term, event_data, revenue, site)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       `, [
         visitor_id, session_id, event_type, page_url,
-        utm_source, utm_campaign,
+        utm_source, utm_medium, utm_campaign, utm_content, utm_term,
         JSON.stringify(event_data || {}),
         event_data?.revenue || 0,
         site,
@@ -323,6 +326,103 @@ export function registerTrackingRoutes(app: Express) {
     } catch (error: any) {
       console.error("[TRACK] Revenue error:", error.message);
       res.status(500).json({ error: "revenue update failed" });
+    }
+  });
+
+  // ─── Content → sales attribution (SEO tab) ───────────────────────
+  //
+  // Which articles convert. Views come from article-path page_views; CTA
+  // clicks are homepage page_views tagged utm_source=content (the article
+  // templates stamp utm_content=<slug>); purchase credit goes to the buyer's
+  // LAST content CTA touch before the purchase event.
+  app.get("/api/ops/content-performance", async (req, res) => {
+    try {
+      const site = String(req.query.site || "");
+      const days = Math.min(365, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
+      if (!site) return res.status(400).json({ error: "site required" });
+
+      const [views, clicks, attributed, influenced] = await Promise.all([
+        pool.query(`
+          SELECT page_url, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors
+          FROM touchpoints
+          WHERE site = $1 AND event_type = 'page_view'
+            AND created_at > NOW() - ($2 || ' days')::interval
+            AND page_url ~ '^/(blog|conditions|breeds|locations)/'
+          GROUP BY page_url`, [site, days]),
+        pool.query(`
+          SELECT utm_content AS slug, COALESCE(utm_medium, 'blog') AS kind,
+                 COUNT(*)::int AS cta_clicks,
+                 COUNT(*) FILTER (WHERE utm_term = 'sticky')::int AS sticky_clicks
+          FROM touchpoints
+          WHERE site = $1 AND event_type = 'page_view'
+            AND utm_source = 'content' AND utm_content IS NOT NULL
+            AND created_at > NOW() - ($2 || ' days')::interval
+          GROUP BY 1, 2`, [site, days]),
+        pool.query(`
+          SELECT lc.utm_content AS slug, COALESCE(lc.utm_medium, 'blog') AS kind,
+                 COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue
+          FROM touchpoints p
+          JOIN LATERAL (
+            SELECT t.utm_content, t.utm_medium
+            FROM touchpoints t
+            WHERE t.site = p.site AND t.visitor_id = p.visitor_id
+              AND t.event_type = 'page_view' AND t.utm_source = 'content'
+              AND t.utm_content IS NOT NULL AND t.created_at <= p.created_at
+            ORDER BY t.created_at DESC LIMIT 1
+          ) lc ON TRUE
+          WHERE p.site = $1 AND p.event_type = 'purchase'
+            AND p.created_at > NOW() - ($2 || ' days')::interval
+          GROUP BY 1, 2`, [site, days]),
+        pool.query(`
+          SELECT COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue
+          FROM touchpoints p
+          WHERE p.site = $1 AND p.event_type = 'purchase'
+            AND p.created_at > NOW() - ($2 || ' days')::interval
+            AND EXISTS (
+              SELECT 1 FROM touchpoints t
+              WHERE t.site = p.site AND t.visitor_id = p.visitor_id
+                AND t.event_type = 'page_view' AND t.created_at <= p.created_at
+                AND t.page_url ~ '^/(blog|conditions|breeds|locations)/')`, [site, days]),
+      ]);
+
+      // Merge by kind/slug — an article can appear via views, clicks or sales.
+      const byKey = new Map<string, any>();
+      const row = (kind: string, slug: string) => {
+        const k = `${kind}/${slug}`;
+        if (!byKey.has(k)) byKey.set(k, { path: `/${k}`, kind, slug, views: 0, visitors: 0, ctaClicks: 0, stickyClicks: 0, purchases: 0, revenue: 0 });
+        return byKey.get(k);
+      };
+      for (const v of views.rows) {
+        const m = /^\/([^/]+)\/(.+)$/.exec(v.page_url);
+        if (!m) continue;
+        Object.assign(row(m[1], m[2]), { views: v.views, visitors: v.visitors });
+      }
+      for (const c of clicks.rows) {
+        const r = row(c.kind, c.slug);
+        r.ctaClicks = c.cta_clicks; r.stickyClicks = c.sticky_clicks;
+      }
+      for (const a of attributed.rows) {
+        const r = row(a.kind, a.slug);
+        r.purchases = a.purchases; r.revenue = a.revenue;
+      }
+
+      const articles = [...byKey.values()].sort((a, b) => b.revenue - a.revenue || b.ctaClicks - a.ctaClicks || b.views - a.views);
+      res.json({
+        days,
+        totals: {
+          articles: articles.length,
+          views: articles.reduce((s, a) => s + a.views, 0),
+          ctaClicks: articles.reduce((s, a) => s + a.ctaClicks, 0),
+          attributedPurchases: articles.reduce((s, a) => s + a.purchases, 0),
+          attributedRevenue: articles.reduce((s, a) => s + a.revenue, 0),
+          influencedPurchases: influenced.rows[0]?.purchases ?? 0,
+          influencedRevenue: influenced.rows[0]?.revenue ?? 0,
+        },
+        articles: articles.slice(0, 500),
+      });
+    } catch (e) {
+      console.error("content-performance failed:", e);
+      res.status(500).json({ error: "content-performance failed" });
     }
   });
 
