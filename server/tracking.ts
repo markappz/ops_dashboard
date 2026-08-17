@@ -160,6 +160,15 @@ export function registerTrackingRoutes(app: Express) {
         return res.status(400).json({ error: "visitor_id and event_type required" });
       }
 
+      // Googlebot renders JS, so it fires the pixel like a person — 95% of
+      // "article views" on pawgen's launch day were Googlebot-smartphone
+      // (Nexus 5X rendering UA). Crawl-rendering is great; counting it as
+      // audience is not. Drop known bots at the door.
+      const BOT_UA = /bot|crawl|spider|slurp|headless|lighthouse|pingdom|Nexus 5X Build\/MMB29P|preview|facebookexternalhit|python-requests|curl\//i;
+      if (BOT_UA.test(String(req.headers["user-agent"] ?? ""))) {
+        return res.status(204).end();
+      }
+
       const site = siteForOrigin(req.headers.origin);
 
       // Upsert visitor session
