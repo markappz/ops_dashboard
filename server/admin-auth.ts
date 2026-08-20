@@ -180,6 +180,9 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
   // File a new COA PDF for a Real Peptides SKU (Justin). Nothing else under /realpeptides.
   "realpeptides:coa-upload": [
     { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/upload\/?$/ },
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/skus\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/skus\/\d+\/?$/ },
+    { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/skus\/\d+\/?$/ },
   ],
 };
 

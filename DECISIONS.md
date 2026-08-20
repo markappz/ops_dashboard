@@ -573,3 +573,24 @@ credentials for the tracker. The write is exposed to non-admins only via the exp
 **How to apply:** any future ops→tracker write = new route in `server/ops-summary.ts` (same
 `tokenOk`), proxy in `server/realpeptides.ts`, and a named grant in `PERMISSION_ROUTES`. Deploy
 tracker before ops.
+
+
+---
+
+## 2026-08-20 — One COA UI: ops, with the tracker kept as a headless service
+
+**Decision:** Retire coa.realpeptides.co's web UI and manage COAs only from ops. The tracker
+service keeps running (its RDS/S3 live in a separate AWS account; its schedulers post to Slack)
+and ops talks to it through an allowlisted proxy authenticated with `COA_OPS_TOKEN`, which the
+tracker's auth gate now accepts.
+
+**Why this and not alternatives:**
+- **vs. migrating the tracker's data into ops' RDS:** cross-account move of a DB + S3 vault for no
+  user-visible gain; the schedulers and vault code would all need porting. The proxy gets one UI today.
+- **vs. keeping both UIs:** Paul's explicit call — two places doing the same job drift apart, and
+  the tracker's own upload never recorded a test anyway.
+- **vs. a generic unfiltered proxy:** the allowlist keeps team/notify/auth off the ops surface so
+  the scoped viewer grant can't reach them.
+
+**How to apply:** new COA features = tracker route (if needed) + add its prefix to `PROXY_ALLOW`
++ UI in `realpeptides-coa.tsx`. Deploy tracker before ops when both change.

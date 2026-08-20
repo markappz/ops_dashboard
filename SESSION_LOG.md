@@ -4,6 +4,36 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-20 (later) — COA tab becomes the COA manager; tracker UI retired
+
+Paul's call: two places doing the same thing is one too many. coa.realpeptides.co's UI now
+redirects here; its service stays headless (DB, S3 vault, Slack schedulers) and ops drives it
+through a token-gated proxy. Justin's real needs: upload COAs, add / rename / delete products.
+
+- `server/realpeptides.ts`: `app.all("/api/ops/realpeptides/coa/api/*")` passes JSON and raw
+  multipart (express.raw on that route) to the tracker with the bearer, streams bytes back
+  (PDF/image downloads, presigned S3 redirects followed server-side). Allowlist: `/skus`,
+  `/documents`, `/coas` only — team/notify/auth are not reachable.
+- `realpeptides:coa-upload` grant now also covers POST/PATCH/DELETE on `/skus`.
+- `realpeptides-coa.tsx` rewritten: Add product (hero action), top upload panel (kept), search,
+  table with Certificate "View" link, and per-row **inline** Upload COA / Rename / Delete. The
+  old row button only preselected the top form and scrolled — Paul read that as broken. Same
+  `CoaForm` powers both the panel and the inline row.
+- Removed the "everything else lives at coa.realpeptides.co" footer; it doesn't anymore.
+
+Headless E2E (puppeteer, same recipe): add → inline upload (row flips fresh) → rename → delete,
+zero page errors. tsc + prod build clean. Deploy order: tracker first.
+
+**Parked:** the "Build" widget (chat → agent edits a tab's source → PR → Paul merges) lives on
+local branch `build-widget-wip`, untested, not pushed. It was the answer to "let Justin change the
+COA tracker" before Paul narrowed that to upload/add/rename/delete. Revisit only if asked.
+
+**Not ported (tracker features that no longer have a UI):** product-image upload, Oryn-branded
+cert upload, mark-sent-to-lab, Action Summary / Kovera "post now", team/alert settings. The
+schedulers still run on their own. Add to ops if anyone misses them.
+
+---
+
 ## 2026-08-20 — COA uploader on the Real Peptides tab (for Justin)
 
 Paul wants Justin to file new COAs from ops instead of the tracker. Built it as the **one write**

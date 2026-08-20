@@ -16,7 +16,7 @@
  * rather than a zero, because a zero here reads as "no traffic" when the truth
  * is "nothing is reporting yet".
  */
-import type { Express, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import multer from "multer";
 import { pool } from "./db";
 
@@ -238,6 +238,42 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
   return body;
 }
 
+/**
+ * Generic pass-through to the tracker's API for product management. The
+ * tracker accepts COA_OPS_TOKEN in its auth gate, so ops is its UI now. Only
+ * these prefixes are reachable; the tracker's login/team/notify surface is not.
+ */
+const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/];
+
+async function proxyToTracker(req: Request, res: Response) {
+  const base = process.env.COA_API_URL || "https://coa.realpeptides.co";
+  const token = process.env.COA_OPS_TOKEN;
+  if (!token) return res.status(503).json({ error: "COA_OPS_TOKEN is not set on ops." });
+  const sub = "/" + String(req.params[0] || "");
+  if (!PROXY_ALLOW.some((re) => re.test(sub))) return res.status(404).json({ error: "Not proxied." });
+
+  const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  let body: any;
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    const ct = String(req.headers["content-type"] || "");
+    if (ct.startsWith("multipart/form-data") && Buffer.isBuffer(req.body)) {
+      headers["content-type"] = ct;
+      body = new Uint8Array(req.body);
+    } else {
+      headers["content-type"] = "application/json";
+      body = JSON.stringify(req.body ?? {});
+    }
+  }
+  const upstream = await fetch(`${base}/api${sub}${qs}`, { method: req.method, headers, body, signal: AbortSignal.timeout(60_000), redirect: "follow" });
+  res.status(upstream.status);
+  for (const h of ["content-type", "content-disposition", "content-length", "cache-control"]) {
+    const v = upstream.headers.get(h);
+    if (v) res.setHeader(h, v);
+  }
+  res.send(Buffer.from(await upstream.arrayBuffer()));
+}
+
 // ─── Routes ────────────────────────────────────────────────────────
 
 export function registerRealPeptidesRoutes(app: Express) {
@@ -321,6 +357,11 @@ export function registerRealPeptidesRoutes(app: Express) {
     } catch (e) {
       fail(res, "COA summary", e);
     }
+  });
+
+  /** Product management pass-through (add / rename / delete / documents). */
+  app.all("/api/ops/realpeptides/coa/api/*", express.raw({ type: "multipart/form-data", limit: "60mb" }), (req, res) => {
+    proxyToTracker(req, res).catch((e) => fail(res, "COA tracker", e));
   });
 
   /** File a new COA: PDF + test date (+ lab, purity). Grant: realpeptides:coa-upload. */
