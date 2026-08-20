@@ -4,6 +4,37 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-20 (evening) — Full COA tracker UI ported into ops
+
+Paul wanted the tracker experience itself (cards → click → variants → history), not just a
+table, plus product URLs for the coming Vercel storefront. Replaced the table page with a port of
+the tracker client under `client/src/pages/coa/`:
+
+- `api.ts` (types, proxy base `/api/ops/realpeptides/coa/api`, shared `ui` classes),
+  `families.ts` / `summary.ts` (copied verbatim from the tracker), `StatusDonut`, `FamilyGrid`,
+  `FamilyDetail` (variants: COA preview/download, product image, History panel with tests / vault
+  files / lab send-outs, inline **Upload COA** that records the test, **Edit** name/SKU/product URL,
+  **Delete**, Oryn cert, "Mark sent to Kovera"), `ActionSummary` (copy/push/Kovera post now),
+  `AlertSettings` (Slack/WhatsApp status, test message, recipients). Page: hero actions (Action
+  Summary, Import CSV, alerts, refresh, Add product modal with URL), donut filters, search.
+- Proxy allowlist widened to `/lab-tests`, `/team`, `/notify`; viewer grant covers document POSTs.
+- Reads `/api/skus` through the proxy (family keys, thumbnails, test_status) — the old ops-only
+  summary endpoint is no longer used by the page but still exists.
+- `FamilyDetail` keeps previous data during refetch (`keepPreviousData`) and closes panels before
+  the refetch so a click mid-refresh isn't undone. `data-variant` / `data-panel` attributes on
+  variant cards exist for tests.
+
+Headless E2E: open family → upload on a variant (goes fresh) → History shows the test + file →
+Edit saves a product URL → Escape closes → Add product modal → card appears → Action Summary.
+Three false alarms in the harness worth remembering: the minted session cookie expires after 1h
+(page silently becomes the login screen); a wait condition satisfied by stale DB state let a click
+land mid-upload; CSS `uppercase` labels need case-insensitive assertions. None were app bugs.
+
+Styling note: ops' `fitscript-green` token renders the dashboard's blue accent here — consistent
+with the rest of ops, intentionally not the tracker's gold.
+
+---
+
 ## 2026-08-20 (later) — COA tab becomes the COA manager; tracker UI retired
 
 Paul's call: two places doing the same thing is one too many. coa.realpeptides.co's UI now
@@ -28,9 +59,7 @@ zero page errors. tsc + prod build clean. Deploy order: tracker first.
 local branch `build-widget-wip`, untested, not pushed. It was the answer to "let Justin change the
 COA tracker" before Paul narrowed that to upload/add/rename/delete. Revisit only if asked.
 
-**Not ported (tracker features that no longer have a UI):** product-image upload, Oryn-branded
-cert upload, mark-sent-to-lab, Action Summary / Kovera "post now", team/alert settings. The
-schedulers still run on their own. Add to ops if anyone misses them.
+**Update (evening):** everything below was ported after all — see the entry above.
 
 ---
 

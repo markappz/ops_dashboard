@@ -59,8 +59,9 @@ figure until a WooCommerce key lands.
 
 **ops is the COA tracker's UI** (coa.realpeptides.co redirects here since 2026-08-20; its service
 runs headless). `POST /api/ops/realpeptides/coa/upload` records a test + vaults the file;
-`/api/ops/realpeptides/coa/api/*` is an allowlisted proxy (`/skus`, `/documents`, `/coas`) to the
-tracker's API with the `COA_OPS_TOKEN` bearer. Non-admins need the `realpeptides:coa-upload` grant.
+`/api/ops/realpeptides/coa/api/*` is an allowlisted proxy (`/skus`, `/documents`, `/coas`,
+`/lab-tests`, `/team`, `/notify`) to the tracker's API with the `COA_OPS_TOKEN` bearer. The UI lives
+in `client/src/pages/coa/`. Non-admins need the `realpeptides:coa-upload` grant.
 
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
