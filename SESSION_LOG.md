@@ -4,6 +4,39 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-20 (late night) — Pages: sitemap × Search Console × pixel, per brand
+
+Paul, looking at the RP Content tab: "how is it correlated to ranking, traffic, etc for each of
+the pages? add fields for traffic based on Search Console and accurate info with the sitemap."
+Clomark's own status is useless for that — RP shows 0 published while its WordPress sitemap lists
+thousands of posts — so the sitemap is the source of truth and GSC is the scoreboard.
+
+**`server/pages.ts` — `GET /api/ops/pages?company=&days=28[&refresh=1]`**
+- Sitemap crawl from robots.txt (index → children, regex XML, 80 sitemaps / 60k URLs cap), cached
+  in `ops_site_pages` (+ `ops_sitemap_runs`) for 6h; URLs that drop out of the sitemap are deleted.
+  Kind comes from the WordPress sitemap name first (post-/page-/product-sitemap), then path.
+- GSC `searchanalytics` by `page`, paginated 25k/startRow, current + previous window (end = today−2d
+  for GSC lag) → per-row click/impression/position deltas. A GSC failure degrades to a banner
+  (`deleted_client` → "reconnect Google in Integrations"), never a 500.
+- Pixel per path: page_view touchpoints (views/visitors), visitor_sessions.landing_page (sessions),
+  and landing-page revenue (purchase touchpoints joined to their session's landing page).
+- Rows = sitemap ∪ GSC pages; GSC-only rows flagged `inSitemap:false` (orphans / 404s Google still
+  shows). Totals: live, "getting impressions" (closest indexed proxy), zero impressions, orphans,
+  clicks/impressions with deltas, revenue, byKind.
+
+**`company-pages.tsx`** at `/pages` (FitScript), `/pawgen/pages`, `/realpeptides/pages`: KPI tiles,
+views (in sitemap / zero impressions / not in sitemap / everything), type + sort + path filter,
+table with deltas, show-more paging (RP has 23k rows). GSC tiles show "—" when not connected.
+
+**Real crawls (prod RDS now holds the cache):** Real Peptides **23,812 URLs / 33 sitemaps**
+(20,589 blog, 2,397 page, 515 location, 310 product); pawgen 1,006 (854 location); FitScript 415.
+**GSC could not be verified from this Mac** — the local GOOGLE_CLIENT_ID is a deleted OAuth client
+(`deleted_client`), prod's is fine (SEO tab works there). Check /realpeptides/pages on prod.
+PeptideU has no public site → `configured:false`. `npm run dev` is plain tsx, not watch — restart
+after server edits (bit me once tonight).
+
+---
+
 ## 2026-08-20 (night) — Clomark content per brand: pawgen, Real Peptides, PeptideU tabs
 
 Paul wants each brand's Clomark SEO pages / blogs visible in its own ops section, like FitScript's

@@ -29,6 +29,7 @@ import ReportsSales from "./pages/reports-sales";
 import ReportsAds from "./pages/reports-ads";
 import ReportsDmarc from "./pages/reports-dmarc";
 import Content, { CompanyContent } from "./pages/content";
+import CompanyPages from "./pages/company-pages";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
@@ -132,6 +133,7 @@ export default function App() {
           {/* Growth */}
           <Route path="/marketing" component={Marketing} />
           <Route path="/content" component={Content} />
+          <Route path="/pages">{() => <CompanyPages company="fitscript" label="FitScript" />}</Route>
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
           <Route path="/email/compose" component={EmailCompose} />
@@ -174,6 +176,7 @@ export default function App() {
           <Route path="/pawgen/leads" component={PawgenLeads} />
           <Route path="/pawgen/marketing" component={PawgenMarketing} />
           <Route path="/pawgen/traffic">{() => <CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
+          <Route path="/pawgen/pages">{() => <CompanyPages company="pawgen" label="pawgen" />}</Route>
           <Route path="/pawgen/content">{() => <CompanyContent company="pawgen" label="pawgen" />}</Route>
           <Route path="/pawgen/seo">{() => <CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
@@ -186,6 +189,7 @@ export default function App() {
           <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
           <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
           <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>
+          <Route path="/realpeptides/pages">{() => <CompanyPages company="realpeptides" label="Real Peptides" />}</Route>
           <Route path="/realpeptides/content">{() => <CompanyContent company="realpeptides" label="Real Peptides" />}</Route>
           <Route path="/realpeptides/seo">{() => <CompanySeo {...RP} />}</Route>
           <Route path="/realpeptides/coa" component={RealPeptidesCoa} />

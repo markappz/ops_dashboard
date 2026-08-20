@@ -68,6 +68,11 @@ in `client/src/pages/coa/`. Non-admins need the `realpeptides:coa-upload` grant.
 `CLOMARK_BUSINESS_ID_<COMPANY>`); every `/api/ops/clomark/*` route takes `?company=`. The content
 workflow UI is `content.tsx`; non-FitScript brands mount it via `CompanyContent` at `/<company>/content`.
 
+## Pages (per brand)
+`server/pages.ts` crawls each brand's sitemap (cached 6h in `ops_site_pages`), joins Search Console
+by page (+ previous window) and pixel views/sessions/revenue. UI `company-pages.tsx` at
+`/<company>/pages`. Add a brand by setting its root in `SITE_ROOTS`.
+
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
 - Use raw SQL (`pool.query`) for everything. Drizzle ORM crashes here.

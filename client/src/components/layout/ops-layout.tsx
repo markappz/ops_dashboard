@@ -42,6 +42,7 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
       { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
       { path: "/pawgen/content", label: "Content", icon: "file-text" },
+      { path: "/pawgen/pages", label: "Pages", icon: "chart" },
       { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
     ],
   },
@@ -56,6 +57,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
       { path: "/realpeptides/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
       { path: "/realpeptides/content", label: "Content", icon: "file-text" },
+      { path: "/realpeptides/pages", label: "Pages", icon: "chart" },
       { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
       { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
     ],
@@ -82,6 +84,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { path: "/marketing", label: "Marketing", icon: "megaphone" },
       { path: "/content", label: "Content & SEO", icon: "file-text" },
+      { path: "/pages", label: "Pages", icon: "chart" },
       { path: "/email", label: "Email", icon: "mail" },
     ],
   },
