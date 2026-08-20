@@ -188,6 +188,7 @@ export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "produc
   const [testDate, setTestDate] = useState(today());
   const [lab, setLab] = useState("Kovera");
   const [purity, setPurity] = useState("");
+  const [lot, setLot] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -200,6 +201,7 @@ export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "produc
     fd.append("file", file); fd.append("sku_code", sku.sku_code); fd.append("test_date", testDate);
     if (lab.trim()) fd.append("lab_name", lab.trim());
     if (purity.trim()) fd.append("purity", purity.trim());
+    if (lot.trim()) fd.append("lot_number", lot.trim());
     try {
       const r = await fetch("/api/ops/realpeptides/coa/upload", { method: "POST", body: fd, credentials: "include" });
       const j = await r.json().catch(() => ({}));
@@ -213,9 +215,10 @@ export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "produc
     <form onSubmit={submit} className="grid gap-3 md:grid-cols-12">
       <div className="md:col-span-12 text-xs text-ops-text-muted">New certificate for <span className="text-ops-text">{sku.product_name}</span> — this records the test, so the status updates immediately.</div>
       <div className="md:col-span-3"><label className={ui.label}>Test date</label><input type="date" value={testDate} max={today()} onChange={(e) => setTestDate(e.target.value)} className={ui.input} required /></div>
+      <div className="md:col-span-3"><label className={ui.label}>Lot / batch #</label><input value={lot} onChange={(e) => setLot(e.target.value)} className={ui.input} placeholder="What's printed on the vial" /></div>
       <div className="md:col-span-3"><label className={ui.label}>Lab</label><input value={lab} onChange={(e) => setLab(e.target.value)} className={ui.input} /></div>
-      <div className="md:col-span-2"><label className={ui.label}>Purity</label><input value={purity} onChange={(e) => setPurity(e.target.value)} className={ui.input} placeholder="99.4%" /></div>
-      <div className="md:col-span-4"><label className={ui.label}>File (PDF or image)</label>
+      <div className="md:col-span-3"><label className={ui.label}>Purity</label><input value={purity} onChange={(e) => setPurity(e.target.value)} className={ui.input} placeholder="99.4%" /></div>
+      <div className="md:col-span-12"><label className={ui.label}>File (PDF or image)</label>
         <input type="file" accept="application/pdf,.pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="block w-full text-sm text-ops-text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-ops-border file:px-3 file:py-2 file:text-sm file:font-medium file:text-ops-text" />
       </div>
@@ -268,7 +271,7 @@ function HistoryList({ detail }: { detail: SkuDetail }) {
           {detail.coas.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <span className="text-ops-text">Tested {c.test_date} <span className="text-ops-text-muted">→ expires {c.expiry_date}</span></span>
-              <span className="text-xs text-ops-text-muted">{c.lab_name ?? "—"}{c.purity ? ` · ${c.purity}` : ""}{c.result !== "pass" ? ` · ${c.result}` : ""}{c.source_ref ? ` · by ${c.source_ref}` : ""}</span>
+              <span className="text-xs text-ops-text-muted">{c.lot_number ? `lot ${c.lot_number} · ` : ""}{c.lab_name ?? "—"}{c.purity ? ` · ${c.purity}` : ""}{c.result !== "pass" ? ` · ${c.result}` : ""}{c.source_ref ? ` · by ${c.source_ref}` : ""}</span>
             </li>
           ))}
         </ul>

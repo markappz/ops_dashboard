@@ -222,7 +222,7 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
 
   const fd = new FormData();
   fd.append("file", new Blob([new Uint8Array(file.buffer)], { type: "application/pdf" }), file.originalname);
-  for (const k of ["sku_code", "test_date", "lab_name", "purity"]) if (fields[k]) fd.append(k, fields[k]);
+  for (const k of ["sku_code", "test_date", "lab_name", "purity", "lot_number"]) if (fields[k]) fd.append(k, fields[k]);
   fd.append("uploaded_by", by);
 
   const r = await fetch(`${base}/api/ops-coa-upload`, {

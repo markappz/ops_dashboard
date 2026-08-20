@@ -50,6 +50,7 @@ export interface Coa {
   result: string;
   lab_name: string | null;
   purity: string | null;
+  lot_number?: string | null;
   source?: string;
   source_ref?: string | null;
 }

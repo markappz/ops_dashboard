@@ -30,6 +30,9 @@ Three false alarms in the harness worth remembering: the minted session cookie e
 (page silently becomes the login screen); a wait condition satisfied by stale DB state let a click
 land mid-upload; CSS `uppercase` labels need case-insensitive assertions. None were app bugs.
 
+**Lot / batch #** field added to the variant upload form (forwarded as `lot_number`); History rows
+show `lot …`. Needed so the public COA searcher can match what's printed on a vial.
+
 Styling note: ops' `fitscript-green` token renders the dashboard's blue accent here — consistent
 with the rest of ops, intentionally not the tracker's gold.
 
