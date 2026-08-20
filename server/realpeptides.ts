@@ -17,7 +17,10 @@
  * is "nothing is reporting yet".
  */
 import type { Express, Response } from "express";
+import multer from "multer";
 import { pool } from "./db";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const SITE = "realpeptides";
 
@@ -208,6 +211,33 @@ async function coaSummary() {
   return { configured: true as const, ...JSON.parse(text) };
 }
 
+/**
+ * Forward a COA PDF + test metadata to the tracker. The tracker records the
+ * test and vaults the file itself; ops never touches its bucket or database.
+ */
+async function coaUpload(file: Express.Multer.File, fields: Record<string, string>, by: string) {
+  const base = process.env.COA_API_URL || "https://coa.realpeptides.co";
+  const token = process.env.COA_OPS_TOKEN;
+  if (!token) throw new Error("COA_OPS_TOKEN is not set on ops — uploads need the same token the tracker has.");
+
+  const fd = new FormData();
+  fd.append("file", new Blob([new Uint8Array(file.buffer)], { type: "application/pdf" }), file.originalname);
+  for (const k of ["sku_code", "test_date", "lab_name", "purity"]) if (fields[k]) fd.append(k, fields[k]);
+  fd.append("uploaded_by", by);
+
+  const r = await fetch(`${base}/api/ops-coa-upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await r.text();
+  let body: any = {};
+  try { body = JSON.parse(text); } catch { body = { error: text.slice(0, 200) }; }
+  if (!r.ok) throw new Error(body.error || `COA tracker ${r.status}`);
+  return body;
+}
+
 // ─── Routes ────────────────────────────────────────────────────────
 
 export function registerRealPeptidesRoutes(app: Express) {
@@ -290,6 +320,27 @@ export function registerRealPeptidesRoutes(app: Express) {
       res.json(await coaSummary());
     } catch (e) {
       fail(res, "COA summary", e);
+    }
+  });
+
+  /** File a new COA: PDF + test date (+ lab, purity). Grant: realpeptides:coa-upload. */
+  app.post("/api/ops/realpeptides/coa/upload", upload.single("file"), async (req: any, res) => {
+    try {
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file) return res.status(400).json({ error: "Choose a PDF first." });
+      if (file.mimetype !== "application/pdf" && !/\.pdf$/i.test(file.originalname)) {
+        return res.status(400).json({ error: "Only PDF certificates are accepted." });
+      }
+      if (!req.body?.sku_code) return res.status(400).json({ error: "Pick the product this COA belongs to." });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body?.test_date || "")) {
+        return res.status(400).json({ error: "Test date must be YYYY-MM-DD." });
+      }
+      const by = req.adminEmail || "unknown";
+      const out = await coaUpload(file, req.body, by);
+      console.log(`[OPS][RP] COA uploaded: ${req.body.sku_code} tested ${req.body.test_date} by ${by}`);
+      res.json(out);
+    } catch (e) {
+      fail(res, "COA upload", e);
     }
   });
 }

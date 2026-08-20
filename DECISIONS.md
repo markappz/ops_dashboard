@@ -549,3 +549,27 @@ The fix: only render the top KPI grid when `totalVisitors > 0`. Only render chan
 - Bucket regex (`PAGE_BUCKETS` in `server/reports.ts`) is FitScript URL-specific. Multi-tenant rework = parameterize by brand.
 - MRR estimate uses `TIER_MONTHLY_PRICE` lookup keyed to `users.subscription_tier`. Update both when pricing changes (per `[[project_fitscript_pricing_arc_may25]]`).
 
+
+
+---
+
+## 2026-08-20 — COA writes go through the tracker's token endpoint, never its DB; one scoped grant per write
+
+**Decision:** The RP COA tab's upload posts to a new token-gated `POST /api/ops-coa-upload` on
+coa.realpeptides.co, which records the test and vaults the PDF itself. Ops holds no S3 or DB
+credentials for the tracker. The write is exposed to non-admins only via the explicit
+`realpeptides:coa-upload` grant in `PERMISSION_ROUTES`.
+
+**Why this and not alternatives:**
+- **vs. ops writing to the tracker's RDS/S3 directly:** its RDS is private in another AWS account
+  and the "keys stay in one system" pattern (pawgen ShippingEasy, COA summary) already works.
+  One shared secret (`COA_OPS_TOKEN`) instead of cross-account IAM + a second schema to keep in sync.
+- **vs. reusing the tracker's own `POST /api/documents`:** that route only files a document — it
+  does not create a `coas` row, so status never changes. It's also behind the committed shared
+  password. The new endpoint is the missing "record a test + attach certificate" operation.
+- **vs. widening viewer to allow all `/realpeptides/*` POSTs:** grants map to exact method + path;
+  Justin happens to be admin today, but the support@realpeptides.co viewer can be given just this.
+
+**How to apply:** any future ops→tracker write = new route in `server/ops-summary.ts` (same
+`tokenOk`), proxy in `server/realpeptides.ts`, and a named grant in `PERMISSION_ROUTES`. Deploy
+tracker before ops.

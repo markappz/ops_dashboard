@@ -4,6 +4,79 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-20 — COA uploader on the Real Peptides tab (for Justin)
+
+Paul wants Justin to file new COAs from ops instead of the tracker. Built it as the **one write**
+the RP COA tab is allowed.
+
+**Finding that shaped the design:** in coa.realpeptides.co, uploading a PDF only creates a
+`documents` row — it never records a test. `coas` rows (what status is derived from) can only be
+created via a raw `POST /api/coas` nobody calls from the UI. That is why 78 of 83 SKUs sit at
+expired/untested with `lab_name` null: the team has been uploading certificates that never counted.
+The ops uploader records the test **and** vaults the PDF in one call, so the SKU flips to fresh.
+
+**Tracker (`realpeptides-coa`, `server/ops-summary.ts`):** new `POST /api/ops-coa-upload`, same
+`COA_OPS_TOKEN` bearer as the summary, registered ahead of the password gate. Multipart
+`file` (PDF ≤25MB) + `sku_code`, `test_date` (YYYY-MM-DD), optional `lab_name` (defaults Kovera),
+`purity`, `uploaded_by`. Inserts the `coas` row (expiry via `expiryFromTestDate`), then
+`ingestDocument({coaId})`, then stamps `file_s3_key` back on the COA. **Not a transaction on
+purpose:** `ingestDocument` writes through the shared pool and `documents.coa_id` is an FK, so
+the COA must be committed before the document can reference it — a single-client transaction
+would deadlock on itself. Compensation: delete the COA if vaulting fails. Summary rows now also
+carry `id`.
+
+**Ops:** `POST /api/ops/realpeptides/coa/upload` (multer → `FormData`/`Blob` fetch to the
+tracker; ops never touches its bucket/DB). New scoped grant `realpeptides:coa-upload` in
+`PERMISSION_ROUTES` so a viewer account can be given this write and nothing else.
+`/api/ops/auth/me` now returns `permissions` (`["*"]` for admins) so the client can gate UI.
+Justin (justin@justinillig.com) is already an **admin**, so he needs no grant.
+
+**Client (`realpeptides-coa.tsx`):** upload panel above the stats (product select with current
+status, test date defaulting today, lab, purity, PDF picker, File COA), shown only when
+`canUpload`. Each table row gets an "Upload COA" link that preselects the product and scrolls up.
+Success banner reports the computed expiry; the table refetches.
+
+**Verified locally, end to end with real processes:** no Postgres on this Mac and the tracker's
+RDS is private, so `brew install postgresql@16`, scratch cluster on :5499, tracker schema applied,
+two SKUs seeded, tracker on :5101 with `COA_OPS_TOKEN=localtest`, ops on :5002 with
+`COA_API_URL=http://localhost:5101`. curl: 401 without token, actionable 400s for bad date /
+missing SKU / non-PDF, 404 for unknown SKU, viewer without grant → 403, admin upload → SKU
+untested → fresh with correct expiry, file lands in the vault. Headless Chrome (puppeteer-core,
+Chrome MCP can't reach localhost — see memory) filled the form, submitted, saw "Filed for BPC-157 …
+valid until 2026-11-18" and the refreshed row. Gotcha: Vite's HMR client force-reloads the page
+when its websocket fails under headless, wiping form state mid-test — stub `/@vite/client` via
+request interception. Both repos `tsc` + prod build clean.
+
+**Deploy order:** tracker first (new endpoint), then ops. No new env — both already share
+`COA_OPS_TOKEN`. **Not pushed** — awaiting Paul.
+
+**Pending:** Oryn-branded COAs and product images still only via the tracker UI. Consider a
+backfill that turns the existing vault PDFs into `coas` rows (needs test dates — maybe from the
+filenames) so the 47 "expired" SKUs with real certificates stop alarming.
+
+---
+
+## 2026-08-17 — Bot traffic dropped at the pixel (backfilled log)
+
+Googlebot renders JS and fired the pixel on ~160 freshly crawled pawgen pages in one day — 95% of
+"article views" were its Nexus 5X rendering UA. `server/tracking.ts` now answers 204 to known bot
+UAs before writing anything; historical bot sessions + their page_view touchpoints were deleted
+across all sites. Commit `a3e0902`.
+
+---
+
+## 2026-08-16 — Content → sales attribution on the SEO tab (backfilled log)
+
+pawgen article CTAs stamp `utm_source=content / utm_medium=<kind> / utm_content=<slug>`, but the
+touchpoints insert dropped medium/content/term, so a mid-session CTA click lost which article sent
+the buyer. Ingest now stores `utm_medium/content/term` per touchpoint (columns + partial index
+applied to RDS; schema file updated). New `GET /api/ops/content-performance?site=&days=`:
+per-article views, CTA clicks (sticky split out), purchases, revenue — purchase credit = the buyer's
+LAST content CTA before purchase (LATERAL), plus a content-influenced total. SEO tab renders it for
+every brand from the first-party pixel. Commit `2473063`.
+
+---
+
 ## 2026-08-14 (later still) — SEO tab crashed on real data: a type lie I introduced
 
 `/realpeptides/seo` white-screened with `a.position.toFixed is not a function` the moment it had

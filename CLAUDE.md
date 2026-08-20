@@ -57,6 +57,10 @@ run on the tracking pixel, its two email platforms (**Moosend + Campaign Refiner
 that's FitScript's**), and the COA tracker. No page under `/realpeptides/*` may show a currency
 figure until a WooCommerce key lands.
 
+The COA tab has exactly one write: `POST /api/ops/realpeptides/coa/upload` proxies to the tracker's
+token-gated `POST /api/ops-coa-upload` (records the test + vaults the PDF). Non-admins need the
+`realpeptides:coa-upload` grant (`PERMISSION_ROUTES` in `server/admin-auth.ts`).
+
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
 - Use raw SQL (`pool.query`) for everything. Drizzle ORM crashes here.

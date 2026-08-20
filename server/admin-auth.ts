@@ -177,6 +177,10 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
   "pawgen:refund": [
     { method: "POST", pattern: /^\/api\/ops\/pawgen\/orders\/[^/]+\/refund\/?$/ },
   ],
+  // File a new COA PDF for a Real Peptides SKU (Justin). Nothing else under /realpeptides.
+  "realpeptides:coa-upload": [
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/upload\/?$/ },
+  ],
 };
 
 function permitsRequest(granted: string[], method: string, path: string): boolean {
@@ -569,7 +573,7 @@ export function registerAdminAuthRoutes(app: Express) {
     if (!claims) return res.status(401).json({ error: "invalid_session" });
     const role = resolveRole(claims.email);
     if (!role) return res.status(403).json({ error: "not_authorized" });
-    res.json({ email: claims.email, role });
+    res.json({ email: claims.email, role, permissions: role === "admin" ? ["*"] : permissionsFor(claims.email) });
   });
 
   app.post("/api/ops/auth/logout", (_req, res) => {
