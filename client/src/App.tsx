@@ -28,7 +28,7 @@ import ReportsConversions from "./pages/reports-conversions";
 import ReportsSales from "./pages/reports-sales";
 import ReportsAds from "./pages/reports-ads";
 import ReportsDmarc from "./pages/reports-dmarc";
-import Content from "./pages/content";
+import Content, { CompanyContent } from "./pages/content";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
@@ -174,8 +174,10 @@ export default function App() {
           <Route path="/pawgen/leads" component={PawgenLeads} />
           <Route path="/pawgen/marketing" component={PawgenMarketing} />
           <Route path="/pawgen/traffic">{() => <CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
+          <Route path="/pawgen/content">{() => <CompanyContent company="pawgen" label="pawgen" />}</Route>
           <Route path="/pawgen/seo">{() => <CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
+          <Route path="/peptideu/content">{() => <CompanyContent company="peptideu" label="PeptideU" />}</Route>
           <Route path="/peptideu/integrations">{() => <CompanyIntegrations company="peptideu" label="PeptideU" />}</Route>
 
           {/* Real Peptides — no Overview/Orders tab: WooCommerce isn't readable yet, and an
@@ -184,6 +186,7 @@ export default function App() {
           <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
           <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
           <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>
+          <Route path="/realpeptides/content">{() => <CompanyContent company="realpeptides" label="Real Peptides" />}</Route>
           <Route path="/realpeptides/seo">{() => <CompanySeo {...RP} />}</Route>
           <Route path="/realpeptides/coa" component={RealPeptidesCoa} />
           <Route path="/realpeptides/integrations">{() => <CompanyIntegrations company="realpeptides" label="Real Peptides" />}</Route>

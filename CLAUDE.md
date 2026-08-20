@@ -63,6 +63,11 @@ runs headless). `POST /api/ops/realpeptides/coa/upload` records a test + vaults 
 `/lab-tests`, `/team`, `/notify`) to the tracker's API with the `COA_OPS_TOKEN` bearer. The UI lives
 in `client/src/pages/coa/`. Non-admins need the `realpeptides:coa-upload` grant.
 
+## Clomark per brand
+`server/clomark.ts` maps company → Clomark business profile id (`COMPANY_BUSINESS`, override with
+`CLOMARK_BUSINESS_ID_<COMPANY>`); every `/api/ops/clomark/*` route takes `?company=`. The content
+workflow UI is `content.tsx`; non-FitScript brands mount it via `CompanyContent` at `/<company>/content`.
+
 ## Notes
 - This repo is **separate** from the main FitScript repo (`markappz/Humn-Health`). It's `markappz/ops_dashboard`.
 - Use raw SQL (`pool.query`) for everything. Drizzle ORM crashes here.

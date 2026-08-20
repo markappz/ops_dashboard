@@ -4,6 +4,36 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-20 (night) — Clomark content per brand: pawgen, Real Peptides, PeptideU tabs
+
+Paul wants each brand's Clomark SEO pages / blogs visible in its own ops section, like FitScript's
+/content. The bridge already existed (Clomark Nexus `server/ops-api.ts` ↔ ops `server/clomark.ts`)
+but was pinned to one business id via `CLOMARK_BUSINESS_ID`.
+
+- `server/clomark.ts`: `COMPANY_BUSINESS` map (fitscript 533eac81…, pawgen 71d86e68…, realpeptides
+  b68ed2a5…, peptideu c9843d66…), `CLOMARK_BUSINESS_ID_<COMPANY>` env override, every route takes
+  `?company=` (default fitscript, unknown → fitscript). `getConfig(company)` → 17 call sites.
+- `content.tsx`: `ClomarkCompanyContext` + `useClomark()` (`url()` appends company; cache keys include
+  it). 12 fetches + 16 queryKeys rewritten; `const cl = useClomark()` in the 7 components that
+  fetch. New export `CompanyContent({company,label})` = hero + the full `ClomarkSection`
+  (queue, add content, location pages, drafts viewer, approvals, bulk publish). FitScript page
+  unchanged (default context).
+- Routes `/pawgen/content`, `/realpeptides/content`, `/peptideu/content` + nav "Content" entries.
+
+**Clomark DB facts (Neon, queried 2026-08-20):** Real Peptides profile under paul@clomark.ai has
+**19,660 generated pieces / 16,542 suggestions**; pawgen 25; FitScript 3 (under a third user
+ef95a5b0); PeptideU exists only as "UPeptides" (peptide-u.replit.app) under demo@clomark.ai with
+2 pieces — needs a real profile under Paul's account, then set `CLOMARK_BUSINESS_ID_PEPTIDEU`.
+The pawgen id in memory (b19357ec) no longer exists; 71d86e68 is current.
+
+**Can't verify against live Clomark from this Mac** — `CLOMARK_BASE_URL/OPS_TOKEN/BUSINESS_ID`
+live only in the ECS task secrets. Verified locally: per-company routing, unknown company falls
+back, all three tabs render the setup state, FitScript /content unchanged, tsc + build clean.
+Real check = open /realpeptides/content on prod after deploy. Note `CLOMARK_BUSINESS_ID` in prod
+secrets may point at a different FitScript profile than the DB default — it still wins for fitscript.
+
+---
+
 ## 2026-08-20 (evening) — Full COA tracker UI ported into ops
 
 Paul wanted the tracker experience itself (cards → click → variants → history), not just a

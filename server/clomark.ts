@@ -18,22 +18,53 @@
  *   GET /api/ops/clomark/content      — content suggestions + generated content
  *   GET /api/ops/clomark/activities   — recent AI activity log
  */
-import type { Express } from "express";
+import type { Express, Request } from "express";
 
 interface ClomarkConfig {
   baseUrl: string;
   token: string;
   businessId: string | null;
+  company: string;
 }
 
-function getConfig(): ClomarkConfig | null {
+/**
+ * One Clomark business profile per brand. Profile ids aren't secrets — they're
+ * row ids in Clomark's DB — so the defaults live here and an env var
+ * (CLOMARK_BUSINESS_ID_<COMPANY>) overrides without a code change. FitScript
+ * keeps honouring the original CLOMARK_BUSINESS_ID.
+ *
+ * Verified against Clomark's DB 2026-08-20. PeptideU is a placeholder profile
+ * under the demo account until a real one is created.
+ */
+const COMPANY_BUSINESS: Record<string, string> = {
+  fitscript: "533eac81-2538-4ae8-9cc2-b578587cbcad",
+  pawgen: "71d86e68-79ef-4ed1-a5be-e77d1c58927d",
+  realpeptides: "b68ed2a5-7e8d-4b4c-aae3-424f0f580099",
+  peptideu: "c9843d66-dee6-44d0-bcac-5b7da113e69e",
+};
+export const CLOMARK_COMPANIES = Object.keys(COMPANY_BUSINESS);
+
+function businessIdFor(company: string): string | null {
+  const override = process.env[`CLOMARK_BUSINESS_ID_${company.toUpperCase()}`];
+  if (override) return override;
+  if (company === "fitscript" && process.env.CLOMARK_BUSINESS_ID) return process.env.CLOMARK_BUSINESS_ID;
+  return COMPANY_BUSINESS[company] ?? null;
+}
+
+function companyOf(req: Request): string {
+  const c = String(req.query.company || "fitscript").toLowerCase();
+  return c in COMPANY_BUSINESS ? c : "fitscript";
+}
+
+function getConfig(company = "fitscript"): ClomarkConfig | null {
   const baseUrl = process.env.CLOMARK_BASE_URL;
   const token = process.env.CLOMARK_OPS_TOKEN;
   if (!baseUrl || !token) return null;
   return {
     baseUrl: baseUrl.replace(/\/$/, ""),
     token,
-    businessId: process.env.CLOMARK_BUSINESS_ID || null,
+    businessId: businessIdFor(company),
+    company,
   };
 }
 
@@ -83,8 +114,8 @@ async function clomarkFetch<T = any>(
 
 export function registerClomarkRoutes(app: Express) {
   // Connection check — does NOT require CLOMARK_BUSINESS_ID, just base + token.
-  app.get("/api/ops/clomark/status", async (_req, res) => {
-    const cfg = getConfig();
+  app.get("/api/ops/clomark/status", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
     if (!cfg) {
       return res.json({
         configured: false,
@@ -103,6 +134,7 @@ export function registerClomarkRoutes(app: Express) {
         version: data?.version,
         businessIdConfigured: !!cfg.businessId,
         businessId: cfg.businessId,
+        company: cfg.company,
         baseUrl: cfg.baseUrl,
       });
     } catch (e: any) {
@@ -118,7 +150,7 @@ export function registerClomarkRoutes(app: Express) {
   // Operator runs this once, copies the returned `id`, sets
   // CLOMARK_BUSINESS_ID, restarts. All subsequent calls use the env value.
   app.get("/api/ops/clomark/discover", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg) {
       return res.status(503).json({ error: "Clomark not configured" });
     }
@@ -145,8 +177,8 @@ export function registerClomarkRoutes(app: Express) {
 
   // Combined snapshot for the /content page header — fires all data in
   // parallel and returns a single payload to minimize round-trips.
-  app.get("/api/ops/clomark/overview", async (_req, res) => {
-    const cfg = getConfig();
+  app.get("/api/ops/clomark/overview", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
     if (!cfg || !cfg.businessId) {
       return res.status(503).json({
         error: "Clomark business ID not configured",
@@ -190,7 +222,7 @@ export function registerClomarkRoutes(app: Express) {
 
   // Detail lists — each forwards through to the Clomark API
   app.get("/api/ops/clomark/keywords", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -206,7 +238,7 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   app.get("/api/ops/clomark/content", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -224,7 +256,7 @@ export function registerClomarkRoutes(app: Express) {
   // ─── Write operations (Phase A) ────────────────────────────────────
 
   app.post("/api/ops/clomark/content-suggestions", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -241,7 +273,7 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   app.post("/api/ops/clomark/content-suggestions/bulk", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -258,8 +290,8 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   // Location-page support
-  app.get("/api/ops/clomark/location/options", async (_req, res) => {
-    const cfg = getConfig();
+  app.get("/api/ops/clomark/location/options", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
     if (!cfg) return res.status(503).json({ error: "Clomark not configured" });
     try {
       const body = await clomarkFetch(`/api/ops/location/options`, cfg);
@@ -270,7 +302,7 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   app.get("/api/ops/clomark/location/zip-lookup", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg) return res.status(503).json({ error: "Clomark not configured" });
     try {
       const qs = new URLSearchParams();
@@ -284,8 +316,8 @@ export function registerClomarkRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ops/clomark/profile-items", async (_req, res) => {
-    const cfg = getConfig();
+  app.get("/api/ops/clomark/profile-items", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -301,7 +333,7 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   app.post("/api/ops/clomark/location-page", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -320,7 +352,7 @@ export function registerClomarkRoutes(app: Express) {
   // ─── Generated content view + approval (Phase C) ──────────────────
 
   app.get("/api/ops/clomark/generated/:contentId", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -336,7 +368,7 @@ export function registerClomarkRoutes(app: Express) {
   });
 
   app.patch("/api/ops/clomark/generated/:contentId/approval", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -354,8 +386,8 @@ export function registerClomarkRoutes(app: Express) {
 
   // ─── Bulk publish (Phase D) ────────────────────────────────────────
 
-  app.get("/api/ops/clomark/publishing/platforms", async (_req, res) => {
-    const cfg = getConfig();
+  app.get("/api/ops/clomark/publishing/platforms", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
@@ -373,7 +405,7 @@ export function registerClomarkRoutes(app: Express) {
   app.post(
     "/api/ops/clomark/publishing/:platform/:contentId",
     async (req, res) => {
-      const cfg = getConfig();
+      const cfg = getConfig(companyOf(req));
       if (!cfg?.businessId) {
         return res.status(503).json({ error: "Clomark business ID not configured" });
       }
@@ -393,7 +425,7 @@ export function registerClomarkRoutes(app: Express) {
   app.delete(
     "/api/ops/clomark/content-suggestions/:suggestionId",
     async (req, res) => {
-      const cfg = getConfig();
+      const cfg = getConfig(companyOf(req));
       if (!cfg?.businessId) {
         return res.status(503).json({ error: "Clomark business ID not configured" });
       }
@@ -411,7 +443,7 @@ export function registerClomarkRoutes(app: Express) {
   );
 
   app.get("/api/ops/clomark/activities", async (req, res) => {
-    const cfg = getConfig();
+    const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {
       return res.status(503).json({ error: "Clomark business ID not configured" });
     }
