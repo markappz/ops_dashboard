@@ -24,6 +24,13 @@ started at Leads and `/realpeptides` redirected there).
   new site is Supabase-backed (preview HTML references it) → `RP_DATABASE_URL` becomes the source.
 - `/api/ops/pages?summary=1` returns totals without the 23k rows.
 
+**Prod wiring (same day):** Paul supplied a read-only WooCommerce key; verified against the store
+(3 processing orders that morning). Added `RP_WOO_CONSUMER_KEY/SECRET` to Secrets Manager
+`prod/ops-secrets` and registered task-def **rev 177** with the two secret refs via the AWS SDK
+from this Mac (no aws CLI here; the .env AWS keys have the permissions). Found while there:
+`RP_MOOSEND_API_KEY` and `RP_CAMPAIGN_REFINERY_API_KEY` were **never set in prod** — the RP Leads
+tab has been showing "key not set" since 08-14. Asked Paul for them.
+
 Local run (prod RDS, local Google client): sessions 1,138 (+100%), search clicks 23,259 (+34%,
 1.57M impressions), 23,812 live URLs, 9,464 getting impressions (40%). GSC worked locally this
 time — the earlier `deleted_client` was transient. Prod-only keys (Moosend, CR, COA, Clomark)
