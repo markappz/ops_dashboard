@@ -62,7 +62,7 @@ export default function RealPeptidesOverview() {
   const cl = clomark.data;
   const moosend = leads.data?.moosend;
   const cr = leads.data?.campaignRefinery;
-  const moosendTotal = moosend?.lists ? moosend.lists.reduce((s: number, l: any) => s + (l.activeMembers ?? l.active_members ?? l.members ?? 0), 0) : null;
+  const moosendTotal: number | null = moosend?.totalActive ?? null;
 
   return (
     <div>
@@ -105,7 +105,7 @@ export default function RealPeptidesOverview() {
       <Section title="Leads & certificates" hint="Moosend · Campaign Refinery · COA tracker">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
           <Card label="Moosend subscribers" to="/realpeptides/leads" value={moosend?.configured === false ? "—" : moosend?.error ? "!" : num(moosendTotal)} sub={moosend?.configured === false ? "key not set" : moosend?.error ?? `${moosend?.lists?.length ?? 0} lists`} />
-          <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.newContacts ?? cr?.contacts ?? cr?.total)} sub={cr?.configured === false ? "key not set" : cr?.error ?? "new contacts"} />
+          <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.recentCount)} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.returned)} returned`} />
           <Card label="Tracked SKUs" to="/realpeptides/coa" value={t ? num(t.tracked) : "—"} />
           <Card label="Expired COAs" to="/realpeptides/coa" value={t ? num(t.expired) : "—"} tone={t?.expired ? "bad" : undefined} sub="retest needed" />
           <Card label="Never tested" to="/realpeptides/coa" value={t ? num(t.untested) : "—"} tone={t?.untested ? "warn" : undefined} />
