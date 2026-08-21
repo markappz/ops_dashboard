@@ -81,8 +81,8 @@ export default function RealPeptidesOverview() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {sales?.configured ? (
           <>
-            <Card label={`Revenue · ${range}d`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} paid orders · ${sales.source}`} />
-            <Card label="Average order" value={usd(sales.current.aov)} sub={`${num(sales.current.customers)} customers${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+            <Card label={`Revenue · ${range}d`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} orders · net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
+            <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
           </>
         ) : (
           <div className="col-span-2 rounded-xl border border-dashed border-ops-border bg-ops-surface p-5">
@@ -105,7 +105,7 @@ export default function RealPeptidesOverview() {
       <Section title="Leads & certificates" hint="Moosend · Campaign Refinery · COA tracker">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
           <Card label="Moosend subscribers" to="/realpeptides/leads" value={moosend?.configured === false ? "—" : moosend?.error ? "!" : num(moosendTotal)} sub={moosend?.configured === false ? "key not set" : moosend?.error ?? `${moosend?.lists?.length ?? 0} lists`} />
-          <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.recentCount)} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.returned)} returned`} />
+          <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : `${num(cr?.recentCount)}${cr?.capped ? "+" : ""}`} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.total)} total`} />
           <Card label="Tracked SKUs" to="/realpeptides/coa" value={t ? num(t.tracked) : "—"} />
           <Card label="Expired COAs" to="/realpeptides/coa" value={t ? num(t.expired) : "—"} tone={t?.expired ? "bad" : undefined} sub="retest needed" />
           <Card label="Never tested" to="/realpeptides/coa" value={t ? num(t.untested) : "—"} tone={t?.untested ? "warn" : undefined} />
@@ -129,10 +129,10 @@ export default function RealPeptidesOverview() {
         <Section title="Top products" hint={`${range} days · by revenue`}>
           <div className="overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
             <table className="w-full text-sm">
-              <thead><tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted"><th className="px-4 py-3 font-medium">Product</th><th className="px-4 py-3 text-right font-medium">Units</th><th className="px-4 py-3 text-right font-medium">Revenue</th></tr></thead>
+              <thead><tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted"><th className="px-4 py-3 font-medium">Product</th><th className="px-4 py-3 text-right font-medium">Units</th><th className="px-4 py-3 text-right font-medium">Orders</th><th className="px-4 py-3 text-right font-medium">Net revenue</th></tr></thead>
               <tbody>
                 {sales.topProducts.map((p: any) => (
-                  <tr key={p.name} className="border-b border-ops-border/50 last:border-0"><td className="px-4 py-2 text-ops-text">{p.name}</td><td className="px-4 py-2 text-right tabular-nums text-ops-text-muted">{num(p.units)}</td><td className="px-4 py-2 text-right tabular-nums text-ops-text">{usd(p.revenue)}</td></tr>
+                  <tr key={p.name} className="border-b border-ops-border/50 last:border-0"><td className="px-4 py-2 text-ops-text">{p.name}</td><td className="px-4 py-2 text-right tabular-nums text-ops-text-muted">{num(p.units)}</td><td className="px-4 py-2 text-right tabular-nums text-ops-text-muted">{num(p.orders)}</td><td className="px-4 py-2 text-right tabular-nums text-ops-text">{usd(p.revenue)}</td></tr>
                 ))}
               </tbody>
             </table>

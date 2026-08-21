@@ -160,42 +160,57 @@ async function campaignRefinery<T = any>(path: string): Promise<T> {
   return (text ? JSON.parse(text) : null) as T;
 }
 
-/**
- * CR's response shape isn't published, so read it tolerantly and — if no contact
- * array can be found — report the keys that WERE returned. A first-call mismatch
- * becomes a ten-second fix instead of a silent zero.
- */
-function pickArray(body: any): { rows: any[]; shape: string } {
-  if (Array.isArray(body)) return { rows: body, shape: "array" };
-  for (const k of ["data", "contacts", "results", "items", "records"]) {
-    if (Array.isArray(body?.[k])) return { rows: body[k], shape: k };
-  }
-  const keys = body && typeof body === "object" ? Object.keys(body).join(", ") : typeof body;
-  throw new Error(`Campaign Refinery returned an unrecognised shape (top-level keys: ${keys})`);
-}
 
 const first = (o: any, keys: string[]) => keys.map((k) => o?.[k]).find((v) => typeof v === "string" && v);
 
+const crCache = new Map<number, { at: number; data: any }>();
+
 async function campaignRefineryContacts(since: number) {
-  const body = await campaignRefinery("/rest/contacts");
-  const { rows, shape } = pickArray(body);
+  // Documented route: GET /rest/contacts/get_contacts (bearer), newest first,
+  // per_page ≤ 100. Its contact_add_start/end filters are IGNORED by the API
+  // (verified 2026-08-21: every variant returns the full list), so "new in the
+  // last N days" = walk pages until contact_add_dts passes the cutoff. ~160
+  // signups/day → a 30-day window is ~50 pages; cap at 100 and say so.
+  const hit = crCache.get(since);
+  if (hit && Date.now() - hit.at < 15 * 60_000) return hit.data;
 
-  const cutoff = Date.now() - since * 86_400_000;
-  const contacts = rows.map((c: any) => ({
-    email: first(c, ["email", "email_address", "Email"]) ?? "(no email)",
-    created_at: first(c, ["created_at", "created", "subscribed_at", "createdAt"]) ?? null,
-  }));
-  const recent = contacts.filter((c) => c.created_at && Date.parse(c.created_at) >= cutoff);
-
-  return {
-    shape,
-    returned: contacts.length,
-    // The page total is what CR gave us, not the account total — say so rather
-    // than presenting a page size as if it were the list size.
-    recentCount: recent.length,
-    datedContacts: contacts.filter((c) => c.created_at).length,
-    recent: recent.slice(0, 100),
+  const cutoff = Date.now() - since * 86400_000;
+  const parse = (dts: string) => Date.parse(String(dts).replace(" ", "T") + "Z");
+  let total: number | null = null;
+  let recentCount = 0;
+  let capped = false;
+  const recent: { email: string | null; name: string | null; created_at: string | null; optedOut: boolean }[] = [];
+  for (let page = 1; page <= 100; page++) {
+    const body = await campaignRefinery<{ data?: { total?: number; data?: any[] } }>(`/rest/contacts/get_contacts?per_page=100&page=${page}`);
+    if (total === null) total = body?.data?.total ?? null;
+    const rows = body?.data?.data ?? [];
+    let passedCutoff = false;
+    for (const c of rows) {
+      if (parse(c.contact_add_dts) < cutoff) { passedCutoff = true; break; }
+      recentCount++;
+      if (recent.length < 100) {
+        recent.push({
+          email: c.contact_email ?? null,
+          name: [c.contact_first_name, c.contact_last_name].filter(Boolean).join(" ") || null,
+          created_at: c.contact_add_dts ?? null,
+          optedOut: c.contact_optout === 1,
+        });
+      }
+    }
+    if (passedCutoff || rows.length < 100) break;
+    if (page === 100) capped = true;
+  }
+  const data = {
+    shape: "get_contacts",
+    total,
+    recentCount,
+    capped,
+    returned: recent.length,
+    datedContacts: recent.filter((c) => c.created_at).length,
+    recent,
   };
+  crCache.set(since, { at: Date.now(), data });
+  return data;
 }
 
 // ─── COA tracker (coa.realpeptides.co) ─────────────────────────────

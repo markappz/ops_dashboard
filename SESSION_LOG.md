@@ -4,6 +4,29 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-21 (later) — RP sales via WooCommerce Analytics; Campaign Refinery fixed
+
+**WooCommerce:** first prod numbers looked great ($593k/30d) but the *previous* window showed 118
+orders vs ~2,140 real — the `wc/v3/orders` pager hit its 30-page cap on the 60-day fetch and
+silently truncated. Rewrote `server/woocommerce.ts` on **`wc-analytics/reports/revenue/stats`**
+(server-side totals + daily intervals, two requests per range) and **`reports/products`** for top
+sellers. Revenue card = **net revenue** (after coupons/refunds, before shipping/tax), gross shown
+in the sub. Verified vs `X-WP-Total`: 30d net $565k / 2,379 orders / AOV $238 / 1,703 customers;
+prior 30d net $527k / 2,090 (+7%). Coupons are big here — gross prior window was $925k.
+
+**Campaign Refinery:** the connector called `/rest/contacts`, which doesn't exist (404 in prod).
+Documented route is `GET /rest/contacts/get_contacts` (bearer, newest-first, per_page ≤ 100,
+`data.total`). **Its `contact_add_start/end` filters are ignored** — every variant returns the
+full 57,220 — so "new in N days" walks pages until `contact_add_dts` passes the cutoff (cap 100
+pages → `capped:true` and a "+" in the UI), 15-min cache. 30d = 5,581 new, 7d = 1,199 (~160/day).
+Removed the old shape-guessing `pickArray`.
+
+**Prod secrets dance today:** Paul added the CR key to `prod/ops-secrets` + task def rev 180 but
+the service stayed on 179 until `UpdateService` — the console's revision dropdown trap again.
+Overview "Not connected" in Paul's screenshot was the pre-180 task; prod is correct now.
+
+---
+
 ## 2026-08-21 — Real Peptides Command Center (the one brand without an Overview)
 
 Paul: "FitScript has Command Center with real numbers; I want this for each brand." pawgen and
