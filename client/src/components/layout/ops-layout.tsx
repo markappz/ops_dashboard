@@ -8,7 +8,7 @@ import { Dirt } from "../dirt/Dirt";
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
-const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen"]);
+const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen", "/realpeptides"]);
 
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   {
@@ -52,6 +52,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
   {
     label: "Real Peptides",
     items: [
+      { path: "/realpeptides", label: "Overview", icon: "grid" },
       { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
       { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
       { path: "/realpeptides/traffic", label: "Site Traffic", icon: "chart" },

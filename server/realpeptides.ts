@@ -19,6 +19,7 @@
 import express, { type Express, type Request, type Response } from "express";
 import multer from "multer";
 import { pool } from "./db";
+import { salesSummary, wooConfigured } from "./woocommerce";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -58,6 +59,19 @@ async function trafficTotals(since: number) {
      FROM visitor_sessions
      WHERE site = $1 AND created_at > NOW() - ($2 || ' days')::interval`,
     [SITE, String(since)]
+  );
+  return rows[0];
+}
+
+/** Sessions/visitors for a window ending `endOffsetDays` ago (0 = now). */
+async function trafficWindow(since: number, endOffsetDays: number) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS sessions, COUNT(DISTINCT visitor_id)::int AS visitors
+     FROM visitor_sessions
+     WHERE site = $1
+       AND created_at > NOW() - (($2::int + $3::int) || ' days')::interval
+       AND created_at <= NOW() - ($3::int || ' days')::interval`,
+    [SITE, since, endOffsetDays]
   );
   return rows[0];
 }
@@ -348,6 +362,32 @@ export function registerRealPeptidesRoutes(app: Express) {
     ]);
 
     res.json({ range: since, moosend: moosendData, campaignRefinery: crData });
+  });
+
+  /**
+   * Command Center numbers that need the server: sales (WooCommerce, env-gated)
+   * and pixel traffic with a previous-window delta. Leads, COA, pages and
+   * Clomark are composed client-side from their own endpoints.
+   */
+  app.get("/api/ops/realpeptides/overview", async (req, res) => {
+    const since = days(req.query.range);
+    try {
+      const [ever, cur, prev] = await Promise.all([
+        pool.query(`SELECT EXISTS(SELECT 1 FROM visitor_sessions WHERE site = $1) AS ok`, [SITE]),
+        trafficWindow(since, 0),
+        trafficWindow(since, since),
+      ]);
+      let sales: any;
+      if (!wooConfigured()) {
+        sales = { configured: false, hint: "Add a read-only WooCommerce API key (WP admin → WooCommerce → Settings → Advanced → REST API) as RP_WOO_CONSUMER_KEY / RP_WOO_CONSUMER_SECRET on ops. Revenue, orders, AOV and top products appear here. After the Vercel launch, point RP_DATABASE_URL at the new site's Supabase." };
+      } else {
+        try { sales = await salesSummary(since); }
+        catch (e: any) { sales = { configured: true, error: e.message }; }
+      }
+      res.json({ range: since, sales, traffic: { pixelInstalled: ever.rows[0]?.ok === true, current: cur, previous: prev } });
+    } catch (e) {
+      fail(res, "Overview", e);
+    }
   });
 
   /** COA freshness, proxied from the COA tracker's own read-only endpoint. */

@@ -30,6 +30,7 @@ import ReportsAds from "./pages/reports-ads";
 import ReportsDmarc from "./pages/reports-dmarc";
 import Content, { CompanyContent } from "./pages/content";
 import CompanyPages from "./pages/company-pages";
+import RealPeptidesOverview from "./pages/realpeptides-overview";
 import Settings from "./pages/settings";
 import Leads from "./pages/leads";
 import Login from "./pages/login";
@@ -185,7 +186,7 @@ export default function App() {
 
           {/* Real Peptides — no Overview/Orders tab: WooCommerce isn't readable yet, and an
               overview with no revenue on it would just be a page of dashes. */}
-          <Route path="/realpeptides"><Redirect to="/realpeptides/leads" /></Route>
+          <Route path="/realpeptides" component={RealPeptidesOverview} />
           <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
           <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
           <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>

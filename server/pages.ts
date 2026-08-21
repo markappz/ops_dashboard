@@ -292,7 +292,9 @@ export function registerPagesRoutes(app: Express) {
         window: { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) },
         sitemap: run.rows[0] ? { fetchedAt: run.rows[0].fetched_at, urlCount: run.rows[0].url_count, sources: run.rows[0].sources, error: run.rows[0].error } : null,
         gsc: { connected: !cur.error, error: cur.error ?? null, pages: cur.rows.size },
-        totals, rows,
+        totals,
+        // Overview cards only need the totals; 23k rows is a lot to ship for five tiles.
+        rows: req.query.summary === "1" ? [] : rows,
       });
     } catch (e: any) {
       console.error("[PAGES]", e.message);

@@ -4,6 +4,33 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-21 — Real Peptides Command Center (the one brand without an Overview)
+
+Paul: "FitScript has Command Center with real numbers; I want this for each brand." pawgen and
+PeptideU already had Overview pages with real revenue / MRR; Real Peptides was the gap (its nav
+started at Leads and `/realpeptides` redirected there).
+
+- `realpeptides-overview.tsx` at `/realpeptides` (nav "Overview", `COMPANY_ROOTS` updated): sales
+  (connect state), sessions + Δ (pixel), search clicks + Δ (Pages summary), Moosend / Campaign
+  Refinery, COA tiles, live URLs / getting impressions / Clomark suggestions / generated / SEO
+  score, top products (when sales connected), integration health row. Range 7/30/90.
+- `GET /api/ops/realpeptides/overview?range=` → sales + pixel traffic with previous-window delta
+  (`trafficWindow`; params cast `::int` — untyped `$2 + $3` threw "operator is not unique").
+- **`server/woocommerce.ts`**: read-only WooCommerce REST connector (`RP_WOO_CONSUMER_KEY/SECRET`,
+  optional `RP_WOO_URL`): orders for 2×range, paid = completed/processing, revenue/orders/AOV/
+  customers for current + previous window, daily series, top products, 10-min cache. Verified the
+  live store's REST API is enabled (401 without key). **Unset → `configured:false` + instructions;
+  the /realpeptides/* no-currency rule holds until the key lands.** After the Vercel launch the
+  new site is Supabase-backed (preview HTML references it) → `RP_DATABASE_URL` becomes the source.
+- `/api/ops/pages?summary=1` returns totals without the 23k rows.
+
+Local run (prod RDS, local Google client): sessions 1,138 (+100%), search clicks 23,259 (+34%,
+1.57M impressions), 23,812 live URLs, 9,464 getting impressions (40%). GSC worked locally this
+time — the earlier `deleted_client` was transient. Prod-only keys (Moosend, CR, COA, Clomark)
+show as "key not set" locally and fill on deploy.
+
+---
+
 ## 2026-08-20 (late night) — Pages: sitemap × Search Console × pixel, per brand
 
 Paul, looking at the RP Content tab: "how is it correlated to ranking, traffic, etc for each of
