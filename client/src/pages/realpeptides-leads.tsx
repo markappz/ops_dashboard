@@ -146,7 +146,7 @@ export default function RealPeptidesLeads() {
       <PageHero
         eyebrow="Real Peptides"
         title="Leads"
-        subtitle="List growth from Moosend and Campaign Refinery."
+        subtitle="Campaign Refinery is the list of record — every guide funnel, including the Moosend ones, lands there."
       />
 
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
@@ -156,19 +156,21 @@ export default function RealPeptidesLeads() {
 
       {data && !data.error && (
         <>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Moosend" subtitle="Mailing lists and active subscriber counts">
-              <Moosend d={data.moosend ?? {}} />
-            </Card>
-            <Card title="Campaign Refinery" subtitle="Contacts and recent signups">
+          <div className="grid gap-4">
+            <Card title="Campaign Refinery" subtitle="All contacts and recent signups — the system of record">
               <CampaignRefinery d={data.campaignRefinery ?? {}} range={data.range} />
             </Card>
+            {data.moosend?.configured !== false && (
+              <Card title="Moosend (funnel capture)" subtitle="Guide-funnel lists. Counts here are a subset of Campaign Refinery, not additional leads.">
+                <Moosend d={data.moosend ?? {}} />
+              </Card>
+            )}
           </div>
 
           <p className="mt-4 text-xs text-ops-text-muted">
-            No conversion or revenue figures here — WooCommerce isn&apos;t readable, so whether a lead
-            became a customer is genuinely unknown rather than zero. Each platform is configured
-            independently; one being down never blanks the other.
+            Moosend only captures some guide funnels and syncs everything into Campaign Refinery, so it
+            is optional here{data.moosend?.configured === false ? " (not connected — nothing is missing from the numbers above)" : ""}.
+            Lead-to-customer conversion isn&apos;t shown: orders and contacts aren&apos;t linked by email yet.
           </p>
         </>
       )}

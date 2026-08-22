@@ -62,7 +62,6 @@ export default function RealPeptidesOverview() {
   const cl = clomark.data;
   const moosend = leads.data?.moosend;
   const cr = leads.data?.campaignRefinery;
-  const moosendTotal: number | null = moosend?.totalActive ?? null;
 
   return (
     <div>
@@ -102,9 +101,9 @@ export default function RealPeptidesOverview() {
       </div>
 
       {/* ── Leads + certificates ── */}
-      <Section title="Leads & certificates" hint="Moosend · Campaign Refinery · COA tracker">
+      <Section title="Leads & certificates" hint="Campaign Refinery · COA tracker">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
-          <Card label="Moosend subscribers" to="/realpeptides/leads" value={moosend?.configured === false ? "—" : moosend?.error ? "!" : num(moosendTotal)} sub={moosend?.configured === false ? "key not set" : moosend?.error ?? `${moosend?.lists?.length ?? 0} lists`} />
+          <Card label="Contacts (all time)" to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.total)} sub={cr?.configured === false ? "key not set" : cr?.error ?? "Campaign Refinery · list of record"} />
           <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : `${num(cr?.recentCount)}${cr?.capped ? "+" : ""}`} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.total)} total`} />
           <Card label="Tracked SKUs" to="/realpeptides/coa" value={t ? num(t.tracked) : "—"} />
           <Card label="Expired COAs" to="/realpeptides/coa" value={t ? num(t.expired) : "—"} tone={t?.expired ? "bad" : undefined} sub="retest needed" />
@@ -147,7 +146,7 @@ export default function RealPeptidesOverview() {
             ["Sales (WooCommerce)", sales?.configured ? "ok" : "off", sales?.configured ? "connected" : "no API key"],
             ["Pixel", traffic?.pixelInstalled ? "ok" : "off", traffic?.pixelInstalled ? "reporting" : "no events yet"],
             ["Search Console", pages.data?.gsc?.connected ? "ok" : pages.isLoading ? "…" : "off", pages.data?.gsc?.connected ? `${num(pages.data.gsc.pages)} pages` : pages.data?.gsc?.error ?? ""],
-            ["Moosend", moosend?.configured === false ? "off" : moosend?.error ? "bad" : "ok", moosend?.configured === false ? "key not set" : moosend?.error ?? "connected"],
+            ["Moosend (optional)", moosend?.configured === false ? "off" : moosend?.error ? "bad" : "ok", moosend?.configured === false ? "funnels sync to CR" : moosend?.error ?? "connected"],
             ["Campaign Refinery", cr?.configured === false ? "off" : cr?.error ? "bad" : "ok", cr?.configured === false ? "key not set" : cr?.error ?? "connected"],
             ["COA tracker", coa.data?.configured === false ? "off" : coa.data?.error ? "bad" : t ? "ok" : "…", coa.data?.generatedAt ? `as of ${new Date(coa.data.generatedAt).toLocaleTimeString()}` : coa.data?.error ?? ""],
             ["Clomark", cl?.content ? "ok" : clomark.data?.error ? "bad" : "…", cl?.content ? "connected" : clomark.data?.error ?? ""],

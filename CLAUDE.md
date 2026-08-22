@@ -27,7 +27,7 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `OPS_PORT` — defaults to 5001
 - `NODE_ENV=production` in deploys
 - `KLAVIYO_API_KEY` — `pk_*` private key (read-only connector for now). **FitScript's account.**
-- `RP_MOOSEND_API_KEY` — Real Peptides' Moosend key. **RP does not use Klaviyo**
+- `RP_MOOSEND_API_KEY` — optional. Moosend only captures some guide funnels and syncs everything into Campaign Refinery, which is the list of record. **RP does not use Klaviyo**
 - `RP_CAMPAIGN_REFINERY_API_KEY` — Real Peptides' Campaign Refinery key (bearer token)
 - `COA_OPS_TOKEN` — shared bearer token for reading coa.realpeptides.co's `/api/ops-summary`
 - `COA_API_URL` — optional override, defaults to `https://coa.realpeptides.co`
