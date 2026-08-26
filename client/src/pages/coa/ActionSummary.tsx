@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Copy, Check, Send, FlaskConical, CalendarClock } from "lucide-react";
 import { api, ui, type Family } from "./api";
 import { buildSummary, type SummarySection } from "./summary";
+import { useLabs } from "./FamilyDetail";
 
 export function ActionSummary({ families, onClose }: { families: Family[]; onClose: () => void }) {
   const sections = buildSummary(families);
@@ -25,6 +26,7 @@ export function ActionSummary({ families, onClose }: { families: Family[]; onClo
 }
 
 function KoveraBanner() {
+  const { defaultLab } = useLabs();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   async function post() {
@@ -40,7 +42,7 @@ function KoveraBanner() {
         <div className="flex min-w-0 items-center gap-2.5">
           <FlaskConical size={18} className="shrink-0 text-fitscript-green" />
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-ops-text">Send to Kovera for testing</div>
+            <div className="text-sm font-semibold text-ops-text">Send to {defaultLab} for testing</div>
             <div className="flex items-center gap-1 text-[11px] text-ops-text-muted"><CalendarClock size={11} /> Auto-posts to Slack every Monday 9am</div>
           </div>
         </div>

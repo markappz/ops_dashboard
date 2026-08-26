@@ -1,4 +1,4 @@
-import type { Sku, Family, Status, Doc } from "./api";
+import { thumbUrl, type Sku, type Family, type Status, type Doc } from "./api";
 
 // Worst-first so a family's rolled-up status reflects its most urgent variant.
 const SEVERITY: Status[] = ["expired", "untested", "expiring", "fresh", "n/a"];
@@ -16,7 +16,7 @@ export function groupFamilies(skus: Sku[]): Family[] {
       map.set(s.family_key, {
         key: s.family_key,
         label: s.family_label,
-        thumbnail: s.thumbnail_url,
+        thumbnail: thumbUrl(s),
         variants: [s],
         status: s.status,
         docCount: s.doc_count,
@@ -25,7 +25,7 @@ export function groupFamilies(skus: Sku[]): Family[] {
       f.variants.push(s);
       f.status = worst(f.status, s.status);
       f.docCount += s.doc_count;
-      if (!f.thumbnail && s.thumbnail_url) f.thumbnail = s.thumbnail_url;
+      if (!f.thumbnail) f.thumbnail = thumbUrl(s);
     }
   }
   return [...map.values()].sort((a, b) => {

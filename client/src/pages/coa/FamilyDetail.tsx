@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { X, Download, Upload, FileText, Image as ImageIcon, BadgeCheck, Eye, FlaskConical, Pencil, Trash2, Link as LinkIcon, History } from "lucide-react";
-import { API, PILL, api, ui, type Family, type SkuDetail, type Doc, type Sku } from "./api";
+import { X, Download, Upload, FileText, Image as ImageIcon, BadgeCheck, Eye, FlaskConical, Pencil, Trash2, Link as LinkIcon, History, ChevronDown } from "lucide-react";
+import { API, PILL, api, ui, type Family, type SkuDetail, type Doc, type Sku, type Lab } from "./api";
 import { variantLabel, sortCoasByDate } from "./families";
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/** Active labs, default first (the API orders them that way). */
+export function useLabs() {
+  const q = useQuery({ queryKey: ["coa-labs"], queryFn: () => api<{ labs: Lab[] }>("/labs"), staleTime: 60_000 });
+  return { labs: q.data?.labs ?? [], defaultLab: q.data?.labs[0]?.name ?? "Kovera" };
+}
 
 export function FamilyDetail({ family, onClose, onChanged }: { family: Family; onClose: () => void; onChanged: () => void }) {
   const qc = useQueryClient();
@@ -84,7 +90,8 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
     const f = e.target.files?.[0]; if (!f) return;
     run(() => uploadDoc(f, { brand: "oryn" })).finally(() => { if (orynRef.current) orynRef.current.value = ""; });
   }
-  const setSent = (sent: boolean) => run(() => api(`/skus/${sku.id}/${sent ? "mark-sent" : "mark-unsent"}`, { method: "POST" }));
+  const setSent = (sent: boolean, lab?: string) =>
+    run(() => api(`/skus/${sku.id}/${sent ? "mark-sent" : "mark-unsent"}`, { method: "POST", body: sent ? JSON.stringify({ lab }) : undefined }));
   const remove = () => {
     if (!confirm(`Delete ${sku.product_name} (${sku.sku_code})?\n\nIt leaves the list; its certificates stay in the vault.`)) return;
     setBusy(true); setErr(null);
@@ -126,14 +133,13 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
         </span>
         {atLab ? (
           <span className="inline-flex items-center gap-2 text-[11px]">
-            <span className="inline-flex items-center gap-1 font-medium text-yellow-500"><FlaskConical size={11} /> At lab — awaiting results</span>
+            <span className="inline-flex items-center gap-1 font-medium text-yellow-500">
+              <FlaskConical size={11} /> At {detail.tests.find((t) => t.status === "in_testing" || t.status === "sent")?.lab_name || "the lab"} — awaiting results
+            </span>
             <button type="button" onClick={() => setSent(false)} className="text-ops-text-muted underline hover:text-ops-text">Undo</button>
           </span>
         ) : needsTesting ? (
-          <button type="button" onClick={() => setSent(true)} disabled={busy}
-            className="inline-flex items-center gap-1 rounded-md border border-fitscript-green/40 px-2 py-1 text-[11px] font-semibold text-fitscript-green hover:bg-fitscript-green/10">
-            <FlaskConical size={11} /> Mark sent to Kovera
-          </button>
+          <MarkSent busy={busy} onSend={(lab) => setSent(true, lab)} />
         ) : null}
       </div>
 
@@ -155,6 +161,31 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
       {panel === "preview" && <CoaPreview docs={coaDocs} skuId={sku.id} title={`${familyName} · ${variantLabel(sku, familyName)}`} onClose={() => setPanel("none")} />}
       {err && <div className="mx-3 mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{err}</div>}
     </div>
+  );
+}
+
+/** "Mark sent to <default lab>" with a caret to pick a different lab. */
+function MarkSent({ busy, onSend }: { busy: boolean; onSend: (lab: string) => void }) {
+  const { labs, defaultLab } = useLabs();
+  const cls = "inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-fitscript-green hover:bg-fitscript-green/10";
+  return (
+    <span className="inline-flex rounded-md border border-fitscript-green/40">
+      <button type="button" onClick={() => onSend(defaultLab)} disabled={busy} className={`${cls} rounded-l-md`}>
+        <FlaskConical size={11} /> Mark sent to {defaultLab}
+      </button>
+      {labs.length > 1 && (
+        // A native select escapes the card's overflow clipping; the caret is cosmetic.
+        <span className={`relative ${cls} rounded-r-md border-l border-fitscript-green/40`} title="Send to a different lab">
+          <ChevronDown size={11} />
+          <select value="" disabled={busy} aria-label="Send to a different lab"
+            onChange={(e) => e.target.value && onSend(e.target.value)}
+            className="absolute inset-0 cursor-pointer opacity-0">
+            <option value="" disabled>Send to…</option>
+            {labs.map((l) => <option key={l.id} value={l.name}>Send to {l.name}</option>)}
+          </select>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -185,8 +216,9 @@ function Tile({ href, onClick, icon, label, action = "Download", count }: { href
 
 /** Records the test and vaults the file in one call (the tracker's ops-coa-upload). */
 export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "product_name">; onDone: () => Promise<void> }) {
+  const { labs, defaultLab } = useLabs();
   const [testDate, setTestDate] = useState(today());
-  const [lab, setLab] = useState("Kovera");
+  const [lab, setLab] = useState("");
   const [purity, setPurity] = useState("");
   const [lot, setLot] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -199,7 +231,7 @@ export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "produc
     setBusy(true); setErr(null);
     const fd = new FormData();
     fd.append("file", file); fd.append("sku_code", sku.sku_code); fd.append("test_date", testDate);
-    if (lab.trim()) fd.append("lab_name", lab.trim());
+    fd.append("lab_name", lab || defaultLab);
     if (purity.trim()) fd.append("purity", purity.trim());
     if (lot.trim()) fd.append("lot_number", lot.trim());
     try {
@@ -216,7 +248,12 @@ export function CoaUpload({ sku, onDone }: { sku: Pick<Sku, "sku_code" | "produc
       <div className="md:col-span-12 text-xs text-ops-text-muted">New certificate for <span className="text-ops-text">{sku.product_name}</span> — this records the test, so the status updates immediately.</div>
       <div className="md:col-span-3"><label className={ui.label}>Test date</label><input type="date" value={testDate} max={today()} onChange={(e) => setTestDate(e.target.value)} className={ui.input} required /></div>
       <div className="md:col-span-3"><label className={ui.label}>Lot / batch #</label><input value={lot} onChange={(e) => setLot(e.target.value)} className={ui.input} placeholder="What's printed on the vial" /></div>
-      <div className="md:col-span-3"><label className={ui.label}>Lab</label><input value={lab} onChange={(e) => setLab(e.target.value)} className={ui.input} /></div>
+      <div className="md:col-span-3"><label className={ui.label}>Lab</label>
+        <select value={lab || defaultLab} onChange={(e) => setLab(e.target.value)} className={ui.input}>
+          {labs.map((l) => <option key={l.id} value={l.name}>{l.name}</option>)}
+          {!labs.length && <option value="Kovera">Kovera</option>}
+        </select>
+      </div>
       <div className="md:col-span-3"><label className={ui.label}>Purity</label><input value={purity} onChange={(e) => setPurity(e.target.value)} className={ui.input} placeholder="99.4%" /></div>
       <div className="md:col-span-12"><label className={ui.label}>File (PDF or image)</label>
         <input type="file" accept="application/pdf,.pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)}

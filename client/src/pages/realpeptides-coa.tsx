@@ -1,14 +1,16 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X } from "lucide-react";
+import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Layers } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { api, ui, type Sku, type Family } from "./coa/api";
+import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
 import { groupFamilies } from "./coa/families";
 import { StatusDonut } from "./coa/StatusDonut";
 import { FamilyGrid } from "./coa/FamilyGrid";
 import { FamilyDetail } from "./coa/FamilyDetail";
 import { ActionSummary } from "./coa/ActionSummary";
 import { AlertSettings } from "./coa/AlertSettings";
+import { BulkUpload } from "./coa/BulkUpload";
+import { exportSummaryCsv } from "./coa/export";
 
 /**
  * Real Peptides COA Tracker — the one place certificates are managed.
@@ -27,6 +29,7 @@ export default function RealPeptidesCoa() {
   const [showSummary, setShowSummary] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   const csvRef = useRef<HTMLInputElement>(null);
 
@@ -46,11 +49,18 @@ export default function RealPeptidesCoa() {
   const families = useMemo(() => groupFamilies(skus.data?.skus ?? []), [skus.data]);
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
-    for (const f of families) c[f.status] = (c[f.status] || 0) + 1;
+    for (const f of families) {
+      c[f.status] = (c[f.status] || 0) + 1;
+      if (f.variants.some(atLab)) c.atlab = (c.atlab || 0) + 1;
+      if (f.variants.some(needsSend)) c.tosend = (c.tosend || 0) + 1;
+    }
     return c;
   }, [families]);
   const shown = useMemo(() => {
-    let list = filter === "all" ? families : families.filter((f) => f.status === filter);
+    let list = families;
+    if (filter === "atlab") list = families.filter((f) => f.variants.some(atLab));
+    else if (filter === "tosend") list = families.filter((f) => f.variants.some(needsSend));
+    else if (filter !== "all") list = families.filter((f) => f.status === filter);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((f) => f.label.toLowerCase().includes(q) || f.variants.some((v) => v.product_name.toLowerCase().includes(q) || v.sku_code.toLowerCase().includes(q)));
     return list;
@@ -87,9 +97,11 @@ export default function RealPeptidesCoa() {
           <div className="flex flex-wrap items-center gap-2">
             <input ref={csvRef} type="file" accept=".csv" hidden onChange={onCsv} />
             <button type="button" onClick={() => setShowSummary(true)} className={ui.ghost}><ClipboardList size={15} /> Action Summary</button>
+            <button type="button" onClick={() => exportSummaryCsv(skus.data?.skus ?? [])} disabled={!skus.data?.skus?.length} className={ui.ghost} title="Download every SKU's status as a spreadsheet"><Download size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => csvRef.current?.click()} className={ui.ghost}><Upload size={15} /> Import CSV</button>}
             <button type="button" onClick={() => setShowAlerts(true)} className={ui.ghost} title="Alerts"><Bell size={15} /></button>
             <button type="button" onClick={refresh} className={ui.ghost} title="Refresh"><RefreshCw size={15} /></button>
+            {canEdit && <button type="button" onClick={() => setShowBulk(true)} className={ui.ghost}><Layers size={15} /> Bulk upload</button>}
             {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.primary}><Plus size={15} /> Add product</button>}
           </div>
         }
@@ -116,6 +128,7 @@ export default function RealPeptidesCoa() {
       {openFamily && <FamilyDetail family={openFamily} onClose={() => setOpen(null)} onChanged={refresh} />}
       {showSummary && <ActionSummary families={families} onClose={() => setShowSummary(false)} />}
       {showAlerts && <AlertSettings onClose={() => setShowAlerts(false)} />}
+      {showBulk && <BulkUpload skus={skus.data?.skus ?? []} onClose={() => setShowBulk(false)} onDone={(m) => { setShowBulk(false); say(m); refresh(); }} />}
       {showAdd && <AddProduct onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); refresh(); }} />}
     </div>
   );

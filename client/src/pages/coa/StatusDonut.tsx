@@ -7,6 +7,12 @@ const SEGMENTS: { key: Status; label: string; color: string }[] = [
   { key: "fresh", label: "Fresh", color: "#0EA57A" },
 ];
 
+// Workflow filters cut across freshness: where each product physically is.
+const WORKFLOW: { key: string; label: string; color: string }[] = [
+  { key: "tosend", label: "Send to lab", color: "#F97316" },
+  { key: "atlab", label: "At the lab", color: "#8B5CF6" },
+];
+
 export function StatusDonut({ counts, total, active, onPick }: {
   counts: Record<string, number>; total: number; active: string; onPick: (k: string) => void;
 }) {
@@ -34,6 +40,9 @@ export function StatusDonut({ counts, total, active, onPick }: {
         <Tile label="All" count={total} color="#94A3B8" active={active === "all"} onClick={() => onPick("all")} />
         {data.map((d) => (
           <Tile key={d.key} label={d.label} count={d.count} color={d.color} active={active === d.key} onClick={() => onPick(d.key)} />
+        ))}
+        {WORKFLOW.map((w) => (
+          <Tile key={w.key} label={w.label} count={counts[w.key] || 0} color={w.color} active={active === w.key} onClick={() => onPick(w.key)} />
         ))}
       </div>
     </div>

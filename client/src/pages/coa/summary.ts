@@ -1,4 +1,4 @@
-import type { Family, Sku } from "./api";
+import { atLab, needsSend, type Family, type Sku } from "./api";
 import { variantLabel } from "./families";
 
 export interface SummarySection {
@@ -8,8 +8,6 @@ export interface SummarySection {
   count: number;
   message: string;   // ready to copy/paste or push to WhatsApp
 }
-
-const atLab = (v: Sku) => v.test_status === "in_testing" || v.test_status === "sent";
 
 /** Build per-family lines for variants matching `pick`. */
 function lines(families: Family[], pick: (v: Sku) => boolean): { count: number; body: string } {
@@ -33,8 +31,7 @@ function section(emoji: string, title: string, key: string, families: Family[], 
 
 export function buildSummary(families: Family[]): SummarySection[] {
   return [
-    section("🔴", "Send in for testing", "send", families,
-      (v) => (v.status === "expired" || v.status === "untested") && !atLab(v)),
+    section("🔴", "Send in for testing", "send", families, needsSend),
     section("🟡", "Expiring soon", "expiring", families,
       (v) => v.status === "expiring"),
     section("🧪", "At the lab — awaiting results", "atlab", families, atLab),

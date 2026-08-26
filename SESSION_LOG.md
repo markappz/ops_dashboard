@@ -4,6 +4,48 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-26 — COA tab: bulk uploader, labs, vault thumbnails, workflow filters, export (Justin)
+
+Justin's requests, both repos touched (tracker commit 01a2ee8 pairs with this one):
+
+- **Bulk upload** (`coa/BulkUpload.tsx`): drop N PDFs/images → tracker's new `/skus/match` maps
+  filenames to products (aliases + dose-aware, test date parsed from MMDDYY/YYYYMMDD tokens) →
+  editable staging table (product/date/lot/purity per row, one lab for the batch) → sequential
+  uploads through the existing single-file endpoint with per-row status. Ambiguous files are
+  flagged yellow, never guessed.
+- **Labs**: pickers everywhere the lab was hardcoded — CoaUpload select, "Mark sent to <default>"
+  split button (native <select> under the caret; a custom popover gets clipped by the card's
+  overflow-hidden), Action Summary banner. Manage labs (add / make default / remove) lives in the
+  bell modal (`AlertSettings` → LabsPanel). Kovera default; 9x Testing seeded.
+- **Thumbnails fixed**: every card image was blank — wp-content hotlinks 403 cross-site (Cloudflare
+  bot protection; dies with Vercel migration anyway). Now `thumbUrl()` in coa/api.ts renders the
+  tracker's vaulted image (`image_doc_id`) through the proxy; 82/83 SKUs already have one.
+- **Workflow filters**: "Send to lab" / "At the lab" tiles next to the status tiles (StatusDonut);
+  family matches if any variant does. Shared `atLab`/`needsSend` helpers in coa/api.ts.
+- **Export** (`coa/export.ts`): one-click CSV of every SKU — status, days left, action needed,
+  test/expiry dates, lab, lot, at-lab-since/sent-to, doc count, stock. Urgent rows first. BOM'd
+  for Excel.
+- Proxy allowlist + `/labs`; upload route now accepts images like the tracker does (and forwards
+  the real mimetype instead of hardcoded application/pdf).
+
+**Verified locally end-to-end** (scratch pg 5499 + tracker :5101 + ops :5002, browser-tested:
+filters, family detail, lab picker, 3-file bulk drop incl. one ambiguous, CSV download). Prod
+builds pass in both repos. **Prod RDS was NOT reachable from this Mac today** (timeout) — ops ran
+against a scratch DB with a hand-inserted ops_admins row.
+
+**Pending / for Paul:**
+1. Approve: `node <scratchpad>/add-missing-skus.mjs` adds the 8 master-list products missing in
+   prod (ARA-290 10mg, Copper Peptide Serum, Dihexa caps, Glutathione 1500mg, Oxytocin 10mg,
+   Sermorelin 10mg, Tesa+Ipa 12/3, Tesofensine). Classifier blocked me writing to prod.
+2. Push both repos (tracker deploys via GitHub Action on main; ops via its pipeline). Tracker must
+   deploy BEFORE ops matters little — ops degrades (labs empty → Kovera fallback, no match route
+   → bulk matching errors) but nothing breaks hard; still, deploy tracker first.
+3. Reconcile with Justin: RP-MOT-NS vs sheet RP-MOT25-NS (same product, rename?), PID-8207 needs
+   real Orforglipron SKU, ARA-290 16mg vs 10mg, Sermorelin 5mg vs 10mg both live.
+Master sheet parsed from ~/Downloads/"RP __ SKU's-2 (1).xlsx" (83 active products).
+
+---
+
 ## 2026-08-21 (later) — RP sales via WooCommerce Analytics; Campaign Refinery fixed
 
 **WooCommerce:** first prod numbers looked great ($593k/30d) but the *previous* window showed 118

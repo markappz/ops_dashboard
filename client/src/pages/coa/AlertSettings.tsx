@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { X, Trash2, Plus, Send, CheckCircle2, AlertCircle } from "lucide-react";
-import { api, ui } from "./api";
+import { X, Trash2, Plus, Send, CheckCircle2, AlertCircle, FlaskConical } from "lucide-react";
+import { api, ui, type Lab } from "./api";
 
 interface TeamMember { id: number; name: string; whatsapp_number: string | null }
 interface Status { slackReady: boolean; whatsappReady: boolean; from: string; recipients: number }
@@ -41,7 +41,8 @@ export function AlertSettings({ onClose }: { onClose: () => void }) {
           <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={20} /></button>
         </div>
         <div className="space-y-4 p-5">
-          <Channel ok={status.data?.slackReady} title="Slack" okText="Daily status + Monday Kovera list post to #coa-alerts" offText="The tracker has no SLACK_WEBHOOK_URL set." />
+          <LabsPanel />
+          <Channel ok={status.data?.slackReady} title="Slack" okText="Daily status + Monday lab list post to #coa-alerts" offText="The tracker has no SLACK_WEBHOOK_URL set." />
           <Channel ok={status.data?.whatsappReady} title="WhatsApp (Twilio)" okText={`Sending from ${status.data?.from}`} offText="Optional — Twilio credentials on the tracker enable it." />
           <button type="button" onClick={test} disabled={testing} className={`w-full ${ui.primary}`}><Send size={15} /> {testing ? "Sending…" : "Send test message"}</button>
           {msg && <div className="text-xs text-ops-text-muted">{msg}</div>}
@@ -64,6 +65,46 @@ export function AlertSettings({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Which labs we send products to; the default is what one-click "Mark sent" uses. */
+function LabsPanel() {
+  const qc = useQueryClient();
+  const labs = useQuery({ queryKey: ["coa-labs"], queryFn: () => api<{ labs: Lab[] }>("/labs") });
+  const [name, setName] = useState("");
+  const bump = () => qc.invalidateQueries({ queryKey: ["coa-labs"] });
+
+  async function add() {
+    if (!name.trim()) return;
+    await api("/labs", { method: "POST", body: JSON.stringify({ name }) });
+    setName(""); bump();
+  }
+  const setDefault = (id: number) => api(`/labs/${id}`, { method: "PATCH", body: JSON.stringify({ is_default: true }) }).then(bump);
+  const remove = (id: number) => api(`/labs/${id}`, { method: "DELETE" }).then(bump);
+
+  return (
+    <div>
+      <div className={ui.label}><span className="inline-flex items-center gap-1"><FlaskConical size={10} /> Testing labs</span></div>
+      <div className="space-y-2">
+        {(labs.data?.labs ?? []).map((l) => (
+          <div key={l.id} className="flex items-center justify-between rounded-lg border border-ops-border bg-ops-bg px-3 py-2">
+            <div className="text-sm">
+              <span className="font-medium text-ops-text">{l.name}</span>
+              {l.is_default
+                ? <span className="ml-2 rounded-full bg-fitscript-green/15 px-2 py-0.5 text-[10px] font-semibold text-fitscript-green">default</span>
+                : <button type="button" onClick={() => setDefault(l.id)} className="ml-2 text-[11px] text-ops-text-muted underline hover:text-ops-text">make default</button>}
+            </div>
+            {!l.is_default && <button type="button" onClick={() => remove(l.id)} className="p-1 text-ops-text-muted hover:text-red-400" title="Remove from pick list"><Trash2 size={15} /></button>}
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Add a lab (e.g. 9x Testing)" className={`${ui.input} flex-1`} />
+          <button type="button" onClick={add} className={ui.primary}><Plus size={15} /></button>
+        </div>
+        <p className="text-[11px] text-ops-text-muted">The default lab is what "Mark sent" and the Monday digest use. Removing a lab only hides it from pickers — history keeps its name.</p>
       </div>
     </div>
   );

@@ -59,10 +59,13 @@ that's FitScript's**), and the COA tracker. No page under `/realpeptides/*` may 
 figure until a WooCommerce key lands.
 
 **ops is the COA tracker's UI** (coa.realpeptides.co redirects here since 2026-08-20; its service
-runs headless). `POST /api/ops/realpeptides/coa/upload` records a test + vaults the file;
-`/api/ops/realpeptides/coa/api/*` is an allowlisted proxy (`/skus`, `/documents`, `/coas`,
-`/lab-tests`, `/team`, `/notify`) to the tracker's API with the `COA_OPS_TOKEN` bearer. The UI lives
-in `client/src/pages/coa/`. Non-admins need the `realpeptides:coa-upload` grant.
+runs headless). `POST /api/ops/realpeptides/coa/upload` records a test + vaults the file (PDF or
+image); `/api/ops/realpeptides/coa/api/*` is an allowlisted proxy (`/skus`, `/documents`, `/coas`,
+`/lab-tests`, `/labs`, `/team`, `/notify`) to the tracker's API with the `COA_OPS_TOKEN` bearer.
+The UI lives in `client/src/pages/coa/` — incl. bulk upload (tracker `/skus/match` staging), a
+labs registry (default lab drives "Mark sent"/digest), vault-served thumbnails (`thumbUrl()`;
+never hotlink realpeptides.co — wp-content 403s cross-site), workflow filters and a CSV export.
+Non-admins need the `realpeptides:coa-upload` grant.
 
 ## Clomark per brand
 `server/clomark.ts` maps company → Clomark business profile id (`COMPANY_BUSINESS`, override with

@@ -17,6 +17,7 @@ export interface Sku {
   product_name: string;
   product_url: string | null;
   thumbnail_url: string | null;
+  image_doc_id: number | null;
   form: string | null;
   current_stock: number | null;
   requires_coa: boolean;
@@ -24,13 +25,31 @@ export interface Sku {
   coa_expiry_date: string | null;
   coa_lab_name: string | null;
   coa_file_name: string | null;
+  coa_lot: string | null;
   test_status: string | null;
+  test_sent_date: string | null;
+  test_lab_name: string | null;
   doc_count: number;
   status: "fresh" | "expiring" | "expired" | "untested" | "n/a";
   daysLeft: number | null;
   family_key: string;
   family_label: string;
 }
+
+export interface Lab { id: number; name: string; active: boolean; is_default: boolean }
+
+/**
+ * Vault-served thumbnail through the ops proxy. The old thumbnail_url pointed
+ * at realpeptides.co/wp-content, which 403s hotlinks (and dies with the Vercel
+ * migration) — never render it directly.
+ */
+export function thumbUrl(s: Pick<Sku, "id" | "image_doc_id">): string | null {
+  return s.image_doc_id ? `${API}/skus/${s.id}/product-image-download?inline=1&v=${s.image_doc_id}` : null;
+}
+
+export const atLab = (s: Pick<Sku, "test_status">) => s.test_status === "in_testing" || s.test_status === "sent";
+export const needsSend = (s: Pick<Sku, "test_status" | "status">) =>
+  (s.status === "expired" || s.status === "untested") && !atLab(s);
 
 export type Status = Sku["status"];
 

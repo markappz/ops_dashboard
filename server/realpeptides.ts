@@ -250,7 +250,7 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
   if (!token) throw new Error("COA_OPS_TOKEN is not set on ops — uploads need the same token the tracker has.");
 
   const fd = new FormData();
-  fd.append("file", new Blob([new Uint8Array(file.buffer)], { type: "application/pdf" }), file.originalname);
+  fd.append("file", new Blob([new Uint8Array(file.buffer)], { type: file.mimetype || "application/pdf" }), file.originalname);
   for (const k of ["sku_code", "test_date", "lab_name", "purity", "lot_number"]) if (fields[k]) fd.append(k, fields[k]);
   fd.append("uploaded_by", by);
 
@@ -272,7 +272,7 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
  * tracker accepts COA_OPS_TOKEN in its auth gate, so ops is its UI now. Only
  * these prefixes are reachable; the tracker's login and scan surface is not.
  */
-const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
+const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/labs(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
 
 async function proxyToTracker(req: Request, res: Response) {
   const base = process.env.COA_API_URL || "https://coa.realpeptides.co";
@@ -423,9 +423,11 @@ export function registerRealPeptidesRoutes(app: Express) {
   app.post("/api/ops/realpeptides/coa/upload", upload.single("file"), async (req: any, res) => {
     try {
       const file = req.file as Express.Multer.File | undefined;
-      if (!file) return res.status(400).json({ error: "Choose a PDF first." });
-      if (file.mimetype !== "application/pdf" && !/\.pdf$/i.test(file.originalname)) {
-        return res.status(400).json({ error: "Only PDF certificates are accepted." });
+      if (!file) return res.status(400).json({ error: "Choose a file first." });
+      const isPdf = file.mimetype === "application/pdf" || /\.pdf$/i.test(file.originalname);
+      const isImage = /^image\//.test(file.mimetype) || /\.(png|jpe?g|webp)$/i.test(file.originalname);
+      if (!isPdf && !isImage) {
+        return res.status(400).json({ error: "Certificates must be a PDF or an image (PNG/JPG/WebP)." });
       }
       if (!req.body?.sku_code) return res.status(400).json({ error: "Pick the product this COA belongs to." });
       if (!/^\d{4}-\d{2}-\d{2}$/.test(req.body?.test_date || "")) {
