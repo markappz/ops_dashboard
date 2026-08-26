@@ -22,6 +22,8 @@ export interface Sku {
   form: string | null;
   current_stock: number | null;
   ideal_stock: number | null;
+  label_stock: number | null;
+  label_ideal: number | null;
   requires_coa: boolean;
   coa_test_date: string | null;
   coa_expiry_date: string | null;

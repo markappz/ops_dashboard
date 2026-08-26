@@ -4,6 +4,22 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-26 (labels are inventory) — Vials/Labels toggle on Inventory
+
+Paul clarified: track printed vial labels + when to reorder, not just the artwork file. Inventory
+page now has a Vials & units / Printed labels toggle: same table + audited adjust/targets/history
+per item (log rows tagged vials/labels, purple chip), "Label print order" PDF in labels view vs
+the manufacturer purchase order in vials view. KPI "No label file" = missing artwork (both views).
+Replaced prompt() stock/target editors with inline cell inputs (Enter saves, Esc cancels) —
+native prompts freeze the tab. Browser-verified locally: label +200/−50/+25 flows, 175/500 →
+"to print 325", per-item logs, vial stock untouched.
+
+NOTE for Paul's question "COA tab only shows a few products": that was the Chrome tab Autom was
+test-driving — localhost:5002 against a 10-SKU scratch DB. Prod (ops.fitscript.me) had all 83
+SKUs / 60 family cards the whole time (verified via API at the same moment).
+
+---
+
 ## 2026-08-26 (later) — Real Peptides Inventory tab (Justin) — built + tested, NOT pushed
 
 Paul: "inventory tab... add inventory, take away, and it updates the live site. same with labels...

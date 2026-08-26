@@ -2,35 +2,45 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import type { Sku } from "./api";
 
-export const stockNum = (v: number | string | null) => (v === null || v === "" ? null : Number(v));
+/** What we're counting: finished product (vials/units) or printed vial labels. */
+export type InvItem = "product" | "label";
 
-/** Below target (ideal set) — or flat out of stock. */
-export function isLow(s: Sku): boolean {
-  const cur = stockNum(s.current_stock);
-  const ideal = stockNum(s.ideal_stock);
+export const stockNum = (v: number | string | null) => (v === null || v === "" || v === undefined ? null : Number(v));
+export const stockOf = (s: Sku, item: InvItem) => stockNum(item === "label" ? s.label_stock : s.current_stock);
+export const idealOf = (s: Sku, item: InvItem) => stockNum(item === "label" ? s.label_ideal : s.ideal_stock);
+
+/** Below target (target set) — or flat out with a recorded count. */
+export function isLow(s: Sku, item: InvItem = "product"): boolean {
+  const cur = stockOf(s, item);
+  const ideal = idealOf(s, item);
   if (ideal !== null && ideal > 0) return (cur ?? 0) < ideal;
   return cur !== null && cur <= 0;
 }
 
-export function orderQty(s: Sku): number | null {
-  const cur = stockNum(s.current_stock);
-  const ideal = stockNum(s.ideal_stock);
+export function orderQty(s: Sku, item: InvItem = "product"): number | null {
+  const cur = stockOf(s, item);
+  const ideal = idealOf(s, item);
   if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - (cur ?? 0)));
   return null; // no target set — flag it, let the human fill the quantity in
 }
 
+const TITLES: Record<InvItem, { title: string; file: string; qtyHead: string }> = {
+  product: { title: "Purchase Order — Restock Request", file: "order", qtyHead: "ORDER QTY" },
+  label: { title: "Label Print Order — Vial Labels", file: "label-order", qtyHead: "PRINT QTY" },
+};
+
 /**
- * Purchase-order PDF for everything below target — ready to send to the
- * manufacturer. Rows without an ideal stock get a blank qty to fill in by hand.
+ * Restock PDF for everything below target — products go to the manufacturer,
+ * labels to the printer. Rows without a target get a blank qty to fill in.
  */
-export function downloadOrderPdf(skus: Sku[]): number {
+export function downloadOrderPdf(skus: Sku[], item: InvItem = "product"): number {
   const rows = skus
-    .filter((s) => s.requires_coa !== false || true) // every active product counts for ordering
-    .filter(isLow)
-    .sort((a, b) => (stockNum(a.current_stock) ?? 0) - (stockNum(b.current_stock) ?? 0) || a.product_name.localeCompare(b.product_name));
+    .filter((s) => isLow(s, item))
+    .sort((a, b) => (stockOf(a, item) ?? 0) - (stockOf(b, item) ?? 0) || a.product_name.localeCompare(b.product_name));
   if (!rows.length) return 0;
 
   const today = new Date().toISOString().slice(0, 10);
+  const meta = TITLES[item];
   const doc = new jsPDF();
   const W = doc.internal.pageSize.getWidth();
 
@@ -42,7 +52,7 @@ export function downloadOrderPdf(skus: Sku[]): number {
   doc.text("REAL PEPTIDES", 14, 15);
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(11);
-  doc.text("Purchase Order — Restock Request", 14, 24);
+  doc.text(meta.title, 14, 24);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.text(`Date: ${today}`, W - 14, 15, { align: "right" });
@@ -50,16 +60,16 @@ export function downloadOrderPdf(skus: Sku[]): number {
 
   autoTable(doc, {
     startY: 40,
-    head: [["#", "Product", "SKU", "Form", "On hand", "Target", "ORDER QTY"]],
+    head: [["#", "Product", "SKU", "Form", "On hand", "Target", meta.qtyHead]],
     body: rows.map((s, i) => {
-      const q = orderQty(s);
+      const q = orderQty(s, item);
       return [
         String(i + 1),
         s.product_name,
         s.sku_code,
         s.form ?? "",
-        String(stockNum(s.current_stock) ?? 0),
-        stockNum(s.ideal_stock) ?? "—",
+        String(stockOf(s, item) ?? 0),
+        idealOf(s, item) ?? "—",
         q === null ? "____" : String(q),
       ];
     }),
@@ -81,6 +91,6 @@ export function downloadOrderPdf(skus: Sku[]): number {
     },
   });
 
-  doc.save(`real-peptides-order-${today}.pdf`);
+  doc.save(`real-peptides-${meta.file}-${today}.pdf`);
   return rows.length;
 }
