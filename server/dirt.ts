@@ -322,7 +322,10 @@ const READ_TOOLS: ToolDef[] = [
         meta_ads: { configured: !!process.env.META_SYSTEM_USER_TOKEN, connected: !!process.env.META_SYSTEM_USER_TOKEN, detail: process.env.META_SYSTEM_USER_TOKEN ? "token set" : "not configured" },
         stripe: { configured: !!process.env.STRIPE_SECRET_KEY, connected: !!process.env.STRIPE_SECRET_KEY, detail: process.env.STRIPE_SECRET_KEY ? `key set (${process.env.STRIPE_SECRET_KEY.startsWith("sk_live_") ? "live" : "test"})` : "not configured" },
         clomark: { configured: !!(process.env.CLOMARK_BASE_URL && process.env.CLOMARK_OPS_TOKEN), connected: !!(process.env.CLOMARK_BASE_URL && process.env.CLOMARK_OPS_TOKEN && process.env.CLOMARK_BUSINESS_ID), detail: process.env.CLOMARK_BUSINESS_ID ? "configured" : "missing business id" },
-        bedrock: { configured: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY), connected: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY), detail: process.env.AWS_ACCESS_KEY_ID ? `AWS Bedrock (${process.env.AWS_REGION || "us-east-1"})` : "not configured — AI tools won't run" },
+        // Credentials come from the SDK chain (env vars first, then the ECS task
+        // role), so there is nothing to test synchronously. The old env-var check
+        // reported "not configured — AI tools won't run" while Bedrock worked fine.
+        bedrock: { configured: true, connected: true, detail: `AWS Bedrock (${process.env.AWS_REGION || "us-east-1"})` },
       };
       try {
         // One row per company now — LIMIT 1 would have reported whichever brand

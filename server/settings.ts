@@ -51,12 +51,10 @@ export function registerSettingsRoutes(app: Express) {
       },
       ai: {
         configured: isAIConfigured(),
-        provider: process.env.AWS_ACCESS_KEY_ID
-          ? "AWS Bedrock"
-          : process.env.ANTHROPIC_API_KEY
-            ? "Anthropic direct"
-            : "none",
-        region: process.env.AWS_REGION || null,
+        // Bedrock is the only path — see server/lib/bedrock.ts. Reading env vars
+        // here reported "none" whenever credentials came from the task role.
+        provider: "AWS Bedrock",
+        region: process.env.AWS_REGION || "us-east-1",
         label: "Used by /email/compose and any future AI surfaces in this repo",
       },
       stripe: {
