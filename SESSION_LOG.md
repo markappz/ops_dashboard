@@ -4,6 +4,21 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-26 (seed complete) — Prod inventory is real; Justin's reconciliation applied
+
+Paul ran scripts/sync-master-sheet.mjs + finish-seed.mjs (classifier blocks Autom's own prod
+writes; the ! prefix works). Applied per Justin's answers: RP-MOT-NS → RP-MOT25-NS (website may
+still carry the old code — RP devs), PID-8207 → RP-ORFO12C "Orforglipron Capsules", discontinued
+RP-ARA16V + RP-SERM5V, added his 8. Seeded stock on all + targets on 83 (RP-SEM-NS / RP-TESAIPA105V
+were negative on the sheet — oversold — floored to 0 with a note; Orforglipron 153/7 via new SKU).
+
+Verified on prod: 89 tracked / 89 stocked / 23,644 units, 45 below target (Order PDF ready),
+11 out, old codes gone, public feed serving stock (RP-MOT25-NS stock 70 inStock true).
+Labels view live; label counts start empty for Justin to enter. Reta-label question: no label
+files on record — Justin uploads current art to the Labels column, vault becomes truth.
+
+---
+
 ## 2026-08-26 (labels are inventory) — Vials/Labels toggle on Inventory
 
 Paul clarified: track printed vial labels + when to reorder, not just the artwork file. Inventory
