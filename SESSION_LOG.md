@@ -37,9 +37,10 @@ against a scratch DB with a hand-inserted ops_admins row.
 1. Approve: `node <scratchpad>/add-missing-skus.mjs` adds the 8 master-list products missing in
    prod (ARA-290 10mg, Copper Peptide Serum, Dihexa caps, Glutathione 1500mg, Oxytocin 10mg,
    Sermorelin 10mg, Tesa+Ipa 12/3, Tesofensine). Classifier blocked me writing to prod.
-2. Push both repos (tracker deploys via GitHub Action on main; ops via its pipeline). Tracker must
-   deploy BEFORE ops matters little — ops degrades (labs empty → Kovera fallback, no match route
-   → bulk matching errors) but nothing breaks hard; still, deploy tracker first.
+2. ~~Push both repos~~ DONE 2026-08-26 ~17:10 ET — both deployed (ops run 32992005306, rebased onto
+   dev's Bedrock commit 2f7a1e9; GH Actions lagged ~25 min before firing, added workflow_dispatch
+   to ops deploy.yml). Browser-verified on prod: thumbnails render, tiles 47 send / 16 at lab,
+   bundle index-B1qxfWi4.js matches local build.
 3. Reconcile with Justin: RP-MOT-NS vs sheet RP-MOT25-NS (same product, rename?), PID-8207 needs
    real Orforglipron SKU, ARA-290 16mg vs 10mg, Sermorelin 5mg vs 10mg both live.
 Master sheet parsed from ~/Downloads/"RP __ SKU's-2 (1).xlsx" (83 active products).
