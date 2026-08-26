@@ -291,7 +291,10 @@ async function proxyToTracker(req: Request, res: Response) {
       body = new Uint8Array(req.body);
     } else {
       headers["content-type"] = "application/json";
-      body = JSON.stringify(req.body ?? {});
+      const json = { ...(req.body ?? {}) };
+      // Stock movements are audit-logged on the tracker — stamp who did it.
+      if (/^\/skus\/\d+\/stock\/?$/.test(sub)) json.by = (req as any).adminEmail || json.by;
+      body = JSON.stringify(json);
     }
   }
   const upstream = await fetch(`${base}/api${sub}${qs}`, { method: req.method, headers, body, signal: AbortSignal.timeout(60_000), redirect: "follow" });

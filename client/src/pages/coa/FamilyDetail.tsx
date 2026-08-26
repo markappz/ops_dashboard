@@ -65,8 +65,8 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
   const orynRef = useRef<HTMLInputElement>(null);
 
   const newest = detail.coas[0];
-  const coaDocs = sortCoasByDate(detail.documents.filter((d) => d.category !== "product_image" && d.brand !== "oryn"));
-  const orynDocs = detail.documents.filter((d) => d.category !== "product_image" && d.brand === "oryn");
+  const coaDocs = sortCoasByDate(detail.documents.filter((d) => d.category === "coa" && d.brand !== "oryn"));
+  const orynDocs = detail.documents.filter((d) => d.category === "coa" && d.brand === "oryn");
   const productImg = detail.documents.find((d) => d.category === "product_image");
   const atLab = detail.tests.some((t) => t.status === "in_testing" || t.status === "sent");
   const needsTesting = status === "expired" || status === "untested";
@@ -298,7 +298,7 @@ function EditSku({ sku, onDone }: { sku: Sku; onDone: () => Promise<void> }) {
 }
 
 function HistoryList({ detail }: { detail: SkuDetail }) {
-  const docs = detail.documents.filter((d) => d.category !== "product_image");
+  const docs = detail.documents.filter((d) => d.category === "coa");
   return (
     <div className="space-y-4 text-sm">
       <div>

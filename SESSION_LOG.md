@@ -4,6 +4,41 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-26 (later) — Real Peptides Inventory tab (Justin) — built + tested, NOT pushed
+
+Paul: "inventory tab... add inventory, take away, and it updates the live site. same with labels...
+order pdf for low stock... run report/download and send to manufacturer."
+
+- **`/realpeptides/inventory`** (`realpeptides-inventory.tsx`, nav "Inventory", package icon).
+  Rides the existing COA proxy + `realpeptides:coa-upload` grant — zero new auth surface (stock
+  route lives under /skus/:id/stock which the grant's POST pattern already matches).
+- **Stock**: per-row − [qty] + steppers (delta), click the number to set an exact count, floors
+  at 0; history icon expands the audit trail. The ops proxy stamps `by = adminEmail` onto stock
+  posts so the tracker's inventory_log records who. Null stock renders "—" and counts as
+  untracked, NOT out-of-stock (tile consistency fix).
+- **Targets**: click target cell → set ideal_stock (PATCH). "To order" = ceil(ideal − current);
+  no target + out → red "no target" chip.
+- **Labels**: chip per product — download (product-named), replace, or dashed "Add label"
+  (any file type, vaulted as category='label'). KPI tile "Missing label" filters to gaps.
+  Tightened FamilyDetail doc filters to category==='coa' so labels never render as certs.
+- **Order PDF** (`coa/order-pdf.ts`, jsPDF + autotable — client-side, no server deps): black/gold
+  RP-branded purchase order of everything below target with ORDER QTY; blank ____ where no
+  target is set. Verified output (2-page render, correct math).
+- KPI tiles All / Below target / Out of stock / Missing label double as filters; search.
+- Sku type + export gains label_doc_id/ideal_stock; tracker /api/skus feeds it all.
+
+**Verified in browser** (localhost:5002 vs local tracker): +10 BPC → log shows
+changed_by=paulclotar@gmail.com → public feed stock:10 inStock:true (the Vercel contract),
+label upload/download chip, history row, order PDF download. Both prod builds pass.
+
+**Pending Paul:**
+1. Push both repos (tracker 6fdac3f first, then ops).
+2. Run `node <scratchpad>/sync-master-sheet.mjs` (supersedes add-missing-skus.mjs): adds the 8
+   missing products AND seeds current_stock + ideal_stock for all 83 from the master sheet.
+3. Tell the Vercel/RP devs: /api/public/products now carries `stock` and `inStock`.
+
+---
+
 ## 2026-08-26 — COA tab: bulk uploader, labs, vault thumbnails, workflow filters, export (Justin)
 
 Justin's requests, both repos touched (tracker commit 01a2ee8 pairs with this one):

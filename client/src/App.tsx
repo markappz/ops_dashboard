@@ -53,6 +53,7 @@ import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
+import RealPeptidesInventory from "./pages/realpeptides-inventory";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
 
@@ -194,6 +195,7 @@ export default function App() {
           <Route path="/realpeptides/content">{() => <CompanyContent company="realpeptides" label="Real Peptides" />}</Route>
           <Route path="/realpeptides/seo">{() => <CompanySeo {...RP} />}</Route>
           <Route path="/realpeptides/coa" component={RealPeptidesCoa} />
+          <Route path="/realpeptides/inventory" component={RealPeptidesInventory} />
           <Route path="/realpeptides/integrations">{() => <CompanyIntegrations company="realpeptides" label="Real Peptides" />}</Route>
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}

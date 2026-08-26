@@ -18,8 +18,10 @@ export interface Sku {
   product_url: string | null;
   thumbnail_url: string | null;
   image_doc_id: number | null;
+  label_doc_id: number | null;
   form: string | null;
   current_stock: number | null;
+  ideal_stock: number | null;
   requires_coa: boolean;
   coa_test_date: string | null;
   coa_expiry_date: string | null;
