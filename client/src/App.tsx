@@ -54,6 +54,7 @@ import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
+import RealPeptidesOrders from "./pages/realpeptides-orders";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
 
@@ -188,6 +189,7 @@ export default function App() {
           {/* Real Peptides — no Overview/Orders tab: WooCommerce isn't readable yet, and an
               overview with no revenue on it would just be a page of dashes. */}
           <Route path="/realpeptides" component={RealPeptidesOverview} />
+          <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
           <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
           <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
           <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>

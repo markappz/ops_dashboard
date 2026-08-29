@@ -4,6 +4,24 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-29 (night) — RP Orders tab with source attribution
+
+Paul: "orders tab... organize by how the order came in — seo page, blog, email campaign etc."
+Built on the pixel that just went live on the new site:
+- `server/realpeptides-orders.ts` — pulls the site's (to-be-shipped) token-gated
+  `GET /api/ops-orders`, joins purchase touchpoints by `event_data->>'order_id'` to sessions,
+  classifies: email (utm_medium/CR/Moosend) > paid (gclid/fbclid/cpc) > ai > social >
+  organic-search vs blog (landing /blogs/) > referral > direct; no beacon match = "untracked",
+  never guessed. Event-level first-touch UTMs beat session-level.
+- `/realpeptides/orders` page — channel revenue tiles double as filters, orders table with
+  source chip + "came in via" (landing · campaign · referrer), 7/30/90d, search.
+- Spec artifact extended (same URL): §1 purchase beacon one-liner
+  (`fsTrack("purchase",{order_id,revenue})` on confirmation page), §3 /api/ops-orders contract,
+  acceptance updated (pixel + ops-summary marked done; flagged their pending==orders mapping).
+Verified locally: stub site API + seeded sessions → blog/email/organic-search/untracked all
+classified right, tiles + table render. Graceful waiting state until devs ship ops-orders.
+---
+
 ## 2026-08-29 (later) — Sync ops to the NEW realpeptides.co (Vercel)
 
 Paul: "new website live, sync it to the dashboard." Diagnosis of the new site (Next.js, custom

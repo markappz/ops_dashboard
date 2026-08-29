@@ -30,6 +30,7 @@ import { registerPeptideURoutes } from "./peptideu";
 import { verifyPeptideuConnection } from "./db";
 import { registerPawgenRoutes } from "./pawgen";
 import { registerRealPeptidesRoutes } from "./realpeptides";
+import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerPagesRoutes } from "./pages";
 import { verifyPawgenConnection } from "./db";
 
@@ -84,6 +85,7 @@ registerSupplementsRoutes(app);
 registerPeptideURoutes(app);
 registerPawgenRoutes(app);
 registerRealPeptidesRoutes(app);
+registerRealPeptidesOrders(app);
 registerPagesRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
