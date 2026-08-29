@@ -401,7 +401,13 @@ export function registerRealPeptidesRoutes(app: Express) {
       let sales: any;
       if (siteConfigured()) {
         try { sales = await siteSalesSummary(since); }
-        catch (e: any) { sales = { configured: true, error: e.message }; }
+        catch (e: any) {
+          // Wired ahead of the site's endpoint on purpose: a 404 means the dev
+          // team hasn't shipped /api/ops-summary yet, not that ops is broken.
+          sales = /404/.test(e.message)
+            ? { configured: false, hint: "Ops is wired and waiting — the new site's /api/ops-summary isn't live yet. Sales appear automatically once the dev team ships it (spec shared)." }
+            : { configured: true, error: e.message };
+        }
       } else if (wooConfigured()) {
         try { sales = await salesSummary(since); }
         catch (e: any) {
