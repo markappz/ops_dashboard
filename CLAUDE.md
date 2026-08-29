@@ -31,7 +31,11 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `RP_CAMPAIGN_REFINERY_API_KEY` — Real Peptides' Campaign Refinery key (bearer token)
 - `COA_OPS_TOKEN` — shared bearer token for reading coa.realpeptides.co's `/api/ops-summary`
 - `COA_API_URL` — optional override, defaults to `https://coa.realpeptides.co`
-- `RP_WOO_CONSUMER_KEY`, `RP_WOO_CONSUMER_SECRET` — read-only WooCommerce REST key for Real Peptides sales (`RP_WOO_URL` optional). Unset → Overview shows the connect state, never a zero.
+- `RP_WOO_CONSUMER_KEY`, `RP_WOO_CONSUMER_SECRET` — legacy WooCommerce key. **Dead since the
+  2026-08 Vercel launch** (wp-json 404s); kept only as a fallback path.
+- `RP_SITE_API_URL`, `RP_SITE_OPS_TOKEN` — the NEW realpeptides.co sales source: token-gated
+  `GET /api/ops-summary` on the site (spec artifact shared with the dev team). Wins over Woo
+  when set. Unset → Overview shows the connect state, never a zero.
 
 ## Structure
 - `server/index.ts` — bootstraps express, mounts auth gate, registers routes

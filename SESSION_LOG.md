@@ -4,6 +4,26 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-29 (later) — Sync ops to the NEW realpeptides.co (Vercel)
+
+Paul: "new website live, sync it to the dashboard." Diagnosis of the new site (Next.js, custom
+commerce API — /api/cart in cents; no Woo, no exposed DB):
+- **Sales dead**: /wp-json/wc/v3 404s on both hosts → Overview sales card was erroring.
+- **Pixel gone**: no /t.js tag on the new site (Moosend + GTM only).
+- **Fine**: sitemap.xml live (Pages tab OK), COA feed consumed by product pages + /coas.
+
+Shipped ops-side: `server/realpeptides-site.ts` — connector for the site's future
+`GET /api/ops-summary` (bearer RP_SITE_OPS_TOKEN, cents → SalesSummary shape, 10-min cache);
+overview prefers it when RP_SITE_API_URL is set, Woo 404 now degrades to a "site migrated"
+connect state instead of an error. Spec artifact for the Vercel team (pixel tag + endpoint
+contract + acceptance): https://claude.ai/code/artifact/12d5065c-e007-42b0-abed-302ae4348290
+
+Pending: dev team ships the two items → Paul sets RP_SITE_API_URL + RP_SITE_OPS_TOKEN in
+prod/ops-secrets (+ mint a token, deliver out-of-band) → sales light up, pixel resumes.
+Note: only 1/89 tracker SKUs has product_url set (new /products/<slug>/ style) — backfill is a
+nice-to-have for cert deep-links.
+---
+
 ## 2026-08-29 — History panel: delete a test or vault file (inline confirm)
 
 Pairs with tracker per-certificate deletion. Trash icon on each "Tests on record" row (deletes

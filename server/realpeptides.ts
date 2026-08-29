@@ -20,6 +20,7 @@ import express, { type Express, type Request, type Response } from "express";
 import multer from "multer";
 import { pool } from "./db";
 import { salesSummary, wooConfigured } from "./woocommerce";
+import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -395,12 +396,21 @@ export function registerRealPeptidesRoutes(app: Express) {
         trafficWindow(since, 0),
         trafficWindow(since, since),
       ]);
+      // The Vercel rebuild killed WooCommerce (wp-json 404s since 2026-08-29).
+      // New-site connector wins when configured; Woo stays as the legacy path.
       let sales: any;
-      if (!wooConfigured()) {
-        sales = { configured: false, hint: "Add a read-only WooCommerce API key (WP admin → WooCommerce → Settings → Advanced → REST API) as RP_WOO_CONSUMER_KEY / RP_WOO_CONSUMER_SECRET on ops. Revenue, orders, AOV and top products appear here. After the Vercel launch, point RP_DATABASE_URL at the new site's Supabase." };
-      } else {
-        try { sales = await salesSummary(since); }
+      if (siteConfigured()) {
+        try { sales = await siteSalesSummary(since); }
         catch (e: any) { sales = { configured: true, error: e.message }; }
+      } else if (wooConfigured()) {
+        try { sales = await salesSummary(since); }
+        catch (e: any) {
+          sales = /404/.test(e.message)
+            ? { configured: false, hint: "realpeptides.co moved to the new Vercel site — the WordPress/WooCommerce API is gone. The dev team needs to expose GET /api/ops-summary (spec shared); then set RP_SITE_API_URL + RP_SITE_OPS_TOKEN on ops and sales light back up." }
+            : { configured: true, error: e.message };
+        }
+      } else {
+        sales = { configured: false, hint: "Connect the new realpeptides.co backend: RP_SITE_API_URL + RP_SITE_OPS_TOKEN (the site's /api/ops-summary endpoint, spec shared with the dev team)." };
       }
       res.json({ range: since, sales, traffic: { pixelInstalled: ever.rows[0]?.ok === true, current: cur, previous: prev } });
     } catch (e) {
