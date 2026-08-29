@@ -18,6 +18,12 @@ overview prefers it when RP_SITE_API_URL is set, Woo 404 now degrades to a "site
 connect state instead of an error. Spec artifact for the Vercel team (pixel tag + endpoint
 contract + acceptance): https://claude.ai/code/artifact/12d5065c-e007-42b0-abed-302ae4348290
 
+DEV TEAM SHIPPED + VERIFIED 08-29 night: /api/ops-summary live (401 sans token, full contract
+with it), pixel tag on the site (t.js loads, /api/t beacons, pixelInstalled true, sessions
+flowing). Overview shows real sales — BUT the new backend only holds new-site orders: 30d =
+$11.6k / 48 orders, previous window $0, ~all volume dated 08-29 (launch-era data). The
+$500k+/mo Woo history is NOT in this source — don't read the delta as a crash. pending=48 ==
+orders — their fulfillment status mapping may need a look.
 WIRED 08-29 evening: Paul ran scripts/wire-rp-site.mjs — token minted (delivered to devs
 out-of-band), both secrets in prod/ops-secrets, task-def rev 192; the concurrent GH-Action
 deploy built rev 193 ON TOP of 192 (inherited the refs + newest image) — race resolved right.
