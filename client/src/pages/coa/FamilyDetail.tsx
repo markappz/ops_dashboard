@@ -155,7 +155,7 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
       )}
       {panel === "history" && (
         <div className="border-t border-ops-border p-4">
-          <HistoryList detail={detail} />
+          <HistoryList detail={detail} onChanged={onChanged} />
         </div>
       )}
       {panel === "preview" && <CoaPreview docs={coaDocs} skuId={sku.id} title={`${familyName} · ${variantLabel(sku, familyName)}`} onClose={() => setPanel("none")} />}
@@ -185,6 +185,30 @@ function MarkSent({ busy, onSend }: { busy: boolean; onSend: (lab: string) => vo
           </select>
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Two-step inline delete: trash → "Delete <label>?" → gone. No confirm()
+ * popup (native dialogs freeze the tab). Permanent — row AND stored file.
+ */
+function DeleteBtn({ label, onDelete }: { label: string; onDelete: () => Promise<unknown> }) {
+  const [arm, setArm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!arm) {
+    return <button type="button" onClick={() => setArm(true)} title="Delete permanently" className="p-0.5 text-ops-text-muted hover:text-red-400"><Trash2 size={13} /></button>;
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {err && <span className="text-[10px] text-red-400">{err}</span>}
+      <button type="button" disabled={busy}
+        onClick={() => { setBusy(true); setErr(null); onDelete().catch((e: any) => { setErr(e.message); setArm(false); }).finally(() => setBusy(false)); }}
+        className="rounded-md bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold text-red-400 hover:bg-red-500/25 disabled:opacity-50">
+        {busy ? "Deleting…" : `Delete ${label}?`}
+      </button>
+      <button type="button" onClick={() => setArm(false)} className="text-[11px] text-ops-text-muted hover:text-ops-text">Keep</button>
     </span>
   );
 }
@@ -297,7 +321,7 @@ function EditSku({ sku, onDone }: { sku: Sku; onDone: () => Promise<void> }) {
   );
 }
 
-function HistoryList({ detail }: { detail: SkuDetail }) {
+function HistoryList({ detail, onChanged }: { detail: SkuDetail; onChanged: () => Promise<void> }) {
   const docs = detail.documents.filter((d) => d.category === "coa");
   return (
     <div className="space-y-4 text-sm">
@@ -308,7 +332,10 @@ function HistoryList({ detail }: { detail: SkuDetail }) {
           {detail.coas.map((c) => (
             <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <span className="text-ops-text">Tested {c.test_date} <span className="text-ops-text-muted">→ expires {c.expiry_date}</span></span>
-              <span className="text-xs text-ops-text-muted">{c.lot_number ? `lot ${c.lot_number} · ` : ""}{c.lab_name ?? "—"}{c.purity ? ` · ${c.purity}` : ""}{c.result !== "pass" ? ` · ${c.result}` : ""}{c.source_ref ? ` · by ${c.source_ref}` : ""}</span>
+              <span className="inline-flex items-center gap-2">
+                <span className="text-xs text-ops-text-muted">{c.lot_number ? `lot ${c.lot_number} · ` : ""}{c.lab_name ?? "—"}{c.purity ? ` · ${c.purity}` : ""}{c.result !== "pass" ? ` · ${c.result}` : ""}{c.source_ref ? ` · by ${c.source_ref}` : ""}</span>
+                <DeleteBtn label="test + its files" onDelete={() => api(`/coas/${c.id}`, { method: "DELETE" }).then(onChanged)} />
+              </span>
             </li>
           ))}
         </ul>
@@ -320,7 +347,10 @@ function HistoryList({ detail }: { detail: SkuDetail }) {
           {docs.map((d) => (
             <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <a href={`${API}/documents/${d.id}/download?inline=1`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-fitscript-green hover:underline"><FileText size={13} /> {d.file_name}</a>
-              <span className="text-xs text-ops-text-muted">{d.brand === "oryn" ? "Oryn · " : ""}{new Date(d.uploaded_at).toLocaleDateString()} · {d.source.replace("_", " ")}</span>
+              <span className="inline-flex items-center gap-2">
+                <span className="text-xs text-ops-text-muted">{d.brand === "oryn" ? "Oryn · " : ""}{new Date(d.uploaded_at).toLocaleDateString()} · {d.source.replace("_", " ")}</span>
+                <DeleteBtn label="file" onDelete={() => api(`/documents/${d.id}`, { method: "DELETE" }).then(onChanged)} />
+              </span>
             </li>
           ))}
         </ul>

@@ -4,6 +4,17 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-29 — History panel: delete a test or vault file (inline confirm)
+
+Pairs with tracker per-certificate deletion. Trash icon on each "Tests on record" row (deletes
+the test + its files) and each "Files in the vault" row (single file); two-step inline confirm —
+never confirm()/prompt(), native dialogs freeze the tab. Grant realpeptides:coa-upload now allows
+DELETE on coa/api/(skus|documents|coas)/:id so Justin can remove a wrong cert himself.
+Reason: lab-typo cert ("Thymulin") under Thymalin was feeding the site's certificate history and
+was un-removable from the UI; product delete+re-add is soft by design and keeps certs.
+
+---
+
 ## 2026-08-26 (seed complete) — Prod inventory is real; Justin's reconciliation applied
 
 Paul ran scripts/sync-master-sheet.mjs + finish-seed.mjs (classifier blocks Autom's own prod
