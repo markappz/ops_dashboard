@@ -18,8 +18,12 @@ overview prefers it when RP_SITE_API_URL is set, Woo 404 now degrades to a "site
 connect state instead of an error. Spec artifact for the Vercel team (pixel tag + endpoint
 contract + acceptance): https://claude.ai/code/artifact/12d5065c-e007-42b0-abed-302ae4348290
 
-Pending: dev team ships the two items → Paul sets RP_SITE_API_URL + RP_SITE_OPS_TOKEN in
-prod/ops-secrets (+ mint a token, deliver out-of-band) → sales light up, pixel resumes.
+WIRED 08-29 evening: Paul ran scripts/wire-rp-site.mjs — token minted (delivered to devs
+out-of-band), both secrets in prod/ops-secrets, task-def rev 192; the concurrent GH-Action
+deploy built rev 193 ON TOP of 192 (inherited the refs + newest image) — race resolved right.
+Verified live: overview sales = configured:false "wired and waiting" hint. Now purely on the
+dev team: pixel tag + /api/ops-summary (+ RP-MOT25-NS SKU on site); everything lights up
+automatically when they ship. @aws-sdk/client-ecs added as devDependency for the script.
 Note: only 1/89 tracker SKUs has product_url set (new /products/<slug>/ style) — backfill is a
 nice-to-have for cert deep-links.
 ---
