@@ -2,12 +2,13 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Minus, Plus, FileDown, Tag, Upload, History, X, Loader2,
-  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw,
+  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp,
 } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
 import { downloadOrderPdf, isLow, orderQty, stockOf, idealOf, stockNum, type InvItem } from "./coa/order-pdf";
 import { PurchaseOrders } from "./coa/PurchaseOrders";
+import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
 
 /**
  * Real Peptides Inventory — the Shelf Planner replacement.
@@ -40,6 +41,7 @@ export default function RealPeptidesInventory() {
   const [query, setQuery] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [showPos, setShowPos] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [openSku, setOpenSku] = useState<number | null>(null);
 
   const { data: me } = useQuery<{ role: string; permissions?: string[] }>({
@@ -108,6 +110,8 @@ export default function RealPeptidesInventory() {
         subtitle={`${counts.all} products · ${counts.units.toLocaleString()} ${t.unit} on hand${counts.onOrder ? ` · ${counts.onOrder.toLocaleString()} on order` : ""}. Website orders sync in automatically; every change is logged.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
+            {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
             <button type="button" onClick={orderPdf} disabled={!skus.length} className={ui.primary}>
               <FileDown size={15} /> {t.order}{counts.low ? ` (${counts.low})` : ""}
@@ -182,6 +186,7 @@ export default function RealPeptidesInventory() {
       )}
 
       {showPos && <PurchaseOrders skus={skus} onClose={() => setShowPos(false)} onSay={say} />}
+      {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
       {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity}
         onClose={() => setOpenSku(null)} onChanged={refresh} onSay={say} />}
     </div>

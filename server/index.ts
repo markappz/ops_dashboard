@@ -33,6 +33,7 @@ import { registerRealPeptidesRoutes } from "./realpeptides";
 import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
+import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
 import { registerPagesRoutes } from "./pages";
 import { verifyPawgenConnection } from "./db";
 
@@ -90,6 +91,7 @@ registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
+registerRealPeptidesWholesale(app);
 registerPagesRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.

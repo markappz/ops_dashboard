@@ -4,6 +4,32 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-30 (late) — Email LIVE + Wholesale tab + Inventory import/export
+
+**Email endpoint deployed by RP terminal** (cherry-picked 3d1f47d + 4adeb61 BIBLE→fat-loss-bible
+coupon mapping). Verified live end-to-end: 4 flows reporting (post-purchase 23 / browse-abandon
+18 / abandoned-checkout 15 / welcome 0), 105 marketable contacts, perSendStatsSince
+2026-08-30T05:32Z. Guide funnels (fatlossbible.co, hairgrowthprotocol.com, peptide101guide.com)
+will add flow keys as they feed — FLOW_LABEL fallback renders unknown keys raw.
+
+**Wholesale tab** (/realpeptides/wholesale, nav Wholesale/users): the site ALREADY stores
+inquiries (WholesaleOrder model — ref/status/business/contact/phone/items snapshot/totals).
+RP-repo worktree branch **ops-wholesale-endpoint** (commit 5582599, off origin/main 20fa8de,
+typecheck clean): GET /api/ops-wholesale (list w/ items, days param) + PATCH status (admin's
+VALID_STATUSES). Ops: server/realpeptides-wholesale.ts proxy (5-min cache, PATCH passthrough
+logs who) + page: status chips as filters, expandable cards (contact mailto/tel, label pref,
+timeline, notes, line-item table), workflow buttons NEW→CONTACTED→APPROVED/DECLINED.
+Browser-verified vs stub. Waiting state until RP merges/pushes the branch.
+
+**Inventory import/export** (coa/InventoryImport.tsx + Export button): Export = CSV of all
+inventory (round-trips into Import). Import = CSV/XLSX (SheetJS, dynamic import so the main
+bundle stays lean), flexible header detection (SKU/Current Stock/Ideal Stock/Label Stock/Label
+Ideal — Justin's master-sheet headers match), preview with old→strikethrough→new diffs,
+unknown SKUs listed never guessed, apply via audited stock route (note: "spreadsheet import:
+<file>") + target PATCHes. E2E: 152→160 + target 300 applied, RP-NOPE99 flagged, audit note
+verified.
+---
+
 ## 2026-08-30 (night) — RP Email analytics tab
 
 Spec from the RP-repo terminal (their SESSION_LOG 2026-08-30 — email instrumentation commit
