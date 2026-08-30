@@ -31,6 +31,7 @@ import { verifyPeptideuConnection } from "./db";
 import { registerPawgenRoutes } from "./pawgen";
 import { registerRealPeptidesRoutes } from "./realpeptides";
 import { registerRealPeptidesOrders } from "./realpeptides-orders";
+import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
 import { registerPagesRoutes } from "./pages";
 import { verifyPawgenConnection } from "./db";
 
@@ -86,6 +87,7 @@ registerPeptideURoutes(app);
 registerPawgenRoutes(app);
 registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
+registerRpInventoryRoutes(app);
 registerPagesRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
@@ -145,6 +147,7 @@ async function start() {
     startDirtScanLoop();
     startDirtDailyReportLoop();
     startEmailReportWarmer();
+    startRpInventorySyncLoop();
   });
 }
 

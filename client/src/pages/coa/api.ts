@@ -24,6 +24,7 @@ export interface Sku {
   ideal_stock: number | null;
   label_stock: number | null;
   label_ideal: number | null;
+  on_order: number | null;
   requires_coa: boolean;
   coa_test_date: string | null;
   coa_expiry_date: string | null;
@@ -121,3 +122,15 @@ export const ui = {
   modal: "fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 backdrop-blur-sm sm:p-4",
   sheet: "my-4 w-full rounded-2xl border border-ops-border bg-ops-surface shadow-card sm:my-8",
 };
+
+export interface Po {
+  id: number;
+  supplier: string | null;
+  status: "draft" | "ordered" | "received" | "cancelled";
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  ordered_at: string | null;
+  received_at: string | null;
+  items: { id: number; sku_id: number; qty: number; sku_code: string; product_name: string }[];
+}

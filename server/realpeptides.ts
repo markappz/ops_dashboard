@@ -273,7 +273,7 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
  * tracker accepts COA_OPS_TOKEN in its auth gate, so ops is its UI now. Only
  * these prefixes are reachable; the tracker's login and scan surface is not.
  */
-const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/labs(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
+const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/labs(\/|$)/, /^\/pos(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
 
 async function proxyToTracker(req: Request, res: Response) {
   const base = process.env.COA_API_URL || "https://coa.realpeptides.co";

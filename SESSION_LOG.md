@@ -4,6 +4,32 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-30 (later) — Inventory v2: live sync, POs, forecasting, mobile (Shelf Planner dead)
+
+Paul's batch: mobile adjust broken; Justin wants POs + forecasting; kill Shelf Planner — live
+order→inventory sync. Pairs with tracker a856f2c.
+
+- **`server/realpeptides-inventory.ts`**: 10-min loop (startRpInventorySyncLoop in index.ts)
+  fetches site /api/ops-orders (7d window) → tracker /api/orders/consume; hard cutoff
+  RP_ORDER_SYNC_SINCE=2026-08-26T13:00Z (sheet-seed moment — NEVER lower, double-decrements).
+  Manual POST /api/ops/realpeptides/inventory/sync; GET /inventory-stats = 28d velocity per SKU
+  (site order items name-matched via tracker /skus/match, 10-min cache) + lastSync state.
+- **Inventory tab v2** (realpeptides-inventory.tsx):
+  - Mobile: < md renders tap-cards; tap (or clicking any product name on desktop) opens SkuSheet —
+    big ± buttons w/ qty, exact count, target, label file, recent movements. This is the fix for
+    "can't add inventory on phone".
+  - "Selling" column: n/wk · weeks-left (red < 4w); stock cell shows "+N on order"; sync
+    timestamp chip next to the view toggle.
+  - **POs** (coa/PurchaseOrders.tsx): modal list; "New PO from current shortfall" drafts one from
+    every below-target product (qty = target − stock − on_order); Mark ordered → on-order;
+    Receive → stock in; PDF per PO (downloadPoPdf). orderQty() now subtracts on_order so the
+    Order PDF stops re-suggesting bought stock.
+  - Proxy allowlist + Justin's grant extended to /pos.
+E2E on scratch stack (stub site): cutoff/idempotency/unmatched verified, PO lifecycle verified
+(47→147 on receive), sheet +5 via UI, PO modal renders. Both prod builds pass.
+
+---
+
 ## 2026-08-30 — Orders attribution VERIFIED live
 
 Devs shipped /api/ops-orders (55+ orders, exact contract, 401 sans token) and — after one

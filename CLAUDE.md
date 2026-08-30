@@ -71,10 +71,16 @@ labs registry (default lab drives "Mark sent"/digest), vault-served thumbnails (
 never hotlink realpeptides.co — wp-content 403s cross-site), workflow filters and a CSV export.
 Non-admins need the `realpeptides:coa-upload` grant.
 
-**Inventory** (`/realpeptides/inventory`, `realpeptides-inventory.tsx`) rides the same proxy/grant:
+**Inventory** (`/realpeptides/inventory`, `realpeptides-inventory.tsx`) — the Shelf Planner
+replacement — rides the same proxy/grant:
 audited stock moves (`/skus/:id/stock` — proxy stamps the admin email), ideal targets, label files
 (vault `category='label'`), and a client-side jsPDF purchase order for everything below target.
 The tracker's public feed exposes `stock`/`inStock` for the Vercel storefront.
+Website orders decrement stock live: `server/realpeptides-inventory.ts` polls the site's
+/api/ops-orders every 10 min → tracker `/api/orders/consume` (idempotent; cutoff
+RP_ORDER_SYNC_SINCE=2026-08-26T13:00Z — never lower it). Velocity/forecast from the same feed
+(/api/ops/realpeptides/inventory-stats). POs live on the tracker (/pos): ordered qty = on-order,
+receiving stocks in. Tap any product for the mobile-friendly manage sheet.
 
 ## Clomark per brand
 `server/clomark.ts` maps company → Clomark business profile id (`COMPANY_BUSINESS`, override with

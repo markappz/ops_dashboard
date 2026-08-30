@@ -20,7 +20,9 @@ export function isLow(s: Sku, item: InvItem = "product"): boolean {
 export function orderQty(s: Sku, item: InvItem = "product"): number | null {
   const cur = stockOf(s, item);
   const ideal = idealOf(s, item);
-  if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - (cur ?? 0)));
+  // Vials already on an open PO don't need re-ordering.
+  const onOrder = item === "product" ? stockNum(s.on_order) ?? 0 : 0;
+  if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - (cur ?? 0) - onOrder));
   return null; // no target set — flag it, let the human fill the quantity in
 }
 
@@ -93,4 +95,33 @@ export function downloadOrderPdf(skus: Sku[], item: InvItem = "product"): number
 
   doc.save(`real-peptides-${meta.file}-${today}.pdf`);
   return rows.length;
+}
+
+/** A specific purchase order as a sendable PDF. */
+export function downloadPoPdf(po: { id: number; supplier: string | null; created_at: string; items: { sku_code: string; product_name: string; qty: number }[] }): void {
+  const doc = new jsPDF();
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFillColor(17, 24, 39);
+  doc.rect(0, 0, W, 34, "F");
+  doc.setTextColor(212, 175, 55);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text("REAL PEPTIDES", 14, 15);
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(11);
+  doc.text(`Purchase Order #${po.id}${po.supplier ? ` — ${po.supplier}` : ""}`, 14, 24);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text(`Date: ${String(po.created_at).slice(0, 10)}`, W - 14, 15, { align: "right" });
+  doc.text(`Lines: ${po.items.length}`, W - 14, 21, { align: "right" });
+  autoTable(doc, {
+    startY: 40,
+    head: [["#", "Product", "SKU", "QTY"]],
+    body: po.items.map((i, n) => [String(n + 1), i.product_name, i.sku_code, String(Number(i.qty))]),
+    styles: { fontSize: 9, cellPadding: 2.5 },
+    headStyles: { fillColor: [17, 24, 39], textColor: [212, 175, 55], fontStyle: "bold" },
+    columnStyles: { 0: { cellWidth: 8 }, 3: { halign: "right", fontStyle: "bold", cellWidth: 20 } },
+    alternateRowStyles: { fillColor: [246, 247, 249] },
+  });
+  doc.save(`real-peptides-po-${po.id}.pdf`);
 }
