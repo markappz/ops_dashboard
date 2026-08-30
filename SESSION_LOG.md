@@ -19,7 +19,7 @@ typecheck clean): GET /api/ops-wholesale (list w/ items, days param) + PATCH sta
 VALID_STATUSES). Ops: server/realpeptides-wholesale.ts proxy (5-min cache, PATCH passthrough
 logs who) + page: status chips as filters, expandable cards (contact mailto/tel, label pref,
 timeline, notes, line-item table), workflow buttons NEW→CONTACTED→APPROVED/DECLINED.
-Browser-verified vs stub. Waiting state until RP merges/pushes the branch.
+Browser-verified vs stub. WENT LIVE 2026-08-30 late: RP pushed 34f9a8a; verified direct + via ops — 6 real inquiries (4 NEW incl. ALGO $35,380 / 59 SKUs; 2 look like the dev team's own test rows — Justin can Decline those to clear them).
 
 **Inventory import/export** (coa/InventoryImport.tsx + Export button): Export = CSV of all
 inventory (round-trips into Import). Import = CSV/XLSX (SheetJS, dynamic import so the main
