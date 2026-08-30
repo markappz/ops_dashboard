@@ -4,6 +4,36 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-30 (night) — RP Email analytics tab
+
+Spec from the RP-repo terminal (their SESSION_LOG 2026-08-30 — email instrumentation commit
+1d6e48b, LOCAL/unpushed). Architecture deviation, deliberate: spec said "read RP Postgres
+directly" but the RP RDS is PubliclyAccessible:false with SG open only to RP tasks — ops' VPC
+can't reach it, and the standing decision is token-gated endpoints, never second DB creds. So
+the aggregation lives in the RP repo as `GET /api/ops-email-summary` (same authoriseOps +
+realOrdersWhere/REVENUE_STATUSES as ops-summary; Resend broadcast names resolved site-side
+where RESEND_API_KEY already lives — no new ops secret). Written on worktree branch
+**ops-email-endpoint** (~/Projects/real-peptides-worktrees/ops-email, commit 7830100, typecheck
+clean) so the other terminal's checkout is untouched — THEY merge/push it with their
+instrumentation deploy.
+
+Endpoint contract: per-flow (sends/instrumented split, open/CTR on instrumented only, per-step
+drilldown, unsubs attributed to last send before unsubscribedAt, sales = coupon source
+WELCOME/CARTSAVER first then last-click-within-7d by contact email, one flow per order,
+realOrdersWhere + PAID/FULFILLED), per-campaign from EmailEvent by broadcastId (unique
+opens/clicks by email), totals (marketable/unsub/suppressed bounced-vs-spam split, windowed
+instrumented rates, attributed revenue, lifetime per-contact counters SEPARATE),
+perSendStatsSince for the UI caveat.
+
+Ops: server/realpeptides-email.ts proxy (10-min cache, graceful 404 waiting state) +
+/realpeptides/email page (nav Email/mail): 6-stat strip, caveat banner (start date + lifetime
+totals + UTC note), flows table w/ expandable step drilldown + partial-instrumentation notes,
+campaigns table. Verified against a stub payload in browser.
+
+Goes live when: RP terminal merges ops-email-endpoint + Paul approves their push (migration +
+endpoint deploy together). Until then the tab shows the wired-and-waiting state.
+---
+
 ## 2026-08-30 (later) — Inventory v2: live sync, POs, forecasting, mobile (Shelf Planner dead)
 
 Paul's batch: mobile adjust broken; Justin wants POs + forecasting; kill Shelf Planner — live
