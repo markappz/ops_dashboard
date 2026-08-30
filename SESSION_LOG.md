@@ -4,6 +4,19 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-30 — Orders attribution VERIFIED live
+
+Devs shipped /api/ops-orders (55+ orders, exact contract, 401 sans token) and — after one
+false "completed" (beacon absent: 0 purchase touchpoints ever, post-deploy order untracked,
+no fsTrack in chunks) — the purchase beacon on redeploy. Verified with REAL orders: last 24h
+= 6 direct / 3 organic-search (Yahoo + Google w/ landing pages) / 1 email (campaign
+"site_relaunch_bundle_intro_2026") / 1 social (Instagram → Semax page); pre-beacon history
+correctly "untracked". Synthetic ingest test from site origin returned 200 (revenue-0,
+unmatched order id — harmless). Known wrinkle: some sessions start ON /checkout/success/
+(session rolled mid-checkout) → classified direct with that landing; acceptable, revisit if
+direct% looks inflated. RP sync is now COMPLETE end-to-end.
+---
+
 ## 2026-08-29 (night) — RP Orders tab with source attribution
 
 Paul: "orders tab... organize by how the order came in — seo page, blog, email campaign etc."
