@@ -4,6 +4,23 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-08-31 (close) — Full RP stack live; session state saved
+
+Everything verified live as of close: Overview (site sales), Orders (source attribution,
+beacon firing), Email (4 flows + guide funnels feeding, 111+ contacts), Wholesale (6 real
+inquiries — ALGO $35,380 the big one; 2 dev-test rows to Decline), Leads, Marketing/Traffic
+(pixel on store + all 3 guide funnels, CORS verified per-origin, bare→www 301s live),
+COA Tracker (bulk upload/labs/delete), Inventory (live order sync 99.9% unit coverage,
+POs, velocity, import/export, mobile sheet). SKU reconciliation vs site sheet: 83/83 exact.
+
+Cross-repo state: RP repo main = wholesale endpoint (34f9a8a) + email endpoint + BIBLE mapping,
+all deployed. Both my worktree branches merged + cleaned by the RP terminal. Tracker + ops in
+sync with origin.
+
+Outstanding forwards only: Justin (true-ups, AOD5/ARA16/SERM5 counts, labels), devs (MOTS 15mg
+label, items[].sku, pending mapping). Nothing code-side pending anywhere.
+---
+
 ## 2026-08-30 (late) — Email LIVE + Wholesale tab + Inventory import/export
 
 **Email endpoint deployed by RP terminal** (cherry-picked 3d1f47d + 4adeb61 BIBLE→fat-loss-bible
