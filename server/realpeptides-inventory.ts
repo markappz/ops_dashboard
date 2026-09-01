@@ -53,7 +53,10 @@ export async function runRpInventorySync(): Promise<typeof lastSync> {
       body: JSON.stringify({ orders }),
       signal: AbortSignal.timeout(60_000),
     });
-    const j = await r.json();
+    const raw = await r.text();
+    let j: any;
+    try { j = JSON.parse(raw); }
+    catch { throw new Error(`consume ${r.status}: ${raw.replace(/<[^>]*>/g, " ").trim().slice(0, 120)}`); }
     if (!r.ok) throw new Error(j.error || `consume ${r.status}`);
     lastSync = { at: new Date().toISOString(), applied: j.applied, alreadyApplied: j.alreadyApplied, unmatched: j.unmatched ?? [] };
     if (j.applied) console.log(`[OPS][RP] inventory sync: ${j.applied} order(s) applied${j.unmatched?.length ? `, unmatched: ${j.unmatched.join(" | ")}` : ""}`);
