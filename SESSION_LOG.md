@@ -4,6 +4,20 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-01 — RP Email tab: Sales column for campaigns (broadcast attribution)
+
+Paul: opens/clicks/sales from email weren't showing in ops. Root cause was upstream — the
+Resend sending domain had open + click tracking OFF (fixed by Paul in Resend: custom tracking
+domain links.realpeptides.co, both toggles on, API-verified). Second gap was ours: the site's
+/api/ops-email-summary attributed sales to flows only. Site commit 7e5cf91 (realpeptides)
+now attributes to broadcasts as well (coupon first, else latest click within 7 days across
+flows AND broadcast clicks; one destination per order). This repo: Campaigns table gets a
+**Sales** column (`attributedOrders` / `attributedRevenueCents` on each campaign), subtitle
+updated, empty-state colSpan 8. Vite build green. Needs the site deploy first — until then the
+new fields are simply absent and the column renders "—".
+
+---
+
 ## 2026-08-31 (close) — Full RP stack live; session state saved
 
 Everything verified live as of close: Overview (site sales), Orders (source attribution,

@@ -19,6 +19,7 @@ interface Flow {
 interface Campaign {
   broadcastId: string; name: string; sends: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
+  attributedOrders: number; attributedRevenueCents: number;
 }
 interface Payload {
   configured: boolean; hint?: string; days: number; perSendStatsSince: string | null;
@@ -61,7 +62,7 @@ export default function RealPeptidesEmail() {
       <PageHero
         eyebrow="Real Peptides"
         title="Email"
-        subtitle="Flows and campaigns from the site's own send instrumentation — open rates, clicks, unsubscribes, and the sales each flow produced."
+        subtitle="Flows and campaigns from the site's own send instrumentation — open rates, clicks, unsubscribes, and the sales each flow and broadcast produced (coupon first, else the last email clicked within 7 days)."
         actions={
           <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
             {[7, 30, 90].map((n) => (
@@ -136,6 +137,7 @@ export default function RealPeptidesEmail() {
                   <th className="px-4 py-3 text-right font-medium">Open rate</th>
                   <th className="px-4 py-3 text-right font-medium">CTR</th>
                   <th className="px-4 py-3 text-right font-medium">Bounce/Spam</th>
+                  <th className="px-4 py-3 text-right font-medium">Sales</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ops-border/50">
@@ -153,9 +155,14 @@ export default function RealPeptidesEmail() {
                     <td className="px-4 py-3 text-right tabular-nums">
                       <BadCounts bounces={c.bounces} complaints={c.complaints} />
                     </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {c.attributedOrders
+                        ? <span className="font-semibold text-fitscript-green">{money(c.attributedRevenueCents)} <span className="text-[11px] font-normal text-ops-text-muted">({c.attributedOrders})</span></span>
+                        : <span className="text-ops-text-muted">—</span>}
+                    </td>
                   </tr>
                 ))}
-                {!d.campaigns.length && <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-ops-text-muted">No broadcast events yet — the ledger starts collecting at the instrumentation deploy.</td></tr>}
+                {!d.campaigns.length && <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-ops-text-muted">No broadcast events yet — the ledger starts collecting at the instrumentation deploy.</td></tr>}
               </tbody>
             </table>
           </div>
