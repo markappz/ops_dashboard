@@ -273,7 +273,7 @@ async function coaUpload(file: Express.Multer.File, fields: Record<string, strin
  * tracker accepts COA_OPS_TOKEN in its auth gate, so ops is its UI now. Only
  * these prefixes are reachable; the tracker's login and scan surface is not.
  */
-const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/labs(\/|$)/, /^\/pos(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
+const PROXY_ALLOW = [/^\/skus(\/|$)/, /^\/documents(\/|$)/, /^\/coas(\/|$)/, /^\/lab-tests(\/|$)/, /^\/labs(\/|$)/, /^\/lab-orders(\/|$)/, /^\/pos(\/|$)/, /^\/team(\/|$)/, /^\/notify(\/|$)/];
 
 async function proxyToTracker(req: Request, res: Response) {
   const base = process.env.COA_API_URL || "https://coa.realpeptides.co";
@@ -293,8 +293,10 @@ async function proxyToTracker(req: Request, res: Response) {
     } else {
       headers["content-type"] = "application/json";
       const json = { ...(req.body ?? {}) };
-      // Stock movements are audit-logged on the tracker — stamp who did it.
-      if (/^\/skus\/\d+\/stock\/?$/.test(sub)) json.by = (req as any).adminEmail || json.by;
+      // Stock movements and lab orders are audit-logged on the tracker — stamp who did it.
+      if (/^\/skus\/\d+\/stock\/?$/.test(sub) || /^\/lab-orders\/?$/.test(sub) || /^\/pos(\/|$)/.test(sub)) {
+        json.by = (req as any).adminEmail || json.by;
+      }
       body = JSON.stringify(json);
     }
   }

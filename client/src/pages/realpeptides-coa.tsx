@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Layers } from "lucide-react";
+import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Layers, FlaskConical } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
 import { groupFamilies } from "./coa/families";
@@ -10,6 +10,7 @@ import { FamilyDetail } from "./coa/FamilyDetail";
 import { ActionSummary } from "./coa/ActionSummary";
 import { AlertSettings } from "./coa/AlertSettings";
 import { BulkUpload } from "./coa/BulkUpload";
+import { LabOrder } from "./coa/LabOrder";
 import { exportSummaryCsv } from "./coa/export";
 
 /**
@@ -30,6 +31,7 @@ export default function RealPeptidesCoa() {
   const [showAlerts, setShowAlerts] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showLabOrder, setShowLabOrder] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
   const csvRef = useRef<HTMLInputElement>(null);
 
@@ -101,6 +103,7 @@ export default function RealPeptidesCoa() {
             {canEdit && <button type="button" onClick={() => csvRef.current?.click()} className={ui.ghost}><Upload size={15} /> Import CSV</button>}
             <button type="button" onClick={() => setShowAlerts(true)} className={ui.ghost} title="Alerts"><Bell size={15} /></button>
             <button type="button" onClick={refresh} className={ui.ghost} title="Refresh"><RefreshCw size={15} /></button>
+            {canEdit && <button type="button" onClick={() => setShowLabOrder(true)} className={ui.ghost}><FlaskConical size={15} /> Send to lab</button>}
             {canEdit && <button type="button" onClick={() => setShowBulk(true)} className={ui.ghost}><Layers size={15} /> Bulk upload</button>}
             {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.primary}><Plus size={15} /> Add product</button>}
           </div>
@@ -129,6 +132,7 @@ export default function RealPeptidesCoa() {
       {showSummary && <ActionSummary families={families} onClose={() => setShowSummary(false)} />}
       {showAlerts && <AlertSettings onClose={() => setShowAlerts(false)} />}
       {showBulk && <BulkUpload skus={skus.data?.skus ?? []} onClose={() => setShowBulk(false)} onDone={(m) => { setShowBulk(false); say(m); refresh(); }} />}
+      {showLabOrder && <LabOrder skus={skus.data?.skus ?? []} onClose={() => setShowLabOrder(false)} onSay={say} onChanged={refresh} />}
       {showAdd && <AddProduct onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); refresh(); }} />}
     </div>
   );

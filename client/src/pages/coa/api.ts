@@ -26,6 +26,8 @@ export interface Sku {
   label_ideal: number | null;
   on_order: number | null;
   requires_coa: boolean;
+  do_not_replenish: boolean;
+  cover_weeks: number | null;
   coa_test_date: string | null;
   coa_expiry_date: string | null;
   coa_lab_name: string | null;
@@ -41,7 +43,7 @@ export interface Sku {
   family_label: string;
 }
 
-export interface Lab { id: number; name: string; active: boolean; is_default: boolean }
+export interface Lab { id: number; name: string; active: boolean; is_default: boolean; address: string | null }
 
 /**
  * Vault-served thumbnail through the ops proxy. The old thumbnail_url pointed
@@ -132,5 +134,18 @@ export interface Po {
   created_at: string;
   ordered_at: string | null;
   received_at: string | null;
-  items: { id: number; sku_id: number; qty: number; sku_code: string; product_name: string }[];
+  items: PoItem[];
+}
+
+export interface PoItem {
+  id: number; sku_id: number; qty: number; received_qty: number;
+  sku_code: string; product_name: string;
+}
+
+/** One parsed line from the fulfilment paste (dry-run /pos/checkin-parse). */
+export interface ParsedCheckinLine {
+  raw: string;
+  qty: number;
+  sku: { id: number; sku_code: string; product_name: string } | null;
+  item: { item_id: number; po_id: number; remaining: number; apply: number; overflow: number } | null;
 }

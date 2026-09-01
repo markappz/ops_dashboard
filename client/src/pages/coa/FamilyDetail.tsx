@@ -68,7 +68,8 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
   const coaDocs = sortCoasByDate(detail.documents.filter((d) => d.category === "coa" && d.brand !== "oryn"));
   const orynDocs = detail.documents.filter((d) => d.category === "coa" && d.brand === "oryn");
   const productImg = detail.documents.find((d) => d.category === "product_image");
-  const atLab = detail.tests.some((t) => t.status === "in_testing" || t.status === "sent");
+  const openTest = detail.tests.find((t) => t.status === "in_testing" || t.status === "sent" || t.status === "queued");
+  const atLab = openTest !== undefined && openTest.status !== "queued";
   const needsTesting = status === "expired" || status === "untested";
 
   async function run(fn: () => Promise<unknown>) {
@@ -131,12 +132,13 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
           <Act onClick={() => toggle("edit")} icon={<Pencil size={11} />} label="Edit" active={panel === "edit"} />
           <Act onClick={remove} icon={<Trash2 size={11} />} label="Delete" disabled={busy} danger />
         </span>
-        {atLab ? (
+        {openTest ? (
           <span className="inline-flex items-center gap-2 text-[11px]">
-            <span className="inline-flex items-center gap-1 font-medium text-yellow-500">
-              <FlaskConical size={11} /> At {detail.tests.find((t) => t.status === "in_testing" || t.status === "sent")?.lab_name || "the lab"} — awaiting results
+            <span className={`inline-flex items-center gap-1 font-medium ${atLab ? "text-yellow-500" : "text-ops-text-muted"}`}>
+              <FlaskConical size={11} /> {atLab ? `At ${openTest.lab_name || "the lab"} — awaiting results` : "Queued for testing"}
             </span>
-            <button type="button" onClick={() => setSent(false)} className="text-ops-text-muted underline hover:text-ops-text">Undo</button>
+            <button type="button" disabled={busy} onClick={() => setSent(false)} title="Not at the lab? Clear the testing status."
+              className="text-ops-text-muted underline hover:text-ops-text disabled:opacity-40">Clear status</button>
           </span>
         ) : needsTesting ? (
           <MarkSent busy={busy} onSend={(lab) => setSent(true, lab)} />

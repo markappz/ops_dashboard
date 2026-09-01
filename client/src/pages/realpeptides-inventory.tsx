@@ -2,12 +2,13 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Minus, Plus, FileDown, Tag, Upload, History, X, Loader2,
-  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp,
+  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp,
 } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
 import { downloadOrderPdf, isLow, orderQty, stockOf, idealOf, stockNum, type InvItem } from "./coa/order-pdf";
 import { PurchaseOrders } from "./coa/PurchaseOrders";
+import { Forecast } from "./coa/Forecast";
 import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
 
 /**
@@ -22,6 +23,7 @@ import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
  */
 
 type Filter = "all" | "low" | "out" | "nofile";
+type Velocity = Record<string, { units: Record<number, number>; weekly: number }>;
 
 const ITEM_TEXT: Record<InvItem, { unit: string; order: string; out: string }> = {
   product: { unit: "units", order: "Order PDF", out: "Out of stock" },
@@ -30,7 +32,7 @@ const ITEM_TEXT: Record<InvItem, { unit: string; order: string; out: string }> =
 
 interface Stats {
   configured: boolean;
-  bySku?: Record<string, { units28d: number; weekly: number }>;
+  bySku?: Velocity;
   lastSync?: { at: string; applied: number; error?: string } | null;
 }
 
@@ -41,6 +43,7 @@ export default function RealPeptidesInventory() {
   const [query, setQuery] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [showPos, setShowPos] = useState(false);
+  const [showForecast, setShowForecast] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [openSku, setOpenSku] = useState<number | null>(null);
 
@@ -57,8 +60,8 @@ export default function RealPeptidesInventory() {
     retry: false,
   });
   const statsQ = useQuery({
-    queryKey: ["rp-inventory-stats"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory-stats", { credentials: "include" })).json() as Promise<Stats>,
+    queryKey: ["rp-inventory-stats", "28,56"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory-stats?windows=28,56", { credentials: "include" })).json() as Promise<Stats>,
     staleTime: 5 * 60_000,
   });
   const velocity = statsQ.data?.bySku ?? {};
@@ -113,6 +116,7 @@ export default function RealPeptidesInventory() {
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
+            <button type="button" onClick={() => setShowForecast(true)} disabled={!skus.length} className={ui.ghost}><TrendingUp size={15} /> Forecast</button>
             <button type="button" onClick={orderPdf} disabled={!skus.length} className={ui.primary}>
               <FileDown size={15} /> {t.order}{counts.low ? ` (${counts.low})` : ""}
             </button>
@@ -158,14 +162,16 @@ export default function RealPeptidesInventory() {
             {!shown.length && <div className="py-12 text-center text-sm text-ops-text-muted">No products match.</div>}
           </div>
           <div className="hidden overflow-x-auto rounded-2xl border border-ops-border bg-ops-surface shadow-card md:block">
-            <table className="w-full min-w-[940px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead>
                 <tr className="border-b border-ops-border bg-ops-bg/40 text-[11px] uppercase tracking-wider text-ops-text-muted">
                   <th className="px-4 py-3 font-medium">Product</th>
                   <th className="px-4 py-3 font-medium">Label file</th>
                   <th className="px-4 py-3 text-right font-medium">{item === "label" ? "Labels on hand" : "In stock"}</th>
+                  {item === "product" && <th className="px-4 py-3 text-right font-medium">On order</th>}
                   <th className="px-4 py-3 text-right font-medium">Target</th>
                   <th className="px-4 py-3 text-right font-medium">{item === "label" ? "To print" : "To order"}</th>
+                  {item === "product" && <th className="px-4 py-3 text-right font-medium">Sold 4w · 8w</th>}
                   {item === "product" && <th className="px-4 py-3 text-right font-medium">Selling</th>}
                   {canEdit && <th className="px-4 py-3 text-center font-medium">Adjust</th>}
                   <th className="px-3 py-3" />
@@ -177,7 +183,7 @@ export default function RealPeptidesInventory() {
                     onChanged={refresh} onSay={say} onOpen={() => setOpenSku(s.id)} />
                 ))}
                 {!shown.length && (
-                  <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-ops-text-muted">No products match.</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-ops-text-muted">No products match.</td></tr>
                 )}
               </tbody>
             </table>
@@ -186,6 +192,7 @@ export default function RealPeptidesInventory() {
       )}
 
       {showPos && <PurchaseOrders skus={skus} onClose={() => setShowPos(false)} onSay={say} />}
+      {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
       {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
       {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity}
         onClose={() => setOpenSku(null)} onChanged={refresh} onSay={say} />}
@@ -242,7 +249,7 @@ function useAdjust(sku: Sku, item: InvItem, onChanged: () => void, onSay: (m: st
 }
 
 /** Weeks of stock left at the current sales rate. */
-function weeksLeft(sku: Sku, velocity: Record<string, { weekly: number }>): { weekly: number; weeks: number | null } | null {
+function weeksLeft(sku: Sku, velocity: Velocity): { weekly: number; weeks: number | null } | null {
   const v = velocity[sku.sku_code];
   if (!v || !v.weekly) return v ? { weekly: 0, weeks: null } : null;
   const cur = stockNum(sku.current_stock) ?? 0;
@@ -252,7 +259,7 @@ function weeksLeft(sku: Sku, velocity: Record<string, { weekly: number }>): { we
 // ─── Desktop row ───────────────────────────────────────────────────
 
 function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
-  sku: Sku; item: InvItem; canEdit: boolean; velocity: Record<string, { units28d: number; weekly: number }>;
+  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity;
   onChanged: () => void; onSay: (m: string) => void; onOpen: () => void;
 }) {
   const [qty, setQty] = useState("1");
@@ -268,6 +275,7 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
   const low = isLow(sku, item);
   const img = thumbUrl(sku);
   const vel = item === "product" ? weeksLeft(sku, velocity) : null;
+  const sold = item === "product" ? velocity[sku.sku_code]?.units ?? null : null;
 
   function onLabelFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -306,16 +314,27 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
         </td>
         <td className="px-4 py-3 text-right">
           <span className={`text-base font-bold tabular-nums ${out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</span>
-          {item === "product" && onOrder > 0 && <span className="block text-[10px] text-amber-500">+{onOrder} on order</span>}
         </td>
+        {item === "product" && (
+          <td className="px-4 py-3 text-right tabular-nums">
+            {onOrder > 0 ? <span className="font-semibold text-amber-500">{onOrder}</span> : <span className="text-ops-text-muted">—</span>}
+          </td>
+        )}
         <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{ideal ?? "—"}</td>
         <td className="px-4 py-3 text-right">
-          {need && need > 0
-            ? <span className="rounded-full bg-yellow-500/15 px-2.5 py-1 text-[11px] font-bold text-yellow-500">{need}</span>
-            : low && !onOrder
-              ? <span className="rounded-full bg-red-500/15 px-2.5 py-1 text-[11px] font-bold text-red-400">no target</span>
-              : <CheckCircle2 size={15} className="ml-auto inline text-fitscript-green/60" />}
+          {sku.do_not_replenish
+            ? <span className="rounded-full bg-ops-border px-2.5 py-1 text-[10px] font-bold uppercase text-ops-text-muted">no reorder</span>
+            : need && need > 0
+              ? <span className="rounded-full bg-yellow-500/15 px-2.5 py-1 text-[11px] font-bold text-yellow-500">{need}</span>
+              : low && !onOrder
+                ? <span className="rounded-full bg-red-500/15 px-2.5 py-1 text-[11px] font-bold text-red-400">no target</span>
+                : <CheckCircle2 size={15} className="ml-auto inline text-fitscript-green/60" />}
         </td>
+        {item === "product" && (
+          <td className="px-4 py-3 text-right text-[11px] tabular-nums text-ops-text-muted">
+            {sold ? <>{sold[28] ?? 0} <span className="text-ops-border">·</span> {sold[56] ?? 0}</> : "—"}
+          </td>
+        )}
         {item === "product" && (
           <td className="px-4 py-3 text-right text-[11px] tabular-nums">
             {vel === null ? <span className="text-ops-text-muted">—</span> : vel.weeks === null
@@ -342,7 +361,7 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
             className={`p-1 ${showLog ? "text-fitscript-green" : "text-ops-text-muted hover:text-ops-text"}`}><History size={14} /></button>
         </td>
       </tr>
-      {showLog && <LogRow skuId={sku.id} colSpan={item === "product" ? (canEdit ? 8 : 7) : (canEdit ? 7 : 6)} />}
+      {showLog && <LogRow skuId={sku.id} colSpan={item === "product" ? (canEdit ? 10 : 9) : (canEdit ? 7 : 6)} />}
     </>
   );
 }
@@ -350,7 +369,7 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
 // ─── Mobile card ───────────────────────────────────────────────────
 
 function MobileCard({ sku, item, velocity, onOpen }: {
-  sku: Sku; item: InvItem; velocity: Record<string, { units28d: number; weekly: number }>; onOpen: () => void;
+  sku: Sku; item: InvItem; velocity: Velocity; onOpen: () => void;
 }) {
   const cur = stockOf(sku, item);
   const need = orderQty(sku, item);
@@ -381,12 +400,13 @@ function MobileCard({ sku, item, velocity, onOpen }: {
 // ─── Product sheet: the tap-to-manage surface (works everywhere, built for phones) ───
 
 function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
-  sku: Sku; item: InvItem; canEdit: boolean; velocity: Record<string, { units28d: number; weekly: number }>;
+  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity;
   onClose: () => void; onChanged: () => void; onSay: (m: string) => void;
 }) {
   const [qty, setQty] = useState("1");
   const [count, setCount] = useState("");
   const [target, setTarget] = useState("");
+  const [cover, setCover] = useState("");
   const labelRef = useRef<HTMLInputElement>(null);
   const { busy, run, adjust, setExact, setTarget: saveTarget, noun } = useAdjust(sku, item, onChanged, onSay);
 
@@ -454,6 +474,36 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
                     className={`${ui.input} py-2.5`} />
                   <button type="button" disabled={busy || target === ""} onClick={() => { saveTarget(Number(target)); setTarget(""); }}
                     className={`${ui.ghost} shrink-0 px-3`}>Set</button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border border-ops-border px-3 py-2.5">
+                <div className="min-w-0 pr-3">
+                  <span className="block text-sm text-ops-text">Do not replenish</span>
+                  <span className="text-[11px] text-ops-text-muted">Sell what's left — never suggest a reorder for this product.</span>
+                </div>
+                <button type="button" disabled={busy} aria-pressed={sku.do_not_replenish}
+                  onClick={() => run(
+                    () => api(`/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify({ do_not_replenish: !sku.do_not_replenish }) }),
+                    sku.do_not_replenish ? `${sku.product_name} back in the reorder rotation.` : `${sku.product_name} marked do-not-replenish — it won't be reordered.`)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition ${sku.do_not_replenish ? "bg-red-400" : "bg-ops-border"}`}>
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${sku.do_not_replenish ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-ops-border px-3 py-2.5">
+                <div className="min-w-0">
+                  <span className="block text-sm text-ops-text">Forecast cover</span>
+                  <span className="text-[11px] text-ops-text-muted">Weeks of demand to keep on hand (blank = 6).</span>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <input value={cover} onChange={(e) => setCover(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric"
+                    placeholder={sku.cover_weeks != null ? String(Number(sku.cover_weeks)) : "6"}
+                    className={`${ui.input} w-16 py-2 text-center`} />
+                  <button type="button" disabled={busy || cover === ""} onClick={() => {
+                    run(() => api(`/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify({ cover_weeks: Number(cover) }) }), "Cover weeks saved.");
+                    setCover("");
+                  }} className={`${ui.ghost} px-3 py-1.5 text-xs`}>Set</button>
                 </div>
               </div>
 

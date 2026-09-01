@@ -2990,3 +2990,27 @@ Session in ops UI only (no code changes, no deploy). Via Settings → Admins on 
 ### What I'll remember
 - The dashboard's Live mode swaps company views under you mid-interaction — coordinate clicks are unreliable on ops; use element refs (find/read_page) for anything that mutates state.
 - Add-admin dedupes by email server-side: a double-submitted email still produced exactly one row.
+
+## 2026-09-01 — Justin's inventory suite: custom POs, paste check-in, forecast, team permissions, lab send-outs
+
+Everything Paul asked for Justin, in the RP Inventory + COA tabs (tracker-side engine committed in realpeptides-coa `fcd4629`).
+
+### Inventory (`realpeptides-inventory.tsx` + `coa/PurchaseOrders.tsx`, new `coa/Forecast.tsx`)
+- **Custom PO builder** — search products, set quantities (prefilled with target shortfall), supplier/note → draft PO.
+- **Check-ins are per-line and partial**: each PO card gets a Check in expander (inputs prefilled with what's open); "Check in & close short" for what will never arrive. PO shows "partly received · 40/90 in"; remainder keeps counting as on-order.
+- **Paste check-in**: textarea for fulfilment texts ("Klow 80mg - 440 Total") → dry-run preview (which PO, what applies, what stays open, unmatched lines flagged) → one click applies + reports what's left on the PO.
+- **Forecast modal**: blended 4/8-week sales rate → next-4w/8w projections → wanted = rate × (cover + lead time); cover default 6w (picker), per-product override via `cover_weeks` (sheet input, shown as "8w*"), lead default 2w; minus stock and on-order → order qty; one click → draft PO.
+- **New table columns**: On order (from open POs) and Sold 4w · 8w. Stats endpoint now takes `?windows=` (14/28/42/56/84d) and buckets one order fetch into all windows; fetch limit raised 500→2000.
+- **Do not replenish** toggle in the product sheet: excluded from isLow/orderQty/shortfall PDF/forecast, "NO REORDER" chip in the To order column.
+
+### COA tab
+- **Send to lab** (`coa/LabOrder.tsx`): expired/no-COA/expiring toggles shown together, per-product checkboxes, lab picker + shipping address (editable, stored on labs), Slack message preview, Copy list, "Push to Slack & mark N at the lab" (skips products already at the lab).
+- **Stuck statuses fixed**: FamilyDetail now surfaces queued tests too and "Clear status" cancels queued/sent/in_testing (tracker mark-unsent widened).
+
+### Settings → Team (was "Admins")
+- Add members with a **role** (Admin — full access / Viewer — read-only + picks) and **selectable permissions** from a server-driven catalog (`PERMISSION_CATALOG` in admin-auth.ts: realpeptides:coa-upload, pawgen:refund). Edit any member's role/permissions inline (PATCH /api/ops/admins/:email, audit-logged, self/last-admin demotion blocked).
+
+### Plumbing
+- COA proxy allowlist + realpeptides:coa-upload grant now cover `/lab-orders` and labs PATCH; proxy stamps `by` on pos + lab-orders too.
+
+Tested E2E locally (scratch pg16 :5499 as tracker DB + ops dev on :5002 with scratch ops_admins): every flow browser-verified, both repos `tsc` + `vite build` clean. **Committed only — NOT pushed, NOT deployed.** Local dev pair left running for Paul to click through (Chrome on this Mac already has a session cookie for localhost:5002).

@@ -83,7 +83,7 @@ export default function Settings() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "general", label: "General" },
-    { key: "admins", label: "Admins" },
+    { key: "admins", label: "Team" },
     { key: "audit", label: "Admin Log" },
   ];
 
@@ -147,7 +147,7 @@ function GeneralTab({ data }: { data: SettingsData }) {
       <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-5">
         <h3 className="text-sm font-semibold text-ops-text mb-1">Admin allowlist</h3>
         <p className="text-xs text-ops-text-muted">
-          {data.adminEmails.length} admin{data.adminEmails.length === 1 ? "" : "s"} currently configured. Manage them in the <span className="text-brand-blue-500 font-semibold">Admins</span> tab — add or remove without touching env vars or redeploying.
+          {data.adminEmails.length} admin{data.adminEmails.length === 1 ? "" : "s"} currently configured. Manage them in the <span className="text-brand-blue-500 font-semibold">Team</span> tab — add or remove without touching env vars or redeploying.
         </p>
       </div>
 
@@ -329,6 +329,117 @@ function AuditTab() {
   );
 }
 
+const ROLE_CHIP: Record<string, string> = {
+  admin: "bg-brand-blue-500/15 text-brand-blue-400",
+  viewer: "bg-ops-border text-ops-text-muted",
+};
+
+function PermissionPicker({ catalog, value, onChange }: {
+  catalog: PermissionInfo[]; value: string[]; onChange: (v: string[]) => void;
+}) {
+  if (!catalog.length) return null;
+  return (
+    <div className="space-y-1.5">
+      {catalog.map((perm) => {
+        const on = value.includes(perm.key);
+        return (
+          <label key={perm.key} className="flex cursor-pointer items-start gap-2" title={perm.detail}>
+            <input
+              type="checkbox"
+              checked={on}
+              onChange={() => onChange(on ? value.filter((k) => k !== perm.key) : [...value, perm.key])}
+              className="mt-0.5 accent-brand-blue-500"
+            />
+            <span className="text-xs text-ops-text">{perm.label}
+              <span className="block text-[10px] text-ops-text-muted">{perm.detail}</span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function MemberRow({ member, role, isMe, lastMember, catalog, editing, onEdit, onSave, onRemove }: {
+  member: AdminRow; role: "admin" | "viewer"; isMe: boolean; lastMember: boolean;
+  catalog: PermissionInfo[]; editing: boolean;
+  onEdit: () => void; onSave: (patch: { role?: "admin" | "viewer"; permissions?: string[] }) => void; onRemove: () => void;
+}) {
+  const [draftRole, setDraftRole] = useState<"admin" | "viewer">(role);
+  const [draftPerms, setDraftPerms] = useState<string[]>(member.permissions ?? []);
+  const labelFor = (key: string) => catalog.find((c) => c.key === key)?.label ?? key;
+
+  return (
+    <>
+      <tr className="border-b border-ops-border last:border-b-0">
+        <td className="px-4 py-3 text-ops-text">
+          {member.email}
+          {isMe && <span className="ml-2 text-[10px] font-semibold text-brand-blue-400">(you)</span>}
+        </td>
+        <td className="px-4 py-3">
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${ROLE_CHIP[role]}`}>{role}</span>
+          {role === "viewer" && (member.permissions ?? []).map((perm) => (
+            <span key={perm} className="ml-1.5 rounded-full bg-brand-blue-500/10 px-2 py-0.5 text-[10px] text-brand-blue-400" title={labelFor(perm)}>
+              +{perm}
+            </span>
+          ))}
+        </td>
+        <td className="px-4 py-3 text-ops-text-muted text-xs">{member.added_by ?? "—"}</td>
+        <td className="px-4 py-3 text-ops-text-muted text-xs">{timeAgo(member.added_at)}</td>
+        <td className="px-4 py-3 text-ops-text-muted text-xs">{member.note ?? "—"}</td>
+        <td className="px-4 py-3 text-right whitespace-nowrap">
+          <button onClick={onEdit} className="text-[11px] font-semibold text-brand-blue-400 hover:text-brand-blue-300">
+            {editing ? "Close" : "Edit"}
+          </button>
+          {isMe ? (
+            <span className="ml-3 text-[11px] text-ops-text-subtle italic">self</span>
+          ) : lastMember ? (
+            <span className="ml-3 text-[11px] text-ops-text-subtle italic">only admin</span>
+          ) : (
+            <button onClick={onRemove} className="ml-3 text-[11px] font-semibold text-red-400 hover:text-red-300">
+              Remove
+            </button>
+          )}
+        </td>
+      </tr>
+      {editing && (
+        <tr className="border-b border-ops-border bg-ops-bg/40">
+          <td colSpan={6} className="px-4 py-3">
+            <div className="flex flex-wrap items-start gap-4">
+              <div className="inline-flex rounded-lg border border-ops-border bg-ops-bg p-0.5">
+                {(["admin", "viewer"] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setDraftRole(r)}
+                    disabled={isMe && r === "viewer"}
+                    title={isMe && r === "viewer" ? "You can't demote yourself" : undefined}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition disabled:opacity-40 ${
+                      draftRole === r ? "bg-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"
+                    }`}
+                  >
+                    {r === "admin" ? "Admin — full access" : "Viewer — read-only + picks"}
+                  </button>
+                ))}
+              </div>
+              {draftRole === "viewer" && (
+                <PermissionPicker catalog={catalog} value={draftPerms} onChange={setDraftPerms} />
+              )}
+              <button
+                type="button"
+                onClick={() => onSave({ role: draftRole, permissions: draftRole === "viewer" ? draftPerms : [] })}
+                className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white hover:opacity-95"
+              >
+                Save
+              </button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 // ─── Admins tab ────────────────────────────────────────────────────
 
 interface AdminRow {
@@ -336,20 +447,29 @@ interface AdminRow {
   added_by: string | null;
   added_at: string;
   note: string | null;
+  role: "admin" | "viewer";
+  permissions: string[];
+  has_password: boolean;
 }
+
+interface PermissionInfo { key: string; label: string; detail: string }
 
 function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
   const queryClient = useQueryClient();
-  const { data, isLoading, error, refetch } = useQuery<{ admins: AdminRow[] }>({
+  const { data, isLoading, error, refetch } = useQuery<{ admins: AdminRow[]; catalog: PermissionInfo[] }>({
     queryKey: ["ops-admins"],
     queryFn: () => fetch("/api/ops/admins").then((r) => r.json()),
   });
   const [newEmail, setNewEmail] = useState("");
   const [newNote, setNewNote] = useState("");
+  const [newRole, setNewRole] = useState<"admin" | "viewer">("admin");
+  const [newPerms, setNewPerms] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
   const admins = data?.admins ?? [];
+  const catalog = data?.catalog ?? [];
   const me = currentAdminEmail.toLowerCase();
 
   const addAdmin = async (e: React.FormEvent) => {
@@ -362,15 +482,22 @@ function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
       const r = await fetch("/api/ops/admins", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, note: newNote.trim() || undefined }),
+        body: JSON.stringify({
+          email,
+          note: newNote.trim() || undefined,
+          role: newRole,
+          permissions: newRole === "viewer" ? newPerms : [],
+        }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
         setActionMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
       } else {
-        setActionMsg({ tone: "ok", text: `✓ Added ${email}. They can sign in now.` });
+        setActionMsg({ tone: "ok", text: `✓ Added ${email} as ${newRole === "admin" ? "an admin" : "a viewer"}. They can sign in now.` });
         setNewEmail("");
         setNewNote("");
+        setNewRole("admin");
+        setNewPerms([]);
         queryClient.invalidateQueries({ queryKey: ["ops-admins"] });
       }
     } catch (err: any) {
@@ -397,12 +524,33 @@ function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
     }
   };
 
+  const saveMember = async (email: string, patch: { role?: "admin" | "viewer"; permissions?: string[] }) => {
+    setActionMsg(null);
+    try {
+      const r = await fetch(`/api/ops/admins/${encodeURIComponent(email)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) {
+        setActionMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+      } else {
+        setActionMsg({ tone: "ok", text: `✓ Updated ${email}.` });
+        setEditing(null);
+        queryClient.invalidateQueries({ queryKey: ["ops-admins"] });
+      }
+    } catch (err: any) {
+      setActionMsg({ tone: "bad", text: err.message });
+    }
+  };
+
   return (
     <>
       <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5 mb-5">
-        <h3 className="text-sm font-semibold text-ops-text mb-1">Add admin</h3>
+        <h3 className="text-sm font-semibold text-ops-text mb-1">Add team member</h3>
         <p className="text-[11px] text-ops-text-muted mb-3">
-          Anyone added here can sign in with their Google account immediately. No env or AWS edits required.
+          Admins get full access to everything. Viewers see every page read-only, plus exactly the write permissions you tick below. Sign-in works immediately — Google account, or a password set from this table for shared mailboxes.
         </p>
         <form onSubmit={addAdmin} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
           <input
@@ -426,9 +574,28 @@ function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
             disabled={adding || !newEmail.trim()}
             className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95 whitespace-nowrap"
           >
-            {adding ? "Adding…" : "Add admin"}
+            {adding ? "Adding…" : newRole === "admin" ? "Add admin" : "Add viewer"}
           </button>
         </form>
+        <div className="mt-3 flex flex-wrap items-start gap-4">
+          <div className="inline-flex rounded-lg border border-ops-border bg-ops-bg p-0.5">
+            {(["admin", "viewer"] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setNewRole(r)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition ${
+                  newRole === r ? "bg-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"
+                }`}
+              >
+                {r === "admin" ? "Admin — full access" : "Viewer — read-only + picks"}
+              </button>
+            ))}
+          </div>
+          {newRole === "viewer" && (
+            <PermissionPicker catalog={catalog} value={newPerms} onChange={setNewPerms} />
+          )}
+        </div>
         {actionMsg && (
           <div className={`mt-3 px-3 py-2 rounded-lg text-xs ${
             actionMsg.tone === "ok"
@@ -457,6 +624,7 @@ function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wider text-ops-text-muted border-b border-ops-border">
                   <th className="px-4 py-2 font-semibold">Email</th>
+                  <th className="px-4 py-2 font-semibold">Access</th>
                   <th className="px-4 py-2 font-semibold">Added by</th>
                   <th className="px-4 py-2 font-semibold">Added</th>
                   <th className="px-4 py-2 font-semibold">Note</th>
@@ -466,30 +634,21 @@ function AdminsTab({ currentAdminEmail }: { currentAdminEmail: string }) {
               <tbody>
                 {admins.map((a) => {
                   const isMe = a.email.toLowerCase() === me;
+                  const role = a.role ?? "admin";
+                  const isEditing = editing === a.email;
                   return (
-                    <tr key={a.email} className="border-b border-ops-border last:border-b-0">
-                      <td className="px-4 py-3 text-ops-text">
-                        {a.email}
-                        {isMe && <span className="ml-2 text-[10px] font-semibold text-brand-blue-400">(you)</span>}
-                      </td>
-                      <td className="px-4 py-3 text-ops-text-muted text-xs">{a.added_by ?? "—"}</td>
-                      <td className="px-4 py-3 text-ops-text-muted text-xs">{timeAgo(a.added_at)}</td>
-                      <td className="px-4 py-3 text-ops-text-muted text-xs">{a.note ?? "—"}</td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        {isMe ? (
-                          <span className="text-[11px] text-ops-text-subtle italic">self</span>
-                        ) : admins.length <= 1 ? (
-                          <span className="text-[11px] text-ops-text-subtle italic">only admin</span>
-                        ) : (
-                          <button
-                            onClick={() => removeAdmin(a.email)}
-                            className="text-[11px] font-semibold text-red-400 hover:text-red-300"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                    <MemberRow
+                      key={a.email}
+                      member={a}
+                      role={role}
+                      isMe={isMe}
+                      lastMember={admins.length <= 1}
+                      catalog={catalog}
+                      editing={isEditing}
+                      onEdit={() => setEditing(isEditing ? null : a.email)}
+                      onSave={(patch) => saveMember(a.email, patch)}
+                      onRemove={() => removeAdmin(a.email)}
+                    />
                   );
                 })}
               </tbody>

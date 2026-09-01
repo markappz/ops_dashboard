@@ -28,7 +28,7 @@ function trackerCfg() {
 async function fetchSiteOrders(days: number): Promise<any[]> {
   const cfg = siteCfg();
   if (!cfg) throw new Error("site not configured");
-  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=500`, {
+  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=2000`, {
     headers: { Authorization: `Bearer ${cfg.token}` }, signal: AbortSignal.timeout(30_000),
   });
   if (!r.ok) throw new Error(`ops-orders ${r.status}`);
@@ -77,21 +77,36 @@ export function startRpInventorySyncLoop() {
 
 // ─── Sales velocity for forecasting ────────────────────────────────
 
-let statsCache: { at: number; data: any } | null = null;
+const WINDOW_CHOICES = [14, 28, 42, 56, 84]; // 2/4/6/8/12 weeks
+let statsCache: { at: number; key: string; data: any } | null = null;
 
-/** 28-day units sold per SKU: site order items name-matched via the tracker. */
-async function velocityBySku() {
-  if (statsCache && Date.now() - statsCache.at < 10 * 60_000) return statsCache.data;
+/**
+ * Units sold per SKU across several trailing windows (site order items
+ * name-matched via the tracker). One order fetch covers every window; weekly
+ * velocity comes from the 28-day window (falling back to the widest asked).
+ */
+async function velocityBySku(windows: number[]) {
+  const key = windows.join(",");
+  if (statsCache && statsCache.key === key && Date.now() - statsCache.at < 10 * 60_000) return statsCache.data;
   const tracker = trackerCfg();
   if (!tracker) throw new Error("tracker not configured");
-  const orders = await fetchSiteOrders(28);
-  const byName = new Map<string, number>();
+  const maxDays = Math.max(...windows);
+  const orders = await fetchSiteOrders(maxDays);
+  const cutoffs = windows.map((d) => ({ days: d, since: Date.now() - d * 86_400_000 }));
+
+  const byName = new Map<string, Record<number, number>>();
   for (const o of orders) {
+    const at = o.createdAt ? Date.parse(o.createdAt) : NaN;
+    if (!Number.isFinite(at)) continue;
     for (const it of o.items ?? []) {
-      const key = String(it.sku || it.name || "").trim();
-      if (key) byName.set(key, (byName.get(key) ?? 0) + Number(it.qty ?? 1));
+      const nameKey = String(it.sku || it.name || "").trim();
+      if (!nameKey) continue;
+      const buckets = byName.get(nameKey) ?? {};
+      for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + Number(it.qty ?? 1);
+      byName.set(nameKey, buckets);
     }
   }
+
   const names = [...byName.keys()];
   const matches = new Map<string, string>();
   for (let i = 0; i < names.length; i += 150) {
@@ -103,26 +118,36 @@ async function velocityBySku() {
     }).then((x) => x.json());
     for (const m of r.matches ?? []) if (m.sku) matches.set(m.file, m.sku.sku_code);
   }
-  const bySku: Record<string, { units28d: number; weekly: number }> = {};
+
+  const bySku: Record<string, { units: Record<number, number>; weekly: number }> = {};
   const unmatched: string[] = [];
-  for (const [name, units] of byName) {
+  for (const [name, buckets] of byName) {
     const code = matches.get(name);
     if (!code) { unmatched.push(name); continue; }
-    bySku[code] ??= { units28d: 0, weekly: 0 };
-    bySku[code].units28d += units;
+    bySku[code] ??= { units: {}, weekly: 0 };
+    for (const [d, n] of Object.entries(buckets)) {
+      bySku[code].units[Number(d)] = (bySku[code].units[Number(d)] ?? 0) + n;
+    }
   }
-  for (const v of Object.values(bySku)) v.weekly = Math.round((v.units28d / 4) * 10) / 10;
-  const data = { generatedAt: new Date().toISOString(), days: 28, bySku, unmatched };
-  statsCache = { at: Date.now(), data };
+  const rateWindow = windows.includes(28) ? 28 : maxDays;
+  for (const v of Object.values(bySku)) {
+    v.weekly = Math.round(((v.units[rateWindow] ?? 0) / (rateWindow / 7)) * 10) / 10;
+  }
+  const data = { generatedAt: new Date().toISOString(), windows, bySku, unmatched };
+  statsCache = { at: Date.now(), key, data };
   return data;
 }
 
 export function registerRpInventoryRoutes(app: Express) {
-  /** Sales velocity per SKU + last sync state, for the Inventory tab. */
-  app.get("/api/ops/realpeptides/inventory-stats", async (_req, res) => {
+  /** Sales per SKU across trailing windows + last sync state, for the Inventory tab. */
+  app.get("/api/ops/realpeptides/inventory-stats", async (req, res) => {
     try {
       if (!siteCfg()) return res.json({ configured: false, lastSync });
-      res.json({ configured: true, lastSync, ...(await velocityBySku()) });
+      const asked = String(req.query.windows || "28,56").split(",").map((n) => parseInt(n, 10));
+      const windows = [...new Set(asked.filter((n) => WINDOW_CHOICES.includes(n)))];
+      if (!windows.length) windows.push(28, 56);
+      if (!windows.includes(28)) windows.push(28); // weekly velocity anchor
+      res.json({ configured: true, lastSync, ...(await velocityBySku(windows.sort((a, b) => a - b))) });
     } catch (e: any) {
       res.json({ configured: true, lastSync, error: e.message, bySku: {} });
     }

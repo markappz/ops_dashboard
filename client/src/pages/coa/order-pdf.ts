@@ -9,8 +9,10 @@ export const stockNum = (v: number | string | null) => (v === null || v === "" |
 export const stockOf = (s: Sku, item: InvItem) => stockNum(item === "label" ? s.label_stock : s.current_stock);
 export const idealOf = (s: Sku, item: InvItem) => stockNum(item === "label" ? s.label_ideal : s.ideal_stock);
 
-/** Below target (target set) — or flat out with a recorded count. */
+/** Below target (target set) — or flat out with a recorded count.
+ *  Sunset products (do_not_replenish) are never "low": we sell what's left. */
 export function isLow(s: Sku, item: InvItem = "product"): boolean {
+  if (s.do_not_replenish) return false;
   const cur = stockOf(s, item);
   const ideal = idealOf(s, item);
   if (ideal !== null && ideal > 0) return (cur ?? 0) < ideal;
@@ -18,6 +20,7 @@ export function isLow(s: Sku, item: InvItem = "product"): boolean {
 }
 
 export function orderQty(s: Sku, item: InvItem = "product"): number | null {
+  if (s.do_not_replenish) return null;
   const cur = stockOf(s, item);
   const ideal = idealOf(s, item);
   // Vials already on an open PO don't need re-ordering.

@@ -180,12 +180,29 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
   // File a new COA PDF for a Real Peptides SKU (Justin). Nothing else under /realpeptides.
   "realpeptides:coa-upload": [
     { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/upload\/?$/ },
-    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|documents|pos)(\/[^/]+)*\/?$/ },
-    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|pos)\/\d+\/?$/ },
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|documents|pos|lab-orders)(\/[^/]+)*\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|pos|labs)\/\d+\/?$/ },
     // Remove a product (soft), or a wrong certificate / vault file (permanent).
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|documents|coas|pos)\/\d+\/?$/ },
   ],
 };
+
+/**
+ * What the Settings → Team UI can offer when adding a member. Labels are for
+ * humans; the keys must exist in PERMISSION_ROUTES or they grant nothing.
+ */
+export const PERMISSION_CATALOG: Array<{ key: string; label: string; detail: string }> = [
+  {
+    key: "realpeptides:coa-upload",
+    label: "Real Peptides — COAs, inventory & POs",
+    detail: "Upload COAs, adjust stock, manage products and purchase orders (Justin's toolkit).",
+  },
+  {
+    key: "pawgen:refund",
+    label: "pawgen — refund orders",
+    detail: "Issue refunds on pawgen orders. Nothing else under pawgen.",
+  },
+];
 
 function permitsRequest(granted: string[], method: string, path: string): boolean {
   for (const g of granted) {
@@ -249,24 +266,49 @@ export async function refreshAllowlistCache(): Promise<void> {
 }
 
 // Exported for the admins-management API.
-export async function listAdminsFromDb(): Promise<Array<{ email: string; added_by: string | null; added_at: string; note: string | null }>> {
+export async function listAdminsFromDb(): Promise<Array<{ email: string; added_by: string | null; added_at: string; note: string | null; role: string; permissions: string[]; has_password: boolean }>> {
   await ensureAdminTable();
   await seedFromEnvIfEmpty();
   const r = await pool.query(
-    `SELECT email, added_by, added_at, note FROM ops_admins ORDER BY added_at ASC`,
+    `SELECT email, added_by, added_at, note, role, permissions,
+            (password_hash IS NOT NULL) AS has_password
+     FROM ops_admins ORDER BY added_at ASC`,
   );
   return r.rows;
 }
 
-export async function addAdminToDb(email: string, addedBy: string, note?: string): Promise<void> {
+const VALID_ROLES = new Set(["admin", "viewer"]);
+
+function cleanPermissions(input: unknown): string[] {
+  const valid = new Set(PERMISSION_CATALOG.map((p) => p.key));
+  return Array.isArray(input) ? [...new Set(input.map(String).filter((p) => valid.has(p)))] : [];
+}
+
+export async function addAdminToDb(email: string, addedBy: string, note?: string, role = "admin", permissions: unknown = []): Promise<void> {
   await ensureAdminTable();
   const e = email.trim().toLowerCase();
   if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error("Invalid email");
+  if (!VALID_ROLES.has(role)) throw new Error("Role must be admin or viewer");
   await pool.query(
-    `INSERT INTO ops_admins (email, added_by, note) VALUES ($1, $2, $3)
+    `INSERT INTO ops_admins (email, added_by, note, role, permissions) VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (email) DO NOTHING`,
-    [e, addedBy, note ?? null],
+    [e, addedBy, note ?? null, role, cleanPermissions(permissions)],
   );
+  await refreshAllowlistCache();
+}
+
+/** Change an existing member's role and/or scoped permissions. */
+export async function updateAdminInDb(email: string, patch: { role?: string; permissions?: unknown }): Promise<void> {
+  await ensureAdminTable();
+  const e = email.trim().toLowerCase();
+  if (patch.role !== undefined && !VALID_ROLES.has(patch.role)) throw new Error("Role must be admin or viewer");
+  const { rowCount } = await pool.query(
+    `UPDATE ops_admins SET role = COALESCE($2, role),
+            permissions = CASE WHEN $3 THEN $4 ELSE permissions END
+     WHERE email = $1`,
+    [e, patch.role ?? null, patch.permissions !== undefined, cleanPermissions(patch.permissions)],
+  );
+  if (!rowCount) throw new Error("No such team member");
   await refreshAllowlistCache();
 }
 
@@ -428,17 +470,20 @@ export function registerAdminAuthRoutes(app: Express) {
   app.get("/api/ops/admins", requireAdmin, async (_req, res) => {
     try {
       const admins = await listAdminsFromDb();
-      res.json({ admins });
+      res.json({ admins, catalog: PERMISSION_CATALOG });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
   app.post("/api/ops/admins", requireAdmin, async (req: AdminRequest, res) => {
-    const { email, note } = req.body ?? {};
+    const { email, note, role, permissions } = req.body ?? {};
     const adminEmail = req.adminEmail || "unknown";
     try {
-      await addAdminToDb(String(email || ""), adminEmail, note ? String(note) : undefined);
+      await addAdminToDb(
+        String(email || ""), adminEmail, note ? String(note) : undefined,
+        role ? String(role) : "admin", permissions,
+      );
       // Audit-log the add via a lazy require so we don't import-cycle.
       const { logAdminAction } = await import("./lib/auditLog");
       await logAdminAction({
@@ -448,9 +493,43 @@ export function registerAdminAuthRoutes(app: Express) {
         targetId: String(email).toLowerCase(),
         targetLabel: String(email).toLowerCase(),
         status: "ok",
-        metadata: { note: note ?? null },
+        metadata: { note: note ?? null, role: role ?? "admin", permissions: Array.isArray(permissions) ? permissions : [] },
       });
       res.json({ ok: true, email: String(email).toLowerCase() });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Change a member's role or scoped permissions (with the same lockout
+  // protections as delete: you can't demote yourself or the last admin).
+  app.patch("/api/ops/admins/:email", requireAdmin, async (req: AdminRequest, res) => {
+    const email = String(req.params.email || "").toLowerCase();
+    const adminEmail = (req.adminEmail || "unknown").toLowerCase();
+    const { role, permissions } = req.body ?? {};
+    if (role === "viewer") {
+      if (email === adminEmail) return res.status(400).json({ error: "Cannot demote yourself. Ask another admin to do it." });
+      try {
+        const admins = await listAdminsFromDb();
+        const otherAdmins = admins.filter((a) => String(a.role ?? "admin") === "admin" && a.email.toLowerCase() !== email);
+        if (!otherAdmins.length) return res.status(400).json({ error: "Cannot demote the only admin." });
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+      }
+    }
+    try {
+      await updateAdminInDb(email, { role: role !== undefined ? String(role) : undefined, permissions });
+      const { logAdminAction } = await import("./lib/auditLog");
+      await logAdminAction({
+        adminEmail,
+        actionType: "admin.update",
+        targetKind: "ops_admin",
+        targetId: email,
+        targetLabel: email,
+        status: "ok",
+        metadata: { role: role ?? null, permissions: Array.isArray(permissions) ? permissions : null },
+      });
+      res.json({ ok: true, email });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
