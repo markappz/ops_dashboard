@@ -2978,3 +2978,15 @@ Until Paul generates the PAT, the endpoint returns 503 cleanly + the UI button s
 - **Klaviyo template editor types:** API can only create `CODE` (raw HTML). Drag-drop (`SYSTEM_DRAGGABLE` / `USER_DRAGGABLE`) types can only be made in Klaviyo's UI. The composer is HTML-author, not drag-drop-author.
 - **Image-resolver pattern**: marker in src + client-side batch resolve + swap before render. Keeps the saved HTML pointing at the real CDN, no recipient traffic on our domain, and lets the model emit semantic queries without knowing real URLs.
 
+
+## 2026-08-31 — Admin allowlist: Morelli switched to personal Gmail
+
+Session in ops UI only (no code changes, no deploy). Via Settings → Admins on ops.fitscript.me:
+
+- **Added `morellifit@gmail.com`** as admin (Michael Morelli — he logs in with his personal Gmail, not the fitscript.me address).
+- **Removed `mm@fitscript.me`** from the allowlist (was env-bootstrap seeded).
+- Allowlist is back to 8 admins; both actions are in the Admin Log tab.
+
+### What I'll remember
+- The dashboard's Live mode swaps company views under you mid-interaction — coordinate clicks are unreliable on ops; use element refs (find/read_page) for anything that mutates state.
+- Add-admin dedupes by email server-side: a double-submitted email still produced exactly one row.
