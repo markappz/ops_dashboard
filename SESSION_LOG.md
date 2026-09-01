@@ -3025,3 +3025,6 @@ Audited all 29 pages + 8 modal surfaces at a true 390×844 viewport (headless pu
 - SkuSheet "Forecast cover" description crushed to one word per line (flex-wrap + min-w).
 
 Harness gotcha worth keeping: a /@vite/client stub MUST implement `updateStyle` to actually inject CSS (a no-op renders the whole app unstyled and the layout viewport explodes) and `createHotContext` needs `prune`/`dispose`.
+
+## 2026-09-01 (deploy) — LIVE on ops.fitscript.me
+All three commits deployed via CI. Verified in prod browser: new inventory columns + Forecast with real sales data (80 SKUs matched), Settings → Team with role/permission editor, tracker endpoints through the proxy. Order-sync broke post-deploy — root cause was the TRACKER's 100kb express.json limit (my 500→2000 order-fetch bump pushed the consume payload over it; Express 413s with HTML). Fixed tracker-side (5mb limit) + ops now surfaces non-JSON consume responses with status/text instead of a JSON.parse error. Sync verified healthy: {applied:0, alreadyApplied:500} — idempotency held, no stock double-counts.
