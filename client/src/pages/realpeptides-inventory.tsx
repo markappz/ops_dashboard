@@ -491,8 +491,8 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-ops-border px-3 py-2.5">
-                <div className="min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ops-border px-3 py-2.5">
+                <div className="min-w-[180px] flex-1">
                   <span className="block text-sm text-ops-text">Forecast cover</span>
                   <span className="text-[11px] text-ops-text-muted">Weeks of demand to keep on hand (blank = 6).</span>
                 </div>

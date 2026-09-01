@@ -3014,3 +3014,14 @@ Everything Paul asked for Justin, in the RP Inventory + COA tabs (tracker-side e
 - COA proxy allowlist + realpeptides:coa-upload grant now cover `/lab-orders` and labs PATCH; proxy stamps `by` on pos + lab-orders too.
 
 Tested E2E locally (scratch pg16 :5499 as tracker DB + ops dev on :5002 with scratch ops_admins): every flow browser-verified, both repos `tsc` + `vite build` clean. **Committed only — NOT pushed, NOT deployed.** Local dev pair left running for Paul to click through (Chrome on this Mac already has a session cookie for localhost:5002).
+
+## 2026-09-01 (later) — Mobile audit pass, whole dashboard
+
+Paul: team will run ops largely from phones; also confirmed the new Justin features must be (and are) plain admin-native — every control gates on `role === "admin"`, the viewer grant is just the extra non-admin path.
+
+Audited all 29 pages + 8 modal surfaces at a true 390×844 viewport (headless puppeteer, scratchpad harness): **zero horizontal overflow anywhere** — the shell (slide-out sidebar, sticky header, p-4→p-8 scale) and table `overflow-x-auto` wrappers from earlier sessions hold up. Three real defects found and fixed:
+- Forecast modal table couldn't h-scroll on phones (`overflow-y-auto` → `overflow-auto`; verified 880w content scrolls in 372w container).
+- "PO #N" + status chip wrapped mid-label on narrow cards (whitespace-nowrap).
+- SkuSheet "Forecast cover" description crushed to one word per line (flex-wrap + min-w).
+
+Harness gotcha worth keeping: a /@vite/client stub MUST implement `updateStyle` to actually inject CSS (a no-op renders the whole app unstyled and the layout viewport explodes) and `createHotContext` needs `prune`/`dispose`.

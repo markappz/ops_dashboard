@@ -99,7 +99,7 @@ export function Forecast({ skus, canEdit, onClose, onSay, onCreated }: {
           <Picker label="Lead time" value={lead} onChange={setLead} choices={LEAD_CHOICES} />
         </div>
 
-        <div className="max-h-[55vh] overflow-y-auto">
+        <div className="max-h-[55vh] overflow-auto">
           {statsQ.isLoading ? (
             <div className="py-12 text-center text-sm text-ops-text-muted">Crunching order history…</div>
           ) : statsQ.data?.error ? (
@@ -126,7 +126,7 @@ export function Forecast({ skus, canEdit, onClose, onSay, onCreated }: {
                     <td className="px-5 py-2">
                       <span className="text-ops-text">{s.product_name}</span>
                       <span className="ml-1.5 text-[10px] text-ops-text-muted">{s.sku_code}</span>
-                      {s.do_not_replenish && <span className="ml-1.5 rounded-full bg-ops-border px-1.5 py-0.5 text-[9px] font-bold uppercase text-ops-text-muted">no reorder</span>}
+                      {s.do_not_replenish && <span className="ml-1.5 whitespace-nowrap rounded-full bg-ops-border px-1.5 py-0.5 text-[9px] font-bold uppercase text-ops-text-muted">no reorder</span>}
                       {runway !== null && runway < coverWeeks && !s.do_not_replenish && (
                         <span className="ml-1.5 text-[10px] font-semibold text-red-400">{runway}w runway</span>
                       )}

@@ -159,8 +159,8 @@ function PoCard({ po, busy, run, onSay }: {
     <div className="rounded-xl border border-ops-border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ops-border bg-ops-bg/40 px-4 py-2.5">
         <div className="flex items-center gap-2.5">
-          <span className="text-sm font-semibold text-ops-text">PO #{po.id}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[po.status]}`}>
+          <span className="whitespace-nowrap text-sm font-semibold text-ops-text">PO #{po.id}</span>
+          <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[po.status]}`}>
             {partly ? "partly received" : po.status}
           </span>
           <span className="text-xs text-ops-text-muted">
