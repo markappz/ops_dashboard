@@ -3042,3 +3042,7 @@ Harness gotcha worth keeping: a /@vite/client stub MUST implement `updateStyle` 
 
 ## 2026-09-01 (deploy) — LIVE on ops.fitscript.me
 All three commits deployed via CI. Verified in prod browser: new inventory columns + Forecast with real sales data (80 SKUs matched), Settings → Team with role/permission editor, tracker endpoints through the proxy. Order-sync broke post-deploy — root cause was the TRACKER's 100kb express.json limit (my 500→2000 order-fetch bump pushed the consume payload over it; Express 413s with HTML). Fixed tracker-side (5mb limit) + ops now surfaces non-JSON consume responses with status/text instead of a JSON.parse error. Sync verified healthy: {applied:0, alreadyApplied:500} — idempotency held, no stock double-counts.
+
+## 2026-09-01 (later) — Command Center range picker
+Growth Overview gets a Today / 7d / 30d picker (Today = last 24h). Reports endpoints accept days=1 (Klaviyo timeframe "today", Meta date_preset "today"; GA4/RDS date math unchanged). Deployed + verified on prod.
+Note: another terminal is active in this checkout (RP Email commits + pnpm files appearing) — I committed only my own files; local `tsc` now shows a pnpm-node_modules TS2742 in google-auth.ts that is environmental (CI builds with npm in Docker, unaffected).
