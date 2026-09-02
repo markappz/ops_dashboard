@@ -17,12 +17,12 @@ interface Flow {
   attributedOrders: number; attributedRevenueCents: number; steps: Step[];
 }
 interface Campaign {
-  broadcastId: string; name: string; sends: number; uniqueOpens: number; uniqueClicks: number;
+  broadcastId: string; name: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
   attributedOrders: number; attributedRevenueCents: number;
 }
 interface Payload {
-  configured: boolean; hint?: string; days: number; perSendStatsSince: string | null;
+  configured: boolean; hint?: string; days: number; perSendStatsSince: string | null; trackingSince?: string;
   totals: {
     marketableContacts: number; unsubscribed: number; suppressedBounced: number; suppressedComplained: number;
     sends: number; openRate: number | null; clickRate: number | null;
@@ -98,7 +98,7 @@ export default function RealPeptidesEmail() {
           <div className="mb-6 flex flex-wrap items-start gap-2 rounded-xl border border-ops-border bg-ops-bg/40 px-4 py-3 text-[12px] text-ops-text-muted">
             <Info size={13} className="mt-0.5 shrink-0" />
             <span>
-              Per-send stats begin {d.perSendStatsSince ? new Date(d.perSendStatsSince).toLocaleDateString() : "when the site's instrumentation deploys"} — earlier sends aren't in these rates.
+              Open and click rates count only sends made after Resend tracking was switched on ({d.trackingSince ? new Date(d.trackingSince).toLocaleString() : "pending"}) — a send before that carries no pixel and no tracked links, so it can never register an open. Earlier sends are shown in the totals but excluded from every rate.
               Lifetime totals across all history: {t.lifetime.sends.toLocaleString()} sends · {t.lifetime.opens.toLocaleString()} opens · {t.lifetime.clicks.toLocaleString()} clicks (per-contact counters, kept separate on purpose).
               Timestamps are UTC.
             </span>
@@ -147,7 +147,10 @@ export default function RealPeptidesEmail() {
                       <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
                       <div className="text-[11px] text-ops-text-muted">{new Date(c.lastSeen).toLocaleDateString()}</div>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-ops-text">{c.sends.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-ops-text">
+                      {c.sends.toLocaleString()}
+                      {typeof c.trackedSends === "number" && c.trackedSends < c.sends && <span className="block text-[10px] text-ops-text-muted">{c.trackedSends.toLocaleString()} tracked</span>}
+                    </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{c.uniqueOpens.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{c.uniqueClicks.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">{pct(c.openRate)}</td>
@@ -205,7 +208,7 @@ function FlowRow({ f }: { f: Flow }) {
             {open ? <ChevronDown size={14} className="text-ops-text-muted" /> : <ChevronRight size={14} className="text-ops-text-muted" />}
             {FLOW_LABEL[f.flowKey] ?? f.flowKey}
           </span>
-          {partial && <span className="ml-5 block text-[10px] text-ops-text-muted">{f.instrumented}/{f.sends} sends tracked (rest pre-instrumentation)</span>}
+          {partial && <span className="ml-5 block text-[10px] text-ops-text-muted">{f.instrumented}/{f.sends} sends tracked (rest sent before tracking was on)</span>}
         </td>
         <td className="px-4 py-3 text-right tabular-nums text-ops-text">{f.sends.toLocaleString()}</td>
         <td className="px-4 py-3 text-right tabular-nums text-ops-text">{pct(f.openRate)}</td>
