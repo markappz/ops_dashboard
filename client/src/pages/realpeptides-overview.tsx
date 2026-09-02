@@ -49,6 +49,7 @@ const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => 
 
 export default function RealPeptidesOverview() {
   const [range, setRange] = useState(30);
+  const rlabel = range === 1 ? "24h" : `${range}d`;
   const ov = useQuery({ queryKey: ["rp-overview", range], queryFn: () => get(`/api/ops/realpeptides/overview?range=${range}`) });
   const leads = useQuery({ queryKey: ["rp-leads", range], queryFn: () => get(`/api/ops/realpeptides/leads?range=${range}`) });
   const coa = useQuery({ queryKey: ["realpeptides-coa"], queryFn: () => get("/api/ops/realpeptides/coa") });
@@ -71,7 +72,7 @@ export default function RealPeptidesOverview() {
         subtitle="Real Peptides at a glance — sales, traffic, search, leads, certificates, and the content machine."
         actions={
           <select value={range} onChange={(e) => setRange(Number(e.target.value))} className="rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-fitscript-green focus:outline-none">
-            {[7, 30, 90].map((d) => <option key={d} value={d}>Last {d} days</option>)}
+            {[1, 7, 30, 90].map((d) => <option key={d} value={d}>{d === 1 ? "Last 24 hours" : `Last ${d} days`}</option>)}
           </select>
         }
       />
@@ -80,7 +81,7 @@ export default function RealPeptidesOverview() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {sales?.configured ? (
           <>
-            <Card label={`Revenue · ${range}d`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} orders · net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
+            <Card label={`Revenue · ${rlabel}`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} orders · net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
             <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
           </>
         ) : (
@@ -92,10 +93,10 @@ export default function RealPeptidesOverview() {
             </p>
           </div>
         )}
-        <Card label={`Sessions · ${range}d`} to="/realpeptides/traffic"
+        <Card label={`Sessions · ${rlabel}`} to="/realpeptides/traffic"
           value={traffic?.pixelInstalled ? <>{num(traffic.current.sessions)}<Delta cur={traffic.current.sessions} prev={traffic.previous.sessions} /></> : "—"}
           sub={traffic?.pixelInstalled ? `${num(traffic.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
-        <Card label={`Search clicks · ${range}d`} to="/realpeptides/pages"
+        <Card label={`Search clicks · ${rlabel}`} to="/realpeptides/pages"
           value={pages.data?.gsc?.connected ? <>{num(pg?.clicks)}<Delta cur={pg?.clicks ?? 0} prev={pg?.prevClicks ?? 0} /></> : pages.isLoading ? "…" : "—"}
           sub={pages.data?.gsc?.connected ? `${num(pg?.impressions)} impressions · Search Console` : pages.data?.gsc?.error ?? "Search Console"} />
       </div>
@@ -104,7 +105,7 @@ export default function RealPeptidesOverview() {
       <Section title="Leads & certificates" hint="Campaign Refinery · COA tracker">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
           <Card label="Contacts (all time)" to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.total)} sub={cr?.configured === false ? "key not set" : cr?.error ?? "Campaign Refinery · list of record"} />
-          <Card label={`Campaign Refinery · ${range}d`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : `${num(cr?.recentCount)}${cr?.capped ? "+" : ""}`} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.total)} total`} />
+          <Card label={`Campaign Refinery · ${rlabel}`} to="/realpeptides/leads" value={cr?.configured === false ? "—" : cr?.error ? "!" : `${num(cr?.recentCount)}${cr?.capped ? "+" : ""}`} sub={cr?.configured === false ? "key not set" : cr?.error ?? `new contacts · ${num(cr?.total)} total`} />
           <Card label="Tracked SKUs" to="/realpeptides/coa" value={t ? num(t.tracked) : "—"} />
           <Card label="Expired COAs" to="/realpeptides/coa" value={t ? num(t.expired) : "—"} tone={t?.expired ? "bad" : undefined} sub="retest needed" />
           <Card label="Never tested" to="/realpeptides/coa" value={t ? num(t.untested) : "—"} tone={t?.untested ? "warn" : undefined} />
@@ -125,7 +126,7 @@ export default function RealPeptidesOverview() {
 
       {/* ── Sales detail when connected ── */}
       {sales?.configured && (
-        <Section title="Top products" hint={`${range} days · by revenue`}>
+        <Section title="Top products" hint={`${range === 1 ? "last 24 hours" : `${range} days`} · by revenue`}>
           <div className="overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted"><th className="px-4 py-3 font-medium">Product</th><th className="px-4 py-3 text-right font-medium">Units</th><th className="px-4 py-3 text-right font-medium">Orders</th><th className="px-4 py-3 text-right font-medium">Net revenue</th></tr></thead>
