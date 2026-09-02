@@ -3046,3 +3046,6 @@ All three commits deployed via CI. Verified in prod browser: new inventory colum
 ## 2026-09-01 (later) — Command Center range picker
 Growth Overview gets a Today / 7d / 30d picker (Today = last 24h). Reports endpoints accept days=1 (Klaviyo timeframe "today", Meta date_preset "today"; GA4/RDS date math unchanged). Deployed + verified on prod.
 Note: another terminal is active in this checkout (RP Email commits + pnpm files appearing) — I committed only my own files; local `tsc` now shows a pnpm-node_modules TS2742 in google-auth.ts that is environmental (CI builds with npm in Docker, unaffected).
+
+## 2026-09-01 (later) — RP Command Center: Last 24 hours
+The RP overview range dropdown gains "Last 24 hours" (labels switch to "· 24H"); server `days()` already accepted 1, site /api/ops-summary honors days=1. Deployed + verified ($41.5k/159 orders in the last 24h at time of check). FitScript Command Center got its own Today/7d/30d picker earlier today.
