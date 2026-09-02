@@ -10,17 +10,19 @@ import { getCreds as getMetaCreds, metaFetch, parseInsightsRow } from "./meta-ad
 const KLAVIYO_BASE = "https://a.klaviyo.com/api";
 const KLAVIYO_REVISION = "2025-04-15";
 
-type Days = 7 | 30 | 90 | 365;
-const ALLOWED_DAYS: Days[] = [7, 30, 90, 365];
+type Days = 1 | 7 | 30 | 90 | 365;
+const ALLOWED_DAYS: Days[] = [1, 7, 30, 90, 365];
 
 function timeframeKey(days: Days): string {
-  return days === 7
-    ? "last_7_days"
-    : days === 30
-      ? "last_30_days"
-      : days === 90
-        ? "last_90_days"
-        : "last_365_days";
+  return days === 1
+    ? "today"
+    : days === 7
+      ? "last_7_days"
+      : days === 30
+        ? "last_30_days"
+        : days === 90
+          ? "last_90_days"
+          : "last_365_days";
 }
 
 // ─── CSV helpers ─────────────────────────────────────────────────────
@@ -560,7 +562,7 @@ async function fetchMetaSummary(days: Days): Promise<MetaSummary> {
 
   // Pick Meta's nearest date_preset matching our window.
   const datePreset =
-    days <= 7 ? "last_7d" : days <= 30 ? "last_30d" : days <= 90 ? "last_90d" : "last_year";
+    days <= 1 ? "today" : days <= 7 ? "last_7d" : days <= 30 ? "last_30d" : days <= 90 ? "last_90d" : "last_year";
 
   try {
     const [acct, insights] = await Promise.all([

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
@@ -103,7 +104,14 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
 }
 
+const GROWTH_RANGES = [
+  { days: 1, label: "Today" },
+  { days: 7, label: "7d" },
+  { days: 30, label: "30d" },
+] as const;
+
 export default function CommandCenter() {
+  const [growthDays, setGrowthDays] = useState<1 | 7 | 30>(30);
   const { data: snapshot, isLoading } = useQuery<Snapshot>({
     queryKey: ["ops-snapshot"],
     queryFn: () => fetch("/api/ops/snapshot").then((r) => r.json()),
@@ -152,31 +160,31 @@ export default function CommandCenter() {
   const { data: trafficSummary } = useQuery<{
     overview?: { sessions: number; users: number; page_views: number };
   }>({
-    queryKey: ["growth-traffic"],
-    queryFn: () => fetch("/api/ops/reports/traffic?days=30").then((r) => r.json()),
+    queryKey: ["growth-traffic", growthDays],
+    queryFn: () => fetch(`/api/ops/reports/traffic?days=${growthDays}`).then((r) => r.json()),
     refetchInterval: 5 * 60_000,
   });
   const { data: emailSummary } = useQuery<{
     engagement?: { open_rate: number | null };
     subscribers?: { total: number | null; new_in_window: number | null };
   }>({
-    queryKey: ["growth-email"],
-    queryFn: () => fetch("/api/ops/reports/email?days=30").then((r) => r.json()),
+    queryKey: ["growth-email", growthDays],
+    queryFn: () => fetch(`/api/ops/reports/email?days=${growthDays}`).then((r) => r.json()),
     refetchInterval: 5 * 60_000,
   });
   const { data: salesSummary } = useQuery<{
     window?: { revenue_usd: number; orders: number };
     lifetime?: { repeat_rate_pct: number | null; avg_ltv_usd: number | null };
   }>({
-    queryKey: ["growth-sales"],
-    queryFn: () => fetch("/api/ops/reports/sales?days=30").then((r) => r.json()),
+    queryKey: ["growth-sales", growthDays],
+    queryFn: () => fetch(`/api/ops/reports/sales?days=${growthDays}`).then((r) => r.json()),
     refetchInterval: 5 * 60_000,
   });
   const { data: adsSummary } = useQuery<{
     meta?: { connected: boolean; spend_usd: number; roas: number | null };
   }>({
-    queryKey: ["growth-ads"],
-    queryFn: () => fetch("/api/ops/reports/ads?days=30").then((r) => r.json()),
+    queryKey: ["growth-ads", growthDays],
+    queryFn: () => fetch(`/api/ops/reports/ads?days=${growthDays}`).then((r) => r.json()),
     refetchInterval: 5 * 60_000,
   });
 
@@ -237,9 +245,26 @@ export default function CommandCenter() {
 
       {/* Growth Overview — top-line from the Reports section */}
       <div className="mb-6">
-        <div className="flex items-baseline justify-between mb-3">
-          <div className="text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
-            Growth Overview · 30 days
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-3">
+            <div className="text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
+              Growth Overview
+            </div>
+            <div className="inline-flex rounded-lg border border-ops-border bg-ops-surface p-0.5">
+              {GROWTH_RANGES.map((r) => (
+                <button
+                  key={r.days}
+                  type="button"
+                  onClick={() => setGrowthDays(r.days)}
+                  title={r.days === 1 ? "Last 24 hours" : `Last ${r.days} days`}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                    growthDays === r.days ? "bg-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
           <Link href="/reports/traffic">
             <span className="text-[11px] text-ops-text-muted hover:text-brand-blue-500 cursor-pointer">
