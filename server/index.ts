@@ -33,6 +33,8 @@ import { registerRealPeptidesRoutes } from "./realpeptides";
 import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
+import { registerTasksRoutes } from "./tasks";
+import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
 import { registerPagesRoutes } from "./pages";
 import { verifyPawgenConnection } from "./db";
@@ -91,6 +93,8 @@ registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
+  registerTasksRoutes(app);
+  registerEmailPlannerRoutes(app);
 registerRealPeptidesWholesale(app);
 registerPagesRoutes(app);
 

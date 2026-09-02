@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { InlineError, hasApiError } from "../components/query-error";
 import { PageHero } from "../components/page-hero";
+import { EmailCalendar } from "./email-calendar";
 import { ModalPortal } from "../components/modal-portal";
 
 interface KlaviyoStatus {
@@ -602,6 +603,8 @@ function CampaignsTable({
               secondary: `${fmtInt(x.m.delivered)} delivered`,
             }))}
           />
+
+      <EmailCalendar company="fitscript" />
           {revenueAvailable ? (
             <Leaderboard
               title="Top revenue (last 30d)"

@@ -3052,3 +3052,13 @@ The RP overview range dropdown gains "Last 24 hours" (labels switch to "· 24H")
 
 ## 2026-09-02 — Site stock-sync audit (no code change)
 Paul suspected the site wasn't reflecting ops inventory — confirmed. Scraped all 70 realpeptides.co product pages (schema.org offers) vs the tracker's public feed: 15/90 variants disagree (8 oversell-risk, 7 blocked-sales; both directions ⇒ stale launch snapshot, feed never wired). Our side is correct and live (feed = direct DB read, 5-min cache). Fix is site-side: gate availability on feed `inStock` keyed by `sku`, ISR 300s. Handed off via the COA API artifact v1.1 (Live stock section + drift table + Next.js recipe) and a pushed SESSION_LOG entry in the real-peptides repo. Audit script: scratchpad stock-compare.
+
+## 2026-09-02 — Josh's tools: team task board + email content calendar
+
+**Tasks** (`/realpeptides/tasks`, nav "Tasks"; server/tasks.ts, ops_tasks auto-created): Monday-style kanban — Inbox/Ready/In progress/Complete/On hold, drag between columns (tap-to-edit on phones), quick-add per column. Cards: priority chip, brand tag (all 4 + other), labels, assignee (roster = ops_admins), due date w/ overdue tint. Filters by brand + owner. Complete stamps completed_at; done cards age out of the board after 30 days.
+
+**Email calendar** (`EmailCalendar` in email-calendar.tsx; server/email-planner.ts, ops_email_plans): month grid mounted at the top of the RP and FitScript Email tabs (per-brand via company prop — mount in other email tabs as they appear). Plans carry copy (subject/preheader), date+time, status (idea→draft→approved→scheduled→sent), from, audience, notes, and pasted HTML design with an inline sandboxed preview (Josh pastes from his design tool). **Resend link is env-gated per brand:** RESEND_API_KEY_<COMPANY> (+ optional RESEND_FROM_<COMPANY>) on ops → audience picker lights up and "Push to Resend" creates the broadcast + schedules it for the slot (date+time ET). Until the key is set, everything but push works and the button explains what's missing.
+
+E2E: API CRUD + graceful no-key push tested locally against prod RDS (tables are new/additive); both UIs headless-verified desktop + 390px. Gotcha fixed: pg DATE columns arrive as full ISO timestamps — slice(0,10) before new Date() or you render "Invalid Date".
+
+TODO for Paul: add RESEND_API_KEY_REALPEPTIDES (RP's key, from the site's env or Resend dashboard) + RESEND_FROM_REALPEPTIDES to prod/ops-secrets to arm the push.

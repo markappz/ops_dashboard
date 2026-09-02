@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
+import { EmailCalendar } from "./email-calendar";
 import { ui } from "./coa/api";
 
 /**
@@ -76,6 +77,8 @@ export default function RealPeptidesEmail() {
           </div>
         }
       />
+
+      <EmailCalendar company="realpeptides" />
 
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading email analytics…</div>}
       {q.error && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.error as Error).message}</div>}

@@ -56,6 +56,7 @@ import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
 import RealPeptidesEmail from "./pages/realpeptides-email";
+import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
@@ -192,6 +193,7 @@ export default function App() {
               overview with no revenue on it would just be a page of dashes. */}
           <Route path="/realpeptides" component={RealPeptidesOverview} />
           <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
+          <Route path="/realpeptides/tasks" component={TasksBoard} />
           <Route path="/realpeptides/email" component={RealPeptidesEmail} />
           <Route path="/realpeptides/wholesale" component={RealPeptidesWholesale} />
           <Route path="/realpeptides/leads" component={RealPeptidesLeads} />

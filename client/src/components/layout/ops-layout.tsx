@@ -54,6 +54,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
     items: [
       { path: "/realpeptides", label: "Overview", icon: "grid" },
       { path: "/realpeptides/orders", label: "Orders", icon: "package" },
+      { path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" },
       { path: "/realpeptides/email", label: "Email", icon: "mail" },
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
       { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
