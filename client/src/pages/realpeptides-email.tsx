@@ -20,6 +20,7 @@ interface Campaign {
   broadcastId: string; name: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
   attributedOrders: number; attributedRevenueCents: number;
+  receivedOrders?: number; receivedRevenueCents?: number;
 }
 interface Payload {
   configured: boolean; hint?: string; days: number; perSendStatsSince: string | null; trackingSince?: string;
@@ -27,6 +28,7 @@ interface Payload {
     marketableContacts: number; unsubscribed: number; suppressedBounced: number; suppressedComplained: number;
     sends: number; openRate: number | null; clickRate: number | null;
     attributedOrders: number; attributedRevenueCents: number;
+    receivedOrders?: number; receivedRevenueCents?: number;
     lifetime: { sends: number; opens: number; clicks: number };
   };
   flows: Flow[]; campaigns: Campaign[];
@@ -92,7 +94,7 @@ export default function RealPeptidesEmail() {
               sub={`${t.suppressedBounced} bounced · ${t.suppressedComplained} spam`} tone={t.suppressedComplained ? "warn" : undefined} />
             <Stat icon={<Mail size={16} />} label={`Open rate (${range}d)`} value={pct(t.openRate)} sub={`${t.sends.toLocaleString()} tracked sends`} />
             <Stat icon={<MousePointerClick size={16} />} label={`Click rate (${range}d)`} value={pct(t.clickRate)} />
-            <Stat icon={<DollarSign size={16} />} label="Email-attributed revenue" value={money(t.attributedRevenueCents)} sub={`${t.attributedOrders} orders`} tone="good" />
+            <Stat icon={<DollarSign size={16} />} label="Email-attributed revenue" value={money(t.attributedRevenueCents)} sub={`${t.attributedOrders} orders by coupon/click${t.receivedOrders ? ` · +${money(t.receivedRevenueCents ?? 0)} (${t.receivedOrders}) received a broadcast <48h` : ""}`} tone="good" />
           </div>
 
           <div className="mb-6 flex flex-wrap items-start gap-2 rounded-xl border border-ops-border bg-ops-bg/40 px-4 py-3 text-[12px] text-ops-text-muted">
@@ -160,8 +162,11 @@ export default function RealPeptidesEmail() {
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {c.attributedOrders
-                        ? <span className="font-semibold text-fitscript-green">{money(c.attributedRevenueCents)} <span className="text-[11px] font-normal text-ops-text-muted">({c.attributedOrders})</span></span>
+                        ? <span className="font-semibold text-fitscript-green">{money(c.attributedRevenueCents)} <span className="text-[11px] font-normal text-ops-text-muted">({c.attributedOrders} clicked)</span></span>
                         : <span className="text-ops-text-muted">—</span>}
+                      {c.receivedOrders
+                        ? <span className="block text-[11px] text-ops-text-muted">+{money(c.receivedRevenueCents ?? 0)} ({c.receivedOrders}) received &lt;48h</span>
+                        : null}
                     </td>
                   </tr>
                 ))}
