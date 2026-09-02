@@ -3049,3 +3049,6 @@ Note: another terminal is active in this checkout (RP Email commits + pnpm files
 
 ## 2026-09-01 (later) — RP Command Center: Last 24 hours
 The RP overview range dropdown gains "Last 24 hours" (labels switch to "· 24H"); server `days()` already accepted 1, site /api/ops-summary honors days=1. Deployed + verified ($41.5k/159 orders in the last 24h at time of check). FitScript Command Center got its own Today/7d/30d picker earlier today.
+
+## 2026-09-02 — Site stock-sync audit (no code change)
+Paul suspected the site wasn't reflecting ops inventory — confirmed. Scraped all 70 realpeptides.co product pages (schema.org offers) vs the tracker's public feed: 15/90 variants disagree (8 oversell-risk, 7 blocked-sales; both directions ⇒ stale launch snapshot, feed never wired). Our side is correct and live (feed = direct DB read, 5-min cache). Fix is site-side: gate availability on feed `inStock` keyed by `sku`, ISR 300s. Handed off via the COA API artifact v1.1 (Live stock section + drift table + Next.js recipe) and a pushed SESSION_LOG entry in the real-peptides repo. Audit script: scratchpad stock-compare.
