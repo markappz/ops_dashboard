@@ -3062,3 +3062,6 @@ Paul suspected the site wasn't reflecting ops inventory — confirmed. Scraped a
 E2E: API CRUD + graceful no-key push tested locally against prod RDS (tables are new/additive); both UIs headless-verified desktop + 390px. Gotcha fixed: pg DATE columns arrive as full ISO timestamps — slice(0,10) before new Date() or you render "Invalid Date".
 
 TODO for Paul: add RESEND_API_KEY_REALPEPTIDES (RP's key, from the site's env or Resend dashboard) + RESEND_FROM_REALPEPTIDES to prod/ops-secrets to arm the push.
+
+## 2026-09-02 (later) — Resend armed for RP email calendar
+prod/ops-secrets + RESEND_API_KEY_REALPEPTIDES + RESEND_FROM_REALPEPTIDES (task def rev 214, Paul executed the SDK script; classifier blocks Claude running it directly). Live key is real-peptides/web/.env.local's (verified via /audiences — 18 RP segments); web/.env's is dead. Verified on prod: resendConnected true, audience picker fills, from prefills "Real Peptides <support@realpeptides.co>". Josh's Push to Resend is live.
