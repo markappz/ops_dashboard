@@ -3068,3 +3068,6 @@ prod/ops-secrets + RESEND_API_KEY_REALPEPTIDES + RESEND_FROM_REALPEPTIDES (task 
 
 ## 2026-09-02 (later) — Full physical inventory count applied
 Paul's shelf-count CSV (85 rows) applied to the tracker via audited set-counts ("Physical count 2026-09-02"): 79 changed, 4 already right, 0 failures. Corrections en route: Thymulin=105/Thymalin=0 (sheet swap, per Paul), Tesa+Ipa 10/5 was −3 → set 0 (needs recount), Thymulin mapped to RP-THYMU10 (no V in tracker), Bromataine Caps (RP-BRO) created + 244. Ten zero-stock SKUs restored incl. all 8 from the drift audit. Public feed verified 11/11 spot-checks; 8 products remain genuinely out of stock. NOT counted in the CSV (kept old values, worth a follow-up count): 5amino30C(10), ARA16V(37), BAC3V(4340), CAGR5V(22), SERM5V(44), AOD5V(0), DSIP10V(0), RETA24V(0). Site-side live sync still pending the dev team wiring the feed (SESSION_LOG entry + API doc v1.1 already handed off).
+
+## 2026-09-03 — 8 phantom variants removed
+Team confirmed zero physical stock for the 8 uncounted sibling-dose SKUs (5amino30C, AOD5V, ARA16V, BAC3V, CAGR5V, DSIP10V, SERM5V, RETA24V). Each zeroed (audited) then soft-deactivated on the tracker; verified gone from the public feed (94→86 products). Site-side variant removal handed to the dev team via real-peptides SESSION_LOG — product PAGES stay (SEO rule), only the dose options go.
