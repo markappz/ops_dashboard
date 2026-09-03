@@ -28,7 +28,7 @@ function trackerCfg() {
 async function fetchSiteOrders(days: number): Promise<any[]> {
   const cfg = siteCfg();
   if (!cfg) throw new Error("site not configured");
-  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=2000`, {
+  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=1000`, {
     headers: { Authorization: `Bearer ${cfg.token}` }, signal: AbortSignal.timeout(30_000),
   });
   if (!r.ok) throw new Error(`ops-orders ${r.status}`);
@@ -43,14 +43,17 @@ export async function runRpInventorySync(): Promise<typeof lastSync> {
   const tracker = trackerCfg();
   if (!tracker || !siteCfg()) return null;
   try {
-    const orders = (await fetchSiteOrders(7))
+    // 30 days so paid-but-unshipped holds stay visible until they ship or refund.
+    const SYNC_DAYS = 30;
+    const windowStart = new Date(Math.max(Date.now() - SYNC_DAYS * 86_400_000, Date.parse(SYNC_SINCE))).toISOString();
+    const orders = (await fetchSiteOrders(SYNC_DAYS))
       .filter((o) => o.createdAt && o.createdAt >= SYNC_SINCE)
-      .map((o) => ({ id: o.id, number: o.number, createdAt: o.createdAt, items: o.items }));
+      .map((o) => ({ id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, items: o.items }));
     if (!orders.length) return (lastSync = { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [] });
     const r = await fetch(`${tracker.base}/api/orders/consume`, {
       method: "POST",
       headers: { Authorization: `Bearer ${tracker.token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ orders }),
+      body: JSON.stringify({ orders, windowStart }),
       signal: AbortSignal.timeout(60_000),
     });
     const raw = await r.text();
@@ -58,8 +61,9 @@ export async function runRpInventorySync(): Promise<typeof lastSync> {
     try { j = JSON.parse(raw); }
     catch { throw new Error(`consume ${r.status}: ${raw.replace(/<[^>]*>/g, " ").trim().slice(0, 120)}`); }
     if (!r.ok) throw new Error(j.error || `consume ${r.status}`);
-    lastSync = { at: new Date().toISOString(), applied: j.applied, alreadyApplied: j.alreadyApplied, unmatched: j.unmatched ?? [] };
-    if (j.applied) console.log(`[OPS][RP] inventory sync: ${j.applied} order(s) applied${j.unmatched?.length ? `, unmatched: ${j.unmatched.join(" | ")}` : ""}`);
+    const applied = (j.held ?? 0) + (j.deducted ?? 0) + (j.applied ?? 0);
+    lastSync = { at: new Date().toISOString(), applied, alreadyApplied: j.alreadyApplied, unmatched: j.unmatched ?? [] };
+    if (applied || j.released) console.log(`[OPS][RP] inventory sync: ${j.held ?? 0} held, ${j.deducted ?? 0} deducted, ${j.released ?? 0} released${j.unmatched?.length ? `, unmatched: ${j.unmatched.join(" | ")}` : ""}`);
     return lastSync;
   } catch (e: any) {
     console.error("[OPS][RP] inventory sync:", e.message);

@@ -3071,3 +3071,6 @@ Paul's shelf-count CSV (85 rows) applied to the tracker via audited set-counts (
 
 ## 2026-09-03 — 8 phantom variants removed
 Team confirmed zero physical stock for the 8 uncounted sibling-dose SKUs (5amino30C, AOD5V, ARA16V, BAC3V, CAGR5V, DSIP10V, SERM5V, RETA24V). Each zeroed (audited) then soft-deactivated on the tracker; verified gone from the public feed (94→86 products). Site-side variant removal handed to the dev team via real-peptides SESSION_LOG — product PAGES stay (SEO rule), only the dose options go.
+
+## 2026-09-03 — Sync passes order status; holds surface in Inventory
+runRpInventorySync: 30-day window (holds stay visible until shipped/refunded; site caps limit at 1000), passes status + windowStart to the tracker consume, logs held/deducted/released. Inventory UI shows "N held" under In stock and in the product sheet; orderQty counts held units against the position (as good as gone).

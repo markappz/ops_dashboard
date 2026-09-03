@@ -314,6 +314,9 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
         </td>
         <td className="px-4 py-3 text-right">
           <span className={`text-base font-bold tabular-nums ${out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</span>
+          {item === "product" && (stockNum(sku.held) ?? 0) > 0 && (
+            <span className="block text-[10px] text-brand-blue-400" title="Reserved by paid orders that haven't shipped yet">{stockNum(sku.held)} held</span>
+          )}
         </td>
         {item === "product" && (
           <td className="px-4 py-3 text-right tabular-nums">
@@ -446,6 +449,7 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
             <div className="mt-1 text-4xl font-bold tabular-nums text-ops-text">{cur ?? "—"}</div>
             <div className="mt-1 text-[11px] text-ops-text-muted">
               target {ideal ?? "not set"}{item === "product" && onOrder > 0 ? ` · +${onOrder} on order` : ""}
+              {item === "product" && (stockNum(sku.held) ?? 0) > 0 ? ` · ${stockNum(sku.held)} held by paid orders` : ""}
             </div>
           </div>
 

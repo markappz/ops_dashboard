@@ -25,6 +25,7 @@ export interface Sku {
   label_stock: number | null;
   label_ideal: number | null;
   on_order: number | null;
+  held: number | null;
   requires_coa: boolean;
   do_not_replenish: boolean;
   cover_weeks: number | null;

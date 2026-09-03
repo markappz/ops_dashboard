@@ -23,9 +23,11 @@ export function orderQty(s: Sku, item: InvItem = "product"): number | null {
   if (s.do_not_replenish) return null;
   const cur = stockOf(s, item);
   const ideal = idealOf(s, item);
-  // Vials already on an open PO don't need re-ordering.
+  // Vials already on an open PO don't need re-ordering; vials held by paid
+  // orders are as good as gone, so they count against the position.
   const onOrder = item === "product" ? stockNum(s.on_order) ?? 0 : 0;
-  if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - (cur ?? 0) - onOrder));
+  const held = item === "product" ? stockNum(s.held) ?? 0 : 0;
+  if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - ((cur ?? 0) - held) - onOrder));
   return null; // no target set — flag it, let the human fill the quantity in
 }
 
