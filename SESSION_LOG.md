@@ -3074,3 +3074,6 @@ Team confirmed zero physical stock for the 8 uncounted sibling-dose SKUs (5amino
 
 ## 2026-09-03 — Sync passes order status; holds surface in Inventory
 runRpInventorySync: 30-day window (holds stay visible until shipped/refunded; site caps limit at 1000), passes status + windowStart to the tracker consume, logs held/deducted/released. Inventory UI shows "N held" under In stock and in the product sheet; orderQty counts held units against the position (as good as gone).
+
+## 2026-09-03 (later) — Site wired to ops stock (done by us, in the RP repo)
+Implemented the storefront side ourselves (Paul's call): stockSync.ts in the site reconciles Variant.stock from the feed's `available`, heartbeated by our own 10-min ops-orders poll; the 8 phantom variants archived in the same stroke. Verified live: Sermorelin 5mg gone from its page, Thymalin OutOfStock (count=0), ARA-290 unbuyable. The whole loop is closed: shelf count / PO check-in / paid-hold / ship-deduct in ops → feed → site in ~15 min.
