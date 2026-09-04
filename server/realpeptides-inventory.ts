@@ -11,6 +11,7 @@
  * already reflected in the seed and must never be applied again.
  */
 import type { Express } from "express";
+import { pool } from "./db";
 
 const SYNC_SINCE = process.env.RP_ORDER_SYNC_SINCE || "2026-08-26T13:00:00Z";
 const SYNC_EVERY_MS = 10 * 60_000;
@@ -112,6 +113,25 @@ async function velocityBySku(windows: number[]) {
       for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + Number(it.qty ?? 1);
       byName.set(nameKey, buckets);
     }
+  }
+
+  // Woo-era history (rp_sales_history, loaded 2026-09-04, ends at the 08-24
+  // site launch) fills the windows the new site can't reach yet. Same matcher,
+  // same buckets — one continuous demand timeline, no overlap by construction.
+  try {
+    const hist = await pool.query(
+      `SELECT item_name, order_date, SUM(qty) AS qty
+       FROM rp_sales_history
+       WHERE order_date >= NOW() - ($1 || ' days')::interval
+       GROUP BY item_name, order_date`, [maxDays]);
+    for (const h of hist.rows) {
+      const at = new Date(h.order_date).getTime();
+      const buckets = byName.get(h.item_name) ?? {};
+      for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + Number(h.qty);
+      byName.set(h.item_name, buckets);
+    }
+  } catch (e: any) {
+    console.warn("[OPS][RP] sales history blend skipped:", e.message);
   }
 
   const names = [...byName.keys()];

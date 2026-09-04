@@ -3083,3 +3083,6 @@ Per Justin's videos: (1) order suggestions round UP to the nearest 10 everywhere
 
 ## 2026-09-03 (Josh) — Email calendar syncs BOTH ways with Resend
 pullFromResend(company) in email-planner.ts: on calendar load (5-min throttle), broadcasts created directly in Resend (Josh's AI workflow) upsert into ops_email_plans — new ones pull full detail (subject/html/audience/from, created_by 'resend-sync', note "Created in Resend"), linked ones take status + schedule from Resend (it's the truth for anything it knows). 90-day lookback, 200 cap, ET slot conversion. Tested against the live account: found his real Bromantane broadcasts, sent ones on their days.
+
+## 2026-09-04 — Woo sales history backfilled into velocity/forecast
+Paul exported 8 weeks of Woo orders (full-field export). Loaded into new ops table `rp_sales_history` (scratchpad load-woo-history.mjs, idempotent by source='woo'): completed/processing only, refund qtys netted, hard cutoff at the 2026-08-24 site launch (site feed owns everything after — no overlap by construction). 12,032 line items → 2,163 daily-aggregate rows, 21,385 units, 07-03→08-23. velocityBySku blends history rows into the same name→matcher buckets as site orders — Sold 4w/8w and the Forecast now run on a continuous two-month demand line. Unmatched names surface in the stats `unmatched` list as usual (alias via skus.coa_name).
