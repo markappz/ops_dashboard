@@ -3092,3 +3092,6 @@ BAC 3ml confirmed deliberately discontinued (10ml only now) — no action. New: 
 
 ## 2026-09-04 (later) — Weeks-of-cover targets + Settings pinned
 Inventory gets a "Stock up for: Manual / 4w / 6w / 8w / 12w" switch (persisted in localStorage): a weeks mode derives every product's target from live velocity (weekly × weeks) and flows through Target, To order (still rounds to 10s), Below-target KPI, Order PDF and shortfall POs; Manual = saved ideal_stock as before. Sidebar: "Settings & Team" pinned to the footer, visible from every company tab (it previously lived only in FitScript's System section — Paul lost it on RP).
+
+## 2026-09-04 (later) — Bromantane reconciliation + unmatched-sales alarm
+Bromantane launch (Josh's 09-01 emails) sold 263 in 4 days while the product was still misnamed in ops — order-sync matched nothing, orders got marked processed (idempotent), stock never moved. Post-rename sync works (33 units deducted/held today). Reconciled: stock set 212→3 (audited; 209 missed units), physical recount requested — Paul's "250 received" vs 244 counted + 263 sold doesn't close, shelves are the referee. Guard shipped: Inventory shows a red banner whenever the sync reports unmatched item names ("sales are NOT deducting for: …") — this failure class is loud now. Bundles checked: Woo-era only, no live gap.
