@@ -57,6 +57,30 @@ export async function runRpInventorySync(): Promise<typeof lastSync> {
       body: JSON.stringify({ orders, windowStart }),
       signal: AbortSignal.timeout(60_000),
     });
+    // Archive the same orders into the analytics timeline (rp_sales_history)
+    // so Sold columns / Top sellers / Forecast can reach back a full year
+    // without refetching the site. Idempotent per (order, item).
+    try {
+      await pool.query("ALTER TABLE rp_sales_history ADD COLUMN IF NOT EXISTS order_ref TEXT");
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rp_sales_hist_ref
+        ON rp_sales_history(source, order_ref, item_name) WHERE order_ref IS NOT NULL`);
+      for (const o of orders) {
+        const byItem = new Map<string, number>();
+        for (const it of (o as any).items ?? []) {
+          const name = String(it.name ?? it.sku ?? "").trim();
+          if (name) byItem.set(name, (byItem.get(name) ?? 0) + Number(it.qty ?? 1));
+        }
+        for (const [name, qty] of byItem) {
+          await pool.query(
+            `INSERT INTO rp_sales_history (order_date, item_name, qty, source, order_ref)
+             VALUES ($1::date, $2, $3, 'site', $4) ON CONFLICT DO NOTHING`,
+            [String(o.createdAt).slice(0, 10), name, qty, String(o.id)]);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[OPS][RP] sales-history archive skipped:", e.message);
+    }
+
     const raw = await r.text();
     let j: any;
     try { j = JSON.parse(raw); }
@@ -85,13 +109,21 @@ export function startRpInventorySyncLoop() {
 
 // ─── Sales velocity for forecasting ────────────────────────────────
 
-const WINDOW_CHOICES = [14, 28, 42, 56, 84]; // 2/4/6/8/12 weeks
+const WINDOW_CHOICES = [1, 7, 14, 28, 30, 42, 56, 84, 90, 180, 365];
 let statsCache: { at: number; key: string; data: any } | null = null;
 
+// Woo used a few sku codes the tracker doesn't: fold them into their successors.
+const SKU_FOLD: Record<string, string> = {
+  "RP-MOT15-NS": "RP-MOT25-NS",
+  "RP-BRO": "RP-BROM100C",
+};
+
 /**
- * Units sold per SKU across several trailing windows (site order items
- * name-matched via the tracker). One order fetch covers every window; weekly
- * velocity comes from the 28-day window (falling back to the widest asked).
+ * Units sold per SKU across trailing windows, read from rp_sales_history —
+ * one continuous timeline: Woo rows (sku-keyed, loaded 2026-09-04) up to the
+ * 08-24 site launch, site rows (name-keyed) appended by the 10-minute order
+ * sync from then on. Names resolve through the tracker matcher (aliases via
+ * skus.coa_name); weekly velocity comes from the 28-day window.
  */
 async function velocityBySku(windows: number[]) {
   const key = windows.join(",");
@@ -99,39 +131,30 @@ async function velocityBySku(windows: number[]) {
   const tracker = trackerCfg();
   if (!tracker) throw new Error("tracker not configured");
   const maxDays = Math.max(...windows);
-  const orders = await fetchSiteOrders(maxDays);
   const cutoffs = windows.map((d) => ({ days: d, since: Date.now() - d * 86_400_000 }));
 
-  const byName = new Map<string, Record<number, number>>();
-  for (const o of orders) {
-    const at = o.createdAt ? Date.parse(o.createdAt) : NaN;
-    if (!Number.isFinite(at)) continue;
-    for (const it of o.items ?? []) {
-      const nameKey = String(it.sku || it.name || "").trim();
-      if (!nameKey) continue;
-      const buckets = byName.get(nameKey) ?? {};
-      for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + Number(it.qty ?? 1);
-      byName.set(nameKey, buckets);
-    }
-  }
+  const hist = await pool.query(
+    `SELECT sku_code, item_name, order_date, SUM(qty) AS qty
+     FROM rp_sales_history
+     WHERE order_date >= NOW() - ($1 || ' days')::interval
+     GROUP BY sku_code, item_name, order_date`, [maxDays]);
 
-  // Woo-era history (rp_sales_history, loaded 2026-09-04, ends at the 08-24
-  // site launch) fills the windows the new site can't reach yet. Same matcher,
-  // same buckets — one continuous demand timeline, no overlap by construction.
-  try {
-    const hist = await pool.query(
-      `SELECT item_name, order_date, SUM(qty) AS qty
-       FROM rp_sales_history
-       WHERE order_date >= NOW() - ($1 || ' days')::interval
-       GROUP BY item_name, order_date`, [maxDays]);
-    for (const h of hist.rows) {
-      const at = new Date(h.order_date).getTime();
+  const bySku: Record<string, { units: Record<number, number>; weekly: number }> = {};
+  const byName = new Map<string, Record<number, number>>();
+  const add = (buckets: Record<number, number>, at: number, qty: number) => {
+    for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + qty;
+  };
+  for (const h of hist.rows) {
+    const at = new Date(h.order_date).getTime();
+    if (h.sku_code) {
+      const code = SKU_FOLD[h.sku_code] ?? h.sku_code;
+      bySku[code] ??= { units: {}, weekly: 0 };
+      add(bySku[code].units, at, Number(h.qty));
+    } else {
       const buckets = byName.get(h.item_name) ?? {};
-      for (const c of cutoffs) if (at >= c.since) buckets[c.days] = (buckets[c.days] ?? 0) + Number(h.qty);
+      add(buckets, at, Number(h.qty));
       byName.set(h.item_name, buckets);
     }
-  } catch (e: any) {
-    console.warn("[OPS][RP] sales history blend skipped:", e.message);
   }
 
   const names = [...byName.keys()];
@@ -146,7 +169,6 @@ async function velocityBySku(windows: number[]) {
     for (const m of r.matches ?? []) if (m.sku) matches.set(m.file, m.sku.sku_code);
   }
 
-  const bySku: Record<string, { units: Record<number, number>; weekly: number }> = {};
   const unmatched: string[] = [];
   for (const [name, buckets] of byName) {
     const code = matches.get(name);

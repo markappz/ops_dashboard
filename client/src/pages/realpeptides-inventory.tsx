@@ -9,6 +9,7 @@ import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
 import { downloadOrderPdf, isLow, orderQty, stockOf, idealOf, stockNum, type InvItem } from "./coa/order-pdf";
 import { PurchaseOrders } from "./coa/PurchaseOrders";
 import { Forecast } from "./coa/Forecast";
+import { TopSellers } from "./coa/TopSellers";
 import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
 
 /**
@@ -190,6 +191,8 @@ export default function RealPeptidesInventory() {
           </div>
         </>
       )}
+
+      {item === "product" && !skusQ.isLoading && <TopSellers skus={skus} />}
 
       {showPos && <PurchaseOrders skus={skus} onClose={() => setShowPos(false)} onSay={say} />}
       {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
