@@ -35,6 +35,95 @@ async function resend(key: string, path: string, init?: RequestInit) {
   return j;
 }
 
+// ── Resend → calendar pull ──────────────────────────────────────────
+// Josh's AI uploads broadcasts straight into Resend; the calendar pulls them
+// back so ops is never behind. Runs on calendar load, throttled per company.
+// Resend is the source of truth for anything it knows about: linked plans
+// take their status / schedule / subject from the broadcast on every pull.
+const lastPull = new Map<string, number>();
+const PULL_INTERVAL_MS = 5 * 60_000;
+const PULL_LOOKBACK_MS = 90 * 86_400_000;
+
+function resendStatusToPlan(s: string): string | null {
+  const v = String(s || "").toLowerCase();
+  if (v === "draft") return "draft";
+  if (v === "scheduled" || v === "queued") return "scheduled";
+  if (v === "sent" || v === "delivered") return "sent";
+  return null; // canceled etc — leave the plan alone
+}
+
+/** scheduled_at/sent_at ISO → ET calendar slot. */
+function toEtSlot(iso: string | null | undefined): { date: string | null; time: string | null } {
+  if (!iso) return { date: null, time: null };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: null, time: null };
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return { date: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour")}:${get("minute")}` };
+}
+
+async function pullFromResend(company: string): Promise<void> {
+  const key = resendKey(company);
+  if (!key) return;
+  const now = Date.now();
+  if (now - (lastPull.get(company) ?? 0) < PULL_INTERVAL_MS) return;
+  lastPull.set(company, now);
+
+  const list = await resend(key, "/broadcasts");
+  const broadcasts = (list.data ?? [])
+    .filter((b: any) => b.created_at && Date.parse(b.created_at) > now - PULL_LOOKBACK_MS)
+    .slice(0, 200);
+  if (!broadcasts.length) return;
+
+  const { rows: existing } = await pool.query(
+    "SELECT id, resend_broadcast_id, status FROM ops_email_plans WHERE company = $1 AND resend_broadcast_id IS NOT NULL",
+    [company]);
+  const byBroadcast = new Map(existing.map((p: any) => [p.resend_broadcast_id, p]));
+
+  let created = 0, updated = 0;
+  for (const b of broadcasts) {
+    const status = resendStatusToPlan(b.status);
+    if (!status) continue;
+    const slot = toEtSlot(b.scheduled_at ?? b.sent_at);
+    const linked = byBroadcast.get(b.id);
+    if (linked) {
+      if (linked.status !== status || slot.date) {
+        await pool.query(
+          `UPDATE ops_email_plans SET status = $2,
+                  send_date = COALESCE($3::date, send_date), send_time = COALESCE($4, send_time),
+                  updated_at = NOW()
+           WHERE id = $1`, [linked.id, status, slot.date, slot.time]);
+        updated++;
+      }
+      continue;
+    }
+    // New broadcast born in Resend — pull the full record for subject/html.
+    let detail: any = b;
+    try { detail = await resend(key, `/broadcasts/${b.id}`); } catch { /* list fields suffice */ }
+    await pool.query(
+      `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, from_address, audience_id, html, notes, resend_broadcast_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'resend-sync')`,
+      [
+        company,
+        detail.name || detail.subject || "Untitled broadcast",
+        detail.subject ?? null,
+        detail.preview_text ?? null,
+        status,
+        slot.date, slot.time,
+        detail.from ?? null,
+        detail.audience_id ?? null,
+        detail.html ?? null,
+        "Created in Resend",
+        b.id,
+      ]);
+    created++;
+  }
+  if (created || updated) console.log(`[OPS][EMAIL-PLAN] resend pull (${company}): ${created} new, ${updated} updated`);
+}
+
 async function ensureTable() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ops_email_plans (
@@ -65,6 +154,8 @@ export function registerEmailPlannerRoutes(app: Express) {
       await ensureTable();
       const company = String(req.query.company || "");
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
+      try { await pullFromResend(company); }
+      catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
       const { rows } = await pool.query(
         `SELECT id, company, title, subject, preheader, status, send_date, send_time,
                 from_address, audience_id, notes, resend_broadcast_id,
