@@ -67,10 +67,29 @@ export default function RealPeptidesInventory() {
   });
   const velocity = statsQ.data?.bySku ?? {};
 
-  const skus = useMemo(
+  const rawSkus = useMemo(
     () => (skusQ.data?.skus ?? []).filter((s) => s.requires_coa).sort((a, b) => a.product_name.localeCompare(b.product_name)),
     [skusQ.data],
   );
+
+  // Target mode: "manual" uses each product's saved target; a weeks mode
+  // derives it from real velocity (weekly rate × weeks of cover), so the
+  // whole report — Target, To order, Below target, Order PDF, shortfall PO —
+  // answers "how far out do we want to stock up?" in one click.
+  const [targetWeeks, setTargetWeeks] = useState<number | null>(() => {
+    try { const v = localStorage.getItem("rp-target-weeks"); return v ? Number(v) : null; } catch { return null; }
+  });
+  const pickTargetWeeks = (w: number | null) => {
+    setTargetWeeks(w);
+    try { w === null ? localStorage.removeItem("rp-target-weeks") : localStorage.setItem("rp-target-weeks", String(w)); } catch { /* private mode */ }
+  };
+  const skus = useMemo(() => {
+    if (targetWeeks === null || item !== "product") return rawSkus;
+    return rawSkus.map((s) => {
+      const weekly = velocity[s.sku_code]?.weekly ?? 0;
+      return { ...s, ideal_stock: weekly > 0 ? Math.ceil(weekly * targetWeeks) : null };
+    });
+  }, [rawSkus, targetWeeks, item, velocity]);
 
   const counts = useMemo(() => ({
     all: skus.length,
@@ -129,9 +148,28 @@ export default function RealPeptidesInventory() {
       {err && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">Couldn't reach the COA tracker: {err.message}</div>}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-ops-border bg-ops-surface p-1">
-          <ViewTab active={item === "product"} onClick={() => { setItem("product"); setFilter("all"); }} icon={<Package size={14} />} label="Vials & units" />
-          <ViewTab active={item === "label"} onClick={() => { setItem("label"); setFilter("all"); }} icon={<Tags size={14} />} label="Printed labels" />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-xl border border-ops-border bg-ops-surface p-1">
+            <ViewTab active={item === "product"} onClick={() => { setItem("product"); setFilter("all"); }} icon={<Package size={14} />} label="Vials & units" />
+            <ViewTab active={item === "label"} onClick={() => { setItem("label"); setFilter("all"); }} icon={<Tags size={14} />} label="Printed labels" />
+          </div>
+          {item === "product" && (
+            <label className="flex items-center gap-2 text-[11px] text-ops-text-muted" title="Manual = each product's saved target. A weeks setting derives targets from the live sales rate — weekly velocity × weeks of cover.">
+              Stock up for
+              <span className="inline-flex rounded-lg border border-ops-border bg-ops-surface p-0.5">
+                <button type="button" onClick={() => pickTargetWeeks(null)}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${targetWeeks === null ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+                  Manual
+                </button>
+                {[4, 6, 8, 12].map((w) => (
+                  <button key={w} type="button" onClick={() => pickTargetWeeks(w)}
+                    className={`rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums transition ${targetWeeks === w ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+                    {w}w
+                  </button>
+                ))}
+              </span>
+            </label>
+          )}
         </div>
         {sync && (
           <span className="inline-flex items-center gap-1.5 text-[11px] text-ops-text-muted" title="Website orders are applied to stock automatically every 10 minutes.">
