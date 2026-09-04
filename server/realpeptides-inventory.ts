@@ -46,10 +46,18 @@ export async function runRpInventorySync(): Promise<typeof lastSync> {
   try {
     // 30 days so paid-but-unshipped holds stay visible until they ship or refund.
     const SYNC_DAYS = 30;
-    const windowStart = new Date(Math.max(Date.now() - SYNC_DAYS * 86_400_000, Date.parse(SYNC_SINCE))).toISOString();
     const orders = (await fetchSiteOrders(SYNC_DAYS))
       .filter((o) => o.createdAt && o.createdAt >= SYNC_SINCE)
       .map((o) => ({ id: o.id, number: o.number, createdAt: o.createdAt, status: o.status, items: o.items }));
+    // The feed returns the NEWEST orders up to its row cap, so the coverage
+    // window starts at the oldest order actually in the batch — releasing a
+    // hold for "absence" is only sound inside what the batch truly covers.
+    const oldestInBatch = orders.reduce((a, o) => (o.createdAt < a ? o.createdAt : a), new Date().toISOString());
+    const windowStart = new Date(Math.max(
+      Date.parse(oldestInBatch),
+      Date.now() - SYNC_DAYS * 86_400_000,
+      Date.parse(SYNC_SINCE),
+    )).toISOString();
     if (!orders.length) return (lastSync = { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [] });
     const r = await fetch(`${tracker.base}/api/orders/consume`, {
       method: "POST",
