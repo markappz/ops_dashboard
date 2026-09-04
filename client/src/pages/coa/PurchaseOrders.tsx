@@ -124,6 +124,16 @@ function PoCard({ po, busy, run, onSay }: {
 }) {
   const [checkin, setCheckin] = useState(false);
   const [qtys, setQtys] = useState<Record<number, string>>({});
+  const [draftQtys, setDraftQtys] = useState<Record<number, string>>({});
+
+  const saveDraftQty = (item: PoItem) => {
+    const v = Number(draftQtys[item.id]);
+    if (!Number.isFinite(v) || v <= 0 || v === Number(item.qty)) return;
+    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ qty: v }) }));
+  };
+  const removeLine = (item: PoItem) =>
+    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "DELETE" }),
+      `${item.product_name} removed from PO #${po.id}.`);
 
   const units = po.items.reduce((a, i) => a + Number(i.qty), 0);
   const received = po.items.reduce((a, i) => a + Number(i.received_qty), 0);
@@ -205,6 +215,17 @@ function PoCard({ po, busy, run, onSay }: {
                   <input value={qtys[i.id] ?? ""} inputMode="numeric" placeholder={left ? `${left} open` : "done"} disabled={!left}
                     onChange={(e) => setQtys({ ...qtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
                     className="h-7 w-20 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
+                ) : po.status === "draft" ? (
+                  <>
+                    <input value={draftQtys[i.id] ?? String(Number(i.qty))} inputMode="numeric"
+                      onChange={(e) => setDraftQtys({ ...draftQtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
+                      onBlur={() => saveDraftQty(i)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveDraftQty(i); }}
+                      disabled={busy !== null}
+                      className="h-7 w-16 rounded-md border border-ops-border bg-ops-bg px-1 text-center font-semibold tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
+                    <button type="button" disabled={busy !== null} onClick={() => removeLine(i)} title="Remove from this PO"
+                      className="p-1 text-ops-text-muted hover:text-red-400"><Trash2 size={13} /></button>
+                  </>
                 ) : (
                   <span className="font-semibold tabular-nums text-ops-text">{Number(i.qty)}</span>
                 )}

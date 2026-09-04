@@ -27,8 +27,10 @@ export function orderQty(s: Sku, item: InvItem = "product"): number | null {
   // orders are as good as gone, so they count against the position.
   const onOrder = item === "product" ? stockNum(s.on_order) ?? 0 : 0;
   const held = item === "product" ? stockNum(s.held) ?? 0 : 0;
-  if (ideal !== null && ideal > 0) return Math.max(0, Math.ceil(ideal - ((cur ?? 0) - held) - onOrder));
-  return null; // no target set — flag it, let the human fill the quantity in
+  const need = ideal !== null && ideal > 0 ? Math.max(0, Math.ceil(ideal - ((cur ?? 0) - held) - onOrder)) : null;
+  if (need === null) return null; // no target set — flag it, let the human fill the quantity in
+  // Manufacturer boxes come in tens: 28 → 30, 34 → 40 (Justin, 09-03).
+  return item === "product" ? Math.ceil(need / 10) * 10 : need;
 }
 
 const TITLES: Record<InvItem, { title: string; file: string; qtyHead: string }> = {
@@ -119,13 +121,16 @@ export function downloadPoPdf(po: { id: number; supplier: string | null; created
   doc.setFontSize(9);
   doc.text(`Date: ${String(po.created_at).slice(0, 10)}`, W - 14, 15, { align: "right" });
   doc.text(`Lines: ${po.items.length}`, W - 14, 21, { align: "right" });
+  const totalUnits = po.items.reduce((a, i) => a + Number(i.qty), 0);
   autoTable(doc, {
     startY: 40,
     head: [["#", "Product", "SKU", "QTY"]],
-    body: po.items.map((i, n) => [String(n + 1), i.product_name, i.sku_code, String(Number(i.qty))]),
+    body: po.items.map((i, n) => [String(n + 1), i.product_name, i.sku_code, Number(i.qty).toLocaleString()]),
+    foot: [["", "", `${po.items.length} lines`, totalUnits.toLocaleString()]],
     styles: { fontSize: 9, cellPadding: 2.5 },
     headStyles: { fillColor: [17, 24, 39], textColor: [212, 175, 55], fontStyle: "bold" },
-    columnStyles: { 0: { cellWidth: 8 }, 3: { halign: "right", fontStyle: "bold", cellWidth: 20 } },
+    footStyles: { fillColor: [246, 247, 249], textColor: [17, 24, 39], fontStyle: "bold", halign: "right" },
+    columnStyles: { 0: { cellWidth: 8 }, 3: { halign: "right", fontStyle: "bold", cellWidth: 22 } },
     alternateRowStyles: { fillColor: [246, 247, 249] },
   });
   doc.save(`real-peptides-po-${po.id}.pdf`);

@@ -48,7 +48,8 @@ export function Forecast({ skus, canEdit, onClose, onSay, onCreated }: {
         const wanted = Math.ceil(rate * (coverWeeks + lead));
         const stock = stockNum(s.current_stock) ?? 0;
         const onOrder = stockNum(s.on_order) ?? 0;
-        const gap = Math.max(0, wanted - stock - onOrder);
+        // Boxes come in tens — round the order up (28 → 30), never down.
+        const gap = Math.ceil(Math.max(0, wanted - stock - onOrder) / 10) * 10;
         const runway = rate > 0 ? Math.round(((stock + onOrder) / rate) * 10) / 10 : null;
         return {
           s, sold4, sold8, rate: Math.round(rate * 10) / 10, next4, next8,
