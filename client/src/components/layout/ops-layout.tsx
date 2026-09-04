@@ -181,9 +181,10 @@ export function OpsLayout({
           ? REALPEPTIDES_NAV_SECTIONS
           : NAV_SECTIONS;
 
-  // Real Peptides has no overview page (no order data to head it), so its home is Leads.
+  // Every brand lands on its Overview — the top tab (RP's Leads-as-home era
+  // ended when its Overview got real order data).
   const companyHome = (c: Company) =>
-    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides/leads" : "/";
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : "/";
 
   // On first load, honor the remembered company preference.
   const didRedirect = useRef(false);
