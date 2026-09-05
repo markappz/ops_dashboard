@@ -101,12 +101,14 @@ function LeadCards({ contacts }: { contacts: ReturnType<typeof useOverviewData>[
   const off = c?.configured === false;
   const v = (n?: number) => (off ? "—" : contacts.isError ? "!" : contacts.isLoading ? "…" : num(n));
   const topSource = c?.bySource?.[0];
+  const nc = c?.newCustomers;
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Contacts" to="/realpeptides/leads" value={v(c?.totals?.total)} sub={off ? c?.hint : c ? `${num(c.totals.marketable)} mailable · ${num(c.totals.buyers)} buyers` : "Resend list"} />
-      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} tone={c?.new?.today ? "good" : undefined} sub="last 24 hours" />
+      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} tone={c?.new?.today ? "good" : undefined} sub="marketing captures · 24h" />
       <Card label="New leads · 7 days" to="/realpeptides/leads" value={v(c?.new?.week)} sub={c?.new?.week ? `${Math.round(c.new.week / 7)}/day` : "last 7 days"} />
       <Card label="New leads · 30 days" to="/realpeptides/leads" value={v(c?.new?.month)} sub={topSource ? `top source · ${topSource.source}` : "last 30 days"} />
+      <Card label="New customers" to="/realpeptides/orders" value={v(nc?.today)} accent sub={nc ? `today · ${num(nc.week)} this week · ${num(nc.month)} this month` : "first paid order"} />
     </div>
   );
 }

@@ -19,6 +19,7 @@ interface Contacts {
   days?: number;
   totals?: { total: number; marketable: number; unsubscribed: number; suppressed: number; buyers: number; leads: number };
   new?: { today: number; week: number; month: number; window: number };
+  newCustomers?: { today: number; week: number; month: number; window: number };
   bySource?: { source: string; count: number }[];
   daily?: { date: string; count: number }[];
   recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean }[];
@@ -34,8 +35,8 @@ const num = (n: number | undefined | null) => (n ?? 0).toLocaleString();
 const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json());
 const MINUTE = 60_000;
 
-function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "muted" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "muted" ? "text-ops-text-muted" : "text-ops-text";
+function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "muted" | "accent" }) {
+  const color = tone === "good" ? "text-fitscript-green" : tone === "muted" ? "text-ops-text-muted" : tone === "accent" ? "text-brand-blue-500" : "text-ops-text";
   return (
     <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
       <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
@@ -58,15 +59,17 @@ function Panel({ title, subtitle, children }: { title: string; subtitle?: string
 function Totals({ c }: { c: Contacts }) {
   const t = c.totals;
   const n = c.new;
+  const nc = c.newCustomers;
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
       <Stat label="Contacts" value={num(t?.total)} sub={`${num(t?.marketable)} mailable`} />
       <Stat label="Buyers" value={num(t?.buyers)} sub="at least one paid order" />
       <Stat label="Leads" value={num(t?.leads)} sub="mailable, never bought" />
       <Stat label="Unsubscribed" value={num(t?.unsubscribed)} sub={`${num(t?.suppressed)} bounced/complained`} tone="muted" />
-      <Stat label="New · today" value={num(n?.today)} sub="last 24 hours" tone={n?.today ? "good" : undefined} />
-      <Stat label="New · 7 days" value={num(n?.week)} sub={n?.week ? `${Math.round(n.week / 7)}/day` : undefined} />
-      <Stat label="New · 30 days" value={num(n?.month)} sub={n?.month ? `${Math.round(n.month / 30)}/day` : undefined} />
+      <Stat label="New leads · today" value={num(n?.today)} sub="marketing captures" tone={n?.today ? "good" : undefined} />
+      <Stat label="New leads · 7 days" value={num(n?.week)} sub={n?.week ? `${Math.round(n.week / 7)}/day` : undefined} />
+      <Stat label="New leads · 30 days" value={num(n?.month)} sub={n?.month ? `${Math.round(n.month / 30)}/day` : undefined} />
+      <Stat label="New customers" value={num(nc?.today)} sub={`today · ${num(nc?.week)} 7d · ${num(nc?.month)} 30d`} tone="accent" />
     </div>
   );
 }
@@ -160,15 +163,15 @@ export default function RealPeptidesLeads() {
           <Totals c={c} />
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
-              <Panel title={`Signups · last ${range} days`} subtitle={`${num(c.new?.window)} new contacts in the window`}>
+              <Panel title={`New leads · last ${range} days`} subtitle={`${num(c.new?.window)} marketing captures · ${num(c.newCustomers?.window)} new customers in the window`}>
                 <DailyBars daily={c.daily ?? []} />
               </Panel>
             </div>
-            <Panel title="By source" subtitle="Where they were captured">
+            <Panel title="By source" subtitle="Where leads were captured (checkout/account excluded)">
               <Sources rows={c.bySource ?? []} total={c.new?.window ?? 0} />
             </Panel>
           </div>
-          <Panel title="Latest signups" subtitle="Newest 50 contacts">
+          <Panel title="Latest leads" subtitle="Newest 50 marketing captures">
             <Recent rows={c.recent ?? []} />
           </Panel>
           <LegacyLists range={range} />
