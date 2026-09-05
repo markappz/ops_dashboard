@@ -594,3 +594,29 @@ tracker's auth gate now accepts.
 
 **How to apply:** new COA features = tracker route (if needed) + add its prefix to `PROXY_ALLOW`
 + UI in `realpeptides-coa.tsx`. Deploy tracker before ops when both change.
+
+---
+
+## 2026-09-04 — Command Center tiles reuse their tab's source and math; RP contacts come from the site CRM
+
+**Decision:** Every Real Peptides overview tile reads the same endpoint and the same aggregation
+as the tab it links to. Certificates use `coa/families.ts` `familyCounts` (product families,
+worst-first, plus send-to-lab / at-the-lab) over the tracker's `/skus` — not the tracker's
+per-SKU `/api/ops-summary`. Contacts and leads come from realpeptides.co's `/api/ops-contacts`
+(the site's Postgres is the CRM and mirrors to Resend); Campaign Refinery and Moosend are a
+labelled pre-launch archive. "New leads" = marketing captures only (popup, age gate, guide
+opt-ins, resubscribes); checkout/account signups are "new customers" = first real paid order,
+same filter as `/api/ops-summary`. Tiles poll every 60s, Refresh forces everything (sitemap
+re-crawl included), and every source shows an as-of time.
+
+**Why this and not alternatives:**
+- **vs. the tracker's ops-summary for COA tiles:** it counts SKUs and ignores lab workflow, so
+  the overview never matched the COA tab — Paul read that as stale data.
+- **vs. paging Resend's contacts API:** 58k contacts × 100/page on every load; the CRM that
+  populates Resend is one query and already token-gated.
+- **vs. counting all new MarketingContact rows as leads:** checkout and account rows are buyers,
+  and the 08-31 CR import would read as 57k new leads.
+
+**How to apply:** new RP read = one `/api/ops-*` route on the site + a thin cached proxy in ops.
+An overview tile must import the tab's helper, never re-derive the number. Anything cached gets
+a visible "as of" and a forced-refresh path.
