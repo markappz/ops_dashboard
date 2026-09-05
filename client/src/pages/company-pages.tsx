@@ -67,7 +67,8 @@ export default function CompanyPages({ company, label, hasPixel = true }: { comp
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       return j;
     },
-    staleTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
   async function recrawl() {
@@ -135,7 +136,7 @@ export default function CompanyPages({ company, label, hasPixel = true }: { comp
             <Stat label="Live URLs" value={num(t.live)} sub={data?.sitemap ? `sitemap crawled ${new Date(data.sitemap.fetchedAt).toLocaleString()}` : undefined} />
             <Stat label="Getting impressions" value={gscOn ? num(t.indexedProxy) : "—"} sub={gscOn ? `${t.live ? Math.round((t.indexedProxy / t.live) * 100) : 0}% of live URLs — closest proxy for indexed` : "connect Search Console"} tone={gscOn && t.live && t.indexedProxy / t.live < 0.5 ? "warn" : gscOn ? "good" : undefined} />
             <Stat label="Zero impressions" value={gscOn ? num(t.noImpressions) : "—"} sub={gscOn ? "live but invisible in search" : "connect Search Console"} tone={gscOn && t.noImpressions > 0 ? "warn" : undefined} />
-            <Stat label={`Clicks · ${days}d`} value={gscOn ? num(t.clicks) : "—"} sub={gscOn ? <><Delta cur={t.clicks} prev={t.prevClicks} /> vs prior {days}d · {num(t.impressions)} impressions <Delta cur={t.impressions} prev={t.prevImpressions} /></> : "connect Search Console"} />
+            <Stat label={`Clicks · ${days}d`} value={gscOn ? num(t.clicks) : "—"} sub={gscOn ? <><Delta cur={t.clicks} prev={t.prevClicks} /> vs prior {days}d · {num(t.impressions)} impressions <Delta cur={t.impressions} prev={t.prevImpressions} />{data?.window ? <> · Google data through {data.window.end}</> : null}</> : "connect Search Console"} />
             {hasPixel
               ? <Stat label="Landing-page revenue" value={money(t.revenue)} sub="orders from sessions that landed on these pages" tone={t.revenue > 0 ? "good" : undefined} />
               : <Stat label="Google sees but not in sitemap" value={num(t.orphans)} sub="old or orphaned URLs" tone={t.orphans > 0 ? "warn" : undefined} />}
