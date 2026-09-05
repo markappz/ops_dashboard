@@ -1,4 +1,4 @@
-import { thumbUrl, type Sku, type Family, type Status, type Doc } from "./api";
+import { thumbUrl, atLab, needsSend, type Sku, type Family, type Status, type Doc } from "./api";
 
 // Worst-first so a family's rolled-up status reflects its most urgent variant.
 const SEVERITY: Status[] = ["expired", "untested", "expiring", "fresh", "n/a"];
@@ -61,4 +61,15 @@ export function variantLabel(sku: Sku, familyName?: string): string {
   }
   s = s.replace(/^[\s\-—:]+/, "").trim();
   return s || sku.product_name;
+}
+
+/** Per-status family counts plus the two workflow buckets — the COA tab's tiles and the Command Center read the same numbers. */
+export function familyCounts(families: Family[]): Record<string, number> {
+  const c: Record<string, number> = {};
+  for (const f of families) {
+    c[f.status] = (c[f.status] || 0) + 1;
+    if (f.variants.some(atLab)) c.atlab = (c.atlab || 0) + 1;
+    if (f.variants.some(needsSend)) c.tosend = (c.tosend || 0) + 1;
+  }
+  return c;
 }

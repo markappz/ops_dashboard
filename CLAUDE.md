@@ -57,10 +57,12 @@ Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**
 `Company` union member, a nav section + routes, and the `COMPANIES` set in `server/google-auth.ts`.
 GA4/GSC, Integrations and the Traffic/SEO pages (`company-google.tsx`) are already company-scoped.
 
-Real Peptides has **no order data** — realpeptides.co is WooCommerce and no API key exists. Its tabs
-run on the tracking pixel, its two email platforms (**Moosend + Campaign Refinery — never Klaviyo,
-that's FitScript's**), and the COA tracker. No page under `/realpeptides/*` may show a currency
-figure until a WooCommerce key lands.
+Real Peptides data comes from the new realpeptides.co (Next.js) via token-gated `/api/ops-*` reads
+(`RP_SITE_API_URL` + `RP_SITE_OPS_TOKEN`): `ops-summary` (sales), `ops-orders` (inventory sync),
+`ops-email-summary` (Email tab), `ops-contacts` (Leads + Command Center: the site's Postgres is the
+CRM and mirrors to Resend — **Campaign Refinery/Moosend froze at the 2026-08-24 relaunch**, legacy
+only). The RP Command Center's COA tiles read the tracker `/skus` through the proxy and use
+`coa/families.ts` `familyCounts` so they always equal the COA tab.
 
 **ops is the COA tracker's UI** (coa.realpeptides.co redirects here since 2026-08-20; its service
 runs headless). `POST /api/ops/realpeptides/coa/upload` records a test + vaults the file (PDF or
@@ -88,7 +90,7 @@ receiving stocks in. Tap any product for the mobile-friendly manage sheet.
 workflow UI is `content.tsx`; non-FitScript brands mount it via `CompanyContent` at `/<company>/content`.
 
 ## Pages (per brand)
-`server/pages.ts` crawls each brand's sitemap (cached 6h in `ops_site_pages`), joins Search Console
+`server/pages.ts` crawls each brand's sitemap (cached 1h in `ops_site_pages`, `refresh=1` forces; URLs deduped — RP serves legacy WP sitemap names beside /sitemaps/*.xml), joins Search Console
 by page (+ previous window) and pixel views/sessions/revenue. UI `company-pages.tsx` at
 `/<company>/pages`. Add a brand by setting its root in `SITE_ROOTS`.
 

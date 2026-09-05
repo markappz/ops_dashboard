@@ -1,178 +1,178 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 
 /**
- * Leads for Real Peptides — Moosend + Campaign Refinery.
+ * Leads for Real Peptides.
  *
- * NOT Klaviyo: that's FitScript's platform. RP's lists live in these two, so
- * both render as independent cards — one missing key or one API outage degrades
- * that card alone.
- *
- * Deliberately no "became a customer" column: WooCommerce isn't readable, so
- * conversion is genuinely unknown here and is not guessed at.
+ * realpeptides.co's Postgres is the CRM and mirrors every segment to Resend, so
+ * the site's /api/ops-contacts IS the Resend list. Campaign Refinery (and the
+ * Moosend funnels that fed it) stopped receiving signups at the 2026-08-24
+ * launch — they stay here as the pre-launch archive, clearly labelled.
  */
 
-interface MoosendData {
+interface Contacts {
   configured?: boolean;
   hint?: string;
   error?: string;
-  totalActive?: number;
-  lists?: { id: string; name: string; active: number; unsubscribed: number; bounced: number }[];
+  generatedAt?: string;
+  days?: number;
+  totals?: { total: number; marketable: number; unsubscribed: number; suppressed: number; buyers: number; leads: number };
+  new?: { today: number; week: number; month: number; window: number };
+  bySource?: { source: string; count: number }[];
+  daily?: { date: string; count: number }[];
+  recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean }[];
 }
 
-interface CrData {
-  configured?: boolean;
-  hint?: string;
-  error?: string;
-  shape?: string;
-  returned?: number;
-  recentCount?: number;
-  datedContacts?: number;
-  recent?: { email: string; created_at: string | null }[];
-}
-
-interface Leads {
+interface Legacy {
   range?: number;
-  moosend?: MoosendData;
-  campaignRefinery?: CrData;
-  error?: string;
+  moosend?: { configured?: boolean; error?: string; totalActive?: number; lists?: { id: string; name: string; active: number }[] };
+  campaignRefinery?: { configured?: boolean; error?: string; total?: number; recentCount?: number };
 }
 
-const num = (n: number | undefined) => (n ?? 0).toLocaleString();
+const num = (n: number | undefined | null) => (n ?? 0).toLocaleString();
+const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json());
+const MINUTE = 60_000;
 
-function Card({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "muted" }) {
+  const color = tone === "good" ? "text-fitscript-green" : tone === "muted" ? "text-ops-text-muted" : "text-ops-text";
+  return (
+    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
+      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
+      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
+      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
+    </div>
+  );
+}
+
+function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
       <div className="mb-1 text-base font-medium text-ops-text">{title}</div>
-      <div className="mb-4 text-xs text-ops-text-muted">{subtitle}</div>
+      {subtitle && <div className="mb-4 text-xs text-ops-text-muted">{subtitle}</div>}
       {children}
     </div>
   );
 }
 
-function NotConfigured({ hint }: { hint?: string }) {
-  return <div className="text-sm text-ops-text-muted">{hint ?? "Not configured."}</div>;
-}
-
-function Failed({ error }: { error: string }) {
+function Totals({ c }: { c: Contacts }) {
+  const t = c.totals;
+  const n = c.new;
   return (
-    <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">{error}</div>
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-7">
+      <Stat label="Contacts" value={num(t?.total)} sub={`${num(t?.marketable)} mailable`} />
+      <Stat label="Buyers" value={num(t?.buyers)} sub="at least one paid order" />
+      <Stat label="Leads" value={num(t?.leads)} sub="mailable, never bought" />
+      <Stat label="Unsubscribed" value={num(t?.unsubscribed)} sub={`${num(t?.suppressed)} bounced/complained`} tone="muted" />
+      <Stat label="New · today" value={num(n?.today)} sub="last 24 hours" tone={n?.today ? "good" : undefined} />
+      <Stat label="New · 7 days" value={num(n?.week)} sub={n?.week ? `${Math.round(n.week / 7)}/day` : undefined} />
+      <Stat label="New · 30 days" value={num(n?.month)} sub={n?.month ? `${Math.round(n.month / 30)}/day` : undefined} />
+    </div>
   );
 }
 
-function Moosend({ d }: { d: MoosendData }) {
-  if (d.configured === false) return <NotConfigured hint={d.hint} />;
-  if (d.error) return <Failed error={d.error} />;
-  const lists = d.lists ?? [];
+function DailyBars({ daily }: { daily: { date: string; count: number }[] }) {
+  if (!daily.length) return <div className="text-sm text-ops-text-muted">No signups in this window.</div>;
+  const max = Math.max(...daily.map((d) => d.count), 1);
   return (
-    <>
-      <div className="mb-4">
-        <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Active subscribers</div>
-        <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.totalActive)}</div>
-        <div className="mt-1 text-xs text-ops-text-muted">across {lists.length} list{lists.length === 1 ? "" : "s"}</div>
-      </div>
-      {lists.length === 0 ? (
-        <div className="text-sm text-ops-text-muted">No mailing lists in this account.</div>
-      ) : (
-        <div className="space-y-2">
-          {lists.map((l) => (
-            <div key={l.id} className="flex justify-between gap-3 text-sm">
-              <span className="truncate text-ops-text" title={l.name}>{l.name}</span>
-              <span className="shrink-0 text-ops-text-muted">
-                {num(l.active)} active
-                {l.unsubscribed > 0 && <span className="text-ops-text-subtle"> · {num(l.unsubscribed)} unsub</span>}
-              </span>
-            </div>
-          ))}
+    <div className="flex h-36 items-end gap-[3px]">
+      {daily.map((d) => (
+        <div key={d.date} className="group relative flex-1 rounded-t bg-fitscript-green/70 transition hover:bg-fitscript-green" style={{ height: `${Math.max(3, (d.count / max) * 100)}%` }}>
+          <span className="pointer-events-none absolute -top-7 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded bg-ops-bg px-1.5 py-0.5 text-[10px] text-ops-text shadow group-hover:block">{d.date.slice(5)} · {d.count}</span>
         </div>
-      )}
-    </>
+      ))}
+    </div>
   );
 }
 
-function CampaignRefinery({ d, range }: { d: CrData; range?: number }) {
-  if (d.configured === false) return <NotConfigured hint={d.hint} />;
-  if (d.error) return <Failed error={d.error} />;
+function Sources({ rows, total }: { rows: { source: string; count: number }[]; total: number }) {
+  if (!rows.length) return <div className="text-sm text-ops-text-muted">Nothing captured in this window.</div>;
   return (
-    <>
-      <div className="mb-4 grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">New ({range ?? 30}d)</div>
-          <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.recentCount)}</div>
+    <div className="space-y-2">
+      {rows.map((r) => (
+        <div key={r.source} className="text-sm">
+          <div className="flex justify-between gap-3"><span className="truncate text-ops-text">{r.source}</span><span className="shrink-0 tabular-nums text-ops-text-muted">{num(r.count)} · {total ? Math.round((r.count / total) * 100) : 0}%</span></div>
+          <div className="mt-1 h-1.5 rounded bg-ops-border"><div className="h-full rounded bg-brand-blue-500" style={{ width: `${total ? (r.count / total) * 100 : 0}%` }} /></div>
         </div>
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Contacts returned</div>
-          <div className="mt-1 text-3xl font-semibold text-ops-text">{num(d.returned)}</div>
-          <div className="mt-1 text-xs text-ops-text-muted">this page, not the account total</div>
+      ))}
+    </div>
+  );
+}
+
+function Recent({ rows }: { rows: NonNullable<Contacts["recent"]> }) {
+  if (!rows.length) return <div className="text-sm text-ops-text-muted">No contacts yet.</div>;
+  return (
+    <div className="max-h-96 space-y-1.5 overflow-y-auto">
+      {rows.map((c) => (
+        <div key={c.email} className="flex items-center justify-between gap-3 text-sm">
+          <span className="min-w-0 truncate text-ops-text" title={c.email}>{c.email}{c.name ? <span className="text-ops-text-muted"> · {c.name}</span> : null}</span>
+          <span className="flex shrink-0 items-center gap-2 text-xs text-ops-text-muted">
+            {c.buyer && <span className="rounded-full bg-fitscript-green/15 px-2 py-0.5 text-[10px] font-semibold text-fitscript-green">buyer</span>}
+            {c.unsubscribed && <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">unsub</span>}
+            <span className="truncate">{c.source}</span>
+            <span>{new Date(c.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+          </span>
         </div>
+      ))}
+    </div>
+  );
+}
+
+function LegacyLists({ range }: { range: number }) {
+  const { data } = useQuery<Legacy>({ queryKey: ["rp-leads", range], queryFn: () => get(`/api/ops/realpeptides/leads?range=${range}`), staleTime: 15 * MINUTE });
+  const cr = data?.campaignRefinery;
+  const ms = data?.moosend;
+  return (
+    <Panel title="Pre-launch archive" subtitle="Campaign Refinery + Moosend stopped receiving signups when realpeptides.co relaunched on Aug 24, 2026. Their contacts were imported into the CRM above.">
+      <div className="grid grid-cols-2 gap-4 text-sm">
+        <div><div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Campaign Refinery</div><div className="mt-1 text-xl font-semibold text-ops-text">{cr?.configured === false ? "—" : cr?.error ? "!" : num(cr?.total)}</div><div className="text-xs text-ops-text-muted">{cr?.error ?? `${num(cr?.recentCount)} new in ${range}d`}</div></div>
+        <div><div className="text-[11px] uppercase tracking-wider text-ops-text-muted">Moosend</div><div className="mt-1 text-xl font-semibold text-ops-text">{ms?.configured === false ? "—" : ms?.error ? "!" : num(ms?.totalActive)}</div><div className="text-xs text-ops-text-muted">{ms?.configured === false ? "not connected" : ms?.error ?? `${(ms?.lists ?? []).length} lists`}</div></div>
       </div>
-
-      {d.datedContacts === 0 && (d.returned ?? 0) > 0 && (
-        <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-500">
-          None of the returned contacts carry a signup date, so the {range ?? 30}-day count can&apos;t be
-          computed. Tell me the field name Campaign Refinery uses and it&apos;s a one-line fix.
-        </div>
-      )}
-
-      {(d.recent ?? []).length === 0 ? (
-        <div className="text-sm text-ops-text-muted">No signups in this window.</div>
-      ) : (
-        <div className="max-h-64 space-y-1.5 overflow-y-auto">
-          {(d.recent ?? []).map((c, i) => (
-            <div key={i} className="flex justify-between gap-3 text-sm">
-              <span className="truncate text-ops-text" title={c.email}>{c.email}</span>
-              <span className="shrink-0 text-ops-text-muted">
-                {c.created_at ? new Date(c.created_at).toLocaleDateString() : "—"}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
+    </Panel>
   );
 }
 
 export default function RealPeptidesLeads() {
-  const { data, isLoading } = useQuery<Leads>({
-    queryKey: ["realpeptides-leads"],
-    queryFn: async () => {
-      const r = await fetch("/api/ops/realpeptides/leads?range=30", { credentials: "include" });
-      try { return await r.json(); } catch { return { error: `Request failed (HTTP ${r.status})` }; }
-    },
-  });
+  const [range, setRange] = useState(30);
+  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", range], queryFn: () => get(`/api/ops/realpeptides/contacts?range=${range}`), refetchInterval: MINUTE });
+  const c = q.data;
+  const asOf = c?.generatedAt ? new Date(c.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
 
   return (
     <div>
       <PageHero
         eyebrow="Real Peptides"
         title="Leads"
-        subtitle="Campaign Refinery is the list of record — every guide funnel, including the Moosend ones, lands there."
+        subtitle={`realpeptides.co's CRM is the list of record and mirrors every segment to Resend.${asOf ? ` Live · as of ${asOf}.` : ""}`}
+        actions={
+          <select value={range} onChange={(e) => setRange(Number(e.target.value))} className="rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-fitscript-green focus:outline-none">
+            {[7, 30, 90].map((n) => <option key={n} value={n}>Last {n} days</option>)}
+          </select>
+        }
       />
 
-      {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
-      {data?.error && (
-        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{data.error}</div>
-      )}
+      {q.isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
+      {(q.isError || c?.error) && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{c?.error ?? (q.error as Error)?.message}</div>}
+      {c?.configured === false && <div className="mb-6 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{c.hint}</div>}
 
-      {data && !data.error && (
-        <>
-          <div className="grid gap-4">
-            <Card title="Campaign Refinery" subtitle="All contacts and recent signups — the system of record">
-              <CampaignRefinery d={data.campaignRefinery ?? {}} range={data.range} />
-            </Card>
-            {data.moosend?.configured !== false && (
-              <Card title="Moosend (funnel capture)" subtitle="Guide-funnel lists. Counts here are a subset of Campaign Refinery, not additional leads.">
-                <Moosend d={data.moosend ?? {}} />
-              </Card>
-            )}
+      {c?.configured && (
+        <div className="space-y-6">
+          <Totals c={c} />
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <Panel title={`Signups · last ${range} days`} subtitle={`${num(c.new?.window)} new contacts in the window`}>
+                <DailyBars daily={c.daily ?? []} />
+              </Panel>
+            </div>
+            <Panel title="By source" subtitle="Where they were captured">
+              <Sources rows={c.bySource ?? []} total={c.new?.window ?? 0} />
+            </Panel>
           </div>
-
-          <p className="mt-4 text-xs text-ops-text-muted">
-            Moosend only captures some guide funnels and syncs everything into Campaign Refinery, so it
-            is optional here{data.moosend?.configured === false ? " (not connected — nothing is missing from the numbers above)" : ""}.
-            Lead-to-customer conversion isn&apos;t shown: orders and contacts aren&apos;t linked by email yet.
-          </p>
-        </>
+          <Panel title="Latest signups" subtitle="Newest 50 contacts">
+            <Recent rows={c.recent ?? []} />
+          </Panel>
+          <LegacyLists range={range} />
+        </div>
       )}
     </div>
   );

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Layers, FlaskConical } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
-import { groupFamilies } from "./coa/families";
+import { groupFamilies, familyCounts } from "./coa/families";
 import { StatusDonut } from "./coa/StatusDonut";
 import { FamilyGrid } from "./coa/FamilyGrid";
 import { FamilyDetail } from "./coa/FamilyDetail";
@@ -49,15 +49,7 @@ export default function RealPeptidesCoa() {
   });
 
   const families = useMemo(() => groupFamilies(skus.data?.skus ?? []), [skus.data]);
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const f of families) {
-      c[f.status] = (c[f.status] || 0) + 1;
-      if (f.variants.some(atLab)) c.atlab = (c.atlab || 0) + 1;
-      if (f.variants.some(needsSend)) c.tosend = (c.tosend || 0) + 1;
-    }
-    return c;
-  }, [families]);
+  const counts = useMemo(() => familyCounts(families), [families]);
   const shown = useMemo(() => {
     let list = families;
     if (filter === "atlab") list = families.filter((f) => f.variants.some(atLab));

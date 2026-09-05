@@ -25,7 +25,7 @@ const SITE_ROOTS: Record<string, string | null> = {
   peptideu: null, // no public marketing site yet
 };
 
-const CACHE_HOURS = 6;
+const CACHE_HOURS = 1;
 const MAX_SITEMAPS = 80;
 const MAX_URLS = 60_000;
 const UA = "Mozilla/5.0 (compatible; FitScriptOps/1.0; +https://ops.fitscript.me)";
@@ -79,10 +79,10 @@ const tag = (xml: string, name: string) => [...xml.matchAll(new RegExp(`<${name}
 /** Classify a URL by the sitemap it came from first (WordPress names them), then by path. */
 function kindOf(path: string, source: string | null): string {
   const s = (source || "").toLowerCase();
+  if (/category|tag|author|taxonom|collection/.test(s)) return "taxonomy";
   if (/product/.test(s)) return "product";
   if (/post|blog/.test(s)) return "blog";
   if (/page-sitemap/.test(s)) return "page";
-  if (/category|tag|author|taxonom/.test(s)) return "taxonomy";
   if (/location/.test(s)) return "location";
   if (path === "/" || path === "") return "home";
   if (/^\/(product|products|shop)\//.test(path)) return "product";
@@ -106,9 +106,13 @@ export async function refreshSitemap(site: string): Promise<{ count: number; sou
   const queue = await discoverSitemaps(root);
   const seen = new Set<string>();
   const sources: string[] = [];
-  const rows: { url: string; lastmod: string | null; source: string }[] = [];
+  // Keyed by URL: the site still serves the legacy WordPress sitemap names next to
+  // /sitemaps/*.xml, so every page arrives twice without this. Last sitemap wins
+  // the classification, which is the canonical /sitemaps/ set (listed after the
+  // legacy index in robots.txt).
+  const byUrl = new Map<string, { url: string; lastmod: string | null; source: string }>();
 
-  while (queue.length && seen.size < MAX_SITEMAPS && rows.length < MAX_URLS) {
+  while (queue.length && seen.size < MAX_SITEMAPS && byUrl.size < MAX_URLS) {
     const sm = queue.shift()!;
     if (seen.has(sm)) continue;
     seen.add(sm);
@@ -123,9 +127,11 @@ export async function refreshSitemap(site: string): Promise<{ count: number; sou
     for (const block of xml.split(/<url>/i).slice(1)) {
       const loc = tag(block, "loc")[0];
       if (!loc) continue;
-      rows.push({ url: loc.trim(), lastmod: tag(block, "lastmod")[0] ?? null, source: name });
+      const url = loc.trim();
+      byUrl.set(url, { url, lastmod: tag(block, "lastmod")[0] ?? null, source: name });
     }
   }
+  const rows = [...byUrl.values()];
 
   // Upsert in batches; anything not seen this run fell out of the sitemap.
   for (let i = 0; i < rows.length; i += 500) {
