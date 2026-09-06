@@ -1,13 +1,8 @@
 /**
- * Real Peptides sales via the NEW realpeptides.co (Next.js on Vercel).
+ * Real Peptides sales via realpeptides.co — a custom Next.js storefront on AWS
+ * ECS (not WordPress/WooCommerce, not Vercel; those are gone since 2026-08-24).
  *
- * The Vercel rebuild retired WordPress entirely — /wp-json/* 404s — so the
- * WooCommerce connector went dark at launch. The new site's backend is the
- * dev team's own commerce API; ops reads a token-gated summary endpoint they
- * expose (same cross-app pattern as the COA tracker's /api/ops-summary:
- * one shared bearer token, read-only by construction, no DB credential).
- *
- * Contract (spec shared with the Vercel team):
+ * Contract:
  *   GET {RP_SITE_API_URL}/api/ops-summary?days=N
  *   Authorization: Bearer {RP_SITE_OPS_TOKEN}
  *   → { current, previous: { revenueCents, grossCents?, orders, customers,
@@ -65,7 +60,7 @@ export async function siteSalesSummary(range: number): Promise<SalesSummary> {
 
   const data: SalesSummary = {
     configured: true,
-    source: "woocommerce", // keeps the client type stable; the card reads the label below
+    source: "woocommerce", // legacy enum value kept for the shared SalesSummary type; the card labels it realpeptides.co
     range,
     current: window(j.current),
     previous: window(j.previous),

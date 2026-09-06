@@ -3,7 +3,7 @@
  * with what Search Console and the first-party pixel say about it.
  *
  * Truth order: the sitemap decides what exists (Clomark's "published" flag
- * doesn't — Real Peptides shows 0 published in Clomark while its WordPress
+ * doesn't — Real Peptides shows 0 published in Clomark while its custom site's
  * sitemap lists thousands of posts). Search Console says whether Google shows
  * it and how it ranks. The pixel says whether humans arrive and buy.
  *
@@ -76,7 +76,7 @@ async function discoverSitemaps(root: string): Promise<string[]> {
 
 const tag = (xml: string, name: string) => [...xml.matchAll(new RegExp(`<${name}>\\s*([^<]+?)\\s*</${name}>`, "g"))].map((m) => m[1]);
 
-/** Classify a URL by the sitemap it came from first (WordPress names them), then by path. */
+/** Classify a URL by the sitemap it came from first (sitemap file names carry the type), then by path. */
 function kindOf(path: string, source: string | null): string {
   const s = (source || "").toLowerCase();
   if (/category|tag|author|taxonom|collection/.test(s)) return "taxonomy";

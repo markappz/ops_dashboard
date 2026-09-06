@@ -1,25 +1,19 @@
 /**
  * Real Peptides connector.
  *
- * RP is the one brand with no readable order database: realpeptides.co is
- * WordPress + WooCommerce and no API credentials exist for it. So this module
- * deliberately does NOT pretend to know revenue. It reports the two things that
- * are genuinely observable today:
+ * realpeptides.co is a custom Next.js storefront on AWS ECS (relaunched
+ * 2026-08-24 — it is NOT WordPress/WooCommerce and NOT on Vercel). Everything
+ * ops knows about RP comes from that site's token-gated `/api/ops-*` reads
+ * (sales, orders, contacts, email, catalog), the first-party pixel, and the
+ * COA tracker. Campaign Refinery + Moosend are the pre-relaunch archive.
  *
- *   1. Traffic + attribution, from the first-party pixel already running on
- *      ops.fitscript.me (`site = 'realpeptides'`, set from the browser Origin).
- *      Covers realpeptides.co and the three lead-magnet funnels.
- *   2. Leads, from RP's two email platforms — Moosend and Campaign Refinery.
- *      NOT Klaviyo: that is FitScript's platform, and RP has never used it.
- *
- * Every surface degrades to an explicit "not configured / not installed" state
- * rather than a zero, because a zero here reads as "no traffic" when the truth
- * is "nothing is reporting yet".
+ * Every surface degrades to an explicit "not configured" state rather than a
+ * zero, because a zero here reads as "no traffic" when the truth is "nothing
+ * is reporting yet".
  */
 import express, { type Express, type Request, type Response } from "express";
 import multer from "multer";
 import { pool } from "./db";
-import { salesSummary, wooConfigured } from "./woocommerce";
 import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
@@ -353,8 +347,8 @@ export function registerRealPeptidesRoutes(app: Express) {
   /**
    * Leads from RP's two email platforms. **Not Klaviyo** — that's FitScript's.
    * Each source is independent: one missing key or one API outage degrades that
-   * card alone. No conversion or revenue figures, because WooCommerce isn't
-   * readable and "became a customer" is genuinely unknown.
+   * card alone. Legacy since the 2026-08-24 relaunch — live contacts come from
+   * the site's /api/ops-contacts (realpeptides-contacts.ts).
    */
   app.get("/api/ops/realpeptides/leads", async (req, res) => {
     const since = days(req.query.range);
@@ -386,7 +380,7 @@ export function registerRealPeptidesRoutes(app: Express) {
   });
 
   /**
-   * Command Center numbers that need the server: sales (WooCommerce, env-gated)
+   * Command Center numbers that need the server: sales (site /api/ops-summary)
    * and pixel traffic with a previous-window delta. Leads, COA, pages and
    * Clomark are composed client-side from their own endpoints.
    */
@@ -398,27 +392,16 @@ export function registerRealPeptidesRoutes(app: Express) {
         trafficWindow(since, 0),
         trafficWindow(since, since),
       ]);
-      // The Vercel rebuild killed WooCommerce (wp-json 404s since 2026-08-29).
-      // New-site connector wins when configured; Woo stays as the legacy path.
       let sales: any;
       if (siteConfigured()) {
         try { sales = await siteSalesSummary(since); }
         catch (e: any) {
-          // Wired ahead of the site's endpoint on purpose: a 404 means the dev
-          // team hasn't shipped /api/ops-summary yet, not that ops is broken.
           sales = /404/.test(e.message)
-            ? { configured: false, hint: "Ops is wired and waiting — the new site's /api/ops-summary isn't live yet. Sales appear automatically once the dev team ships it (spec shared)." }
-            : { configured: true, error: e.message };
-        }
-      } else if (wooConfigured()) {
-        try { sales = await salesSummary(since); }
-        catch (e: any) {
-          sales = /404/.test(e.message)
-            ? { configured: false, hint: "realpeptides.co moved to the new Vercel site — the WordPress/WooCommerce API is gone. The dev team needs to expose GET /api/ops-summary (spec shared); then set RP_SITE_API_URL + RP_SITE_OPS_TOKEN on ops and sales light back up." }
+            ? { configured: false, hint: "Ops is wired and waiting — the site's /api/ops-summary isn't live yet." }
             : { configured: true, error: e.message };
         }
       } else {
-        sales = { configured: false, hint: "Connect the new realpeptides.co backend: RP_SITE_API_URL + RP_SITE_OPS_TOKEN (the site's /api/ops-summary endpoint, spec shared with the dev team)." };
+        sales = { configured: false, hint: "Connect realpeptides.co: set RP_SITE_API_URL + RP_SITE_OPS_TOKEN on ops (the site's /api/ops-summary endpoint)." };
       }
       res.json({ range: since, sales, traffic: { pixelInstalled: ever.rows[0]?.ok === true, current: cur, previous: prev } });
     } catch (e) {

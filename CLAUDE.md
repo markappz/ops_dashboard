@@ -31,11 +31,9 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - `RP_CAMPAIGN_REFINERY_API_KEY` — Real Peptides' Campaign Refinery key (bearer token)
 - `COA_OPS_TOKEN` — shared bearer token for reading coa.realpeptides.co's `/api/ops-summary`
 - `COA_API_URL` — optional override, defaults to `https://coa.realpeptides.co`
-- `RP_WOO_CONSUMER_KEY`, `RP_WOO_CONSUMER_SECRET` — legacy WooCommerce key. **Dead since the
-  2026-08 Vercel launch** (wp-json 404s); kept only as a fallback path.
-- `RP_SITE_API_URL`, `RP_SITE_OPS_TOKEN` — the NEW realpeptides.co sales source: token-gated
-  `GET /api/ops-summary` on the site (spec artifact shared with the dev team). Wins over Woo
-  when set. Unset → Overview shows the connect state, never a zero.
+- `RP_SITE_API_URL`, `RP_SITE_OPS_TOKEN` — realpeptides.co's token-gated `/api/ops-*` reads
+  (summary, orders, contacts, email-summary, catalog). Unset → Overview shows the connect state,
+  never a zero. (`RP_WOO_*` keys are dead — WordPress/WooCommerce was retired 2026-08-24.)
 
 ## Structure
 - `server/index.ts` — bootstraps express, mounts auth gate, registers routes
@@ -57,7 +55,8 @@ Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**
 `Company` union member, a nav section + routes, and the `COMPANIES` set in `server/google-auth.ts`.
 GA4/GSC, Integrations and the Traffic/SEO pages (`company-google.tsx`) are already company-scoped.
 
-Real Peptides data comes from the new realpeptides.co (Next.js) via token-gated `/api/ops-*` reads
+**realpeptides.co is a custom Next.js storefront on AWS ECS — never WordPress/WooCommerce, never
+Vercel.** Its data reaches ops via token-gated `/api/ops-*` reads
 (`RP_SITE_API_URL` + `RP_SITE_OPS_TOKEN`): `ops-summary` (sales), `ops-orders` (inventory sync),
 `ops-email-summary` (Email tab), `ops-contacts` (Leads + Command Center: the site's Postgres is the
 CRM and mirrors to Resend — **Campaign Refinery/Moosend froze at the 2026-08-24 relaunch**, legacy
@@ -77,7 +76,7 @@ Non-admins need the `realpeptides:coa-upload` grant.
 replacement — rides the same proxy/grant:
 audited stock moves (`/skus/:id/stock` — proxy stamps the admin email), ideal targets, label files
 (vault `category='label'`), and a client-side jsPDF purchase order for everything below target.
-The tracker's public feed exposes `stock`/`inStock` for the Vercel storefront.
+The tracker's public feed exposes `stock`/`inStock` for the storefront.
 Website orders decrement stock live: `server/realpeptides-inventory.ts` polls the site's
 /api/ops-orders every 10 min → tracker `/api/orders/consume` (idempotent; cutoff
 RP_ORDER_SYNC_SINCE=2026-08-26T13:00Z — never lower it). Velocity/forecast from the same feed
