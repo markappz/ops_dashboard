@@ -36,10 +36,16 @@ function config() {
   return { base: base.replace(/\/$/, ""), token };
 }
 
-async function siteOrders(days: number): Promise<any[]> {
+const PAGE = 500;
+const MAX_PAGES = 40;
+const ordersCache = new Map<number, { at: number; orders: any[] }>();
+const CACHE_MS = 60_000;
+
+async function siteOrdersPage(days: number, before: string | null): Promise<any[]> {
   const cfg = config();
   if (!cfg) throw new Error("not-configured");
-  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=500`, {
+  const cursor = before ? `&before=${encodeURIComponent(before)}` : "";
+  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=${PAGE}${cursor}`, {
     headers: { Authorization: `Bearer ${cfg.token}`, "User-Agent": "FitScriptOps/1.0" },
     signal: AbortSignal.timeout(30_000),
   });
@@ -48,6 +54,28 @@ async function siteOrders(days: number): Promise<any[]> {
   if (!r.ok) throw new Error(`realpeptides.co ops-orders ${r.status}: ${text.slice(0, 160)}`);
   const j = JSON.parse(text);
   return j.orders ?? j;
+}
+
+/**
+ * The site returns newest-first, capped per request, so a busy window needs
+ * paging: keep asking for orders strictly older than the oldest seen until a
+ * short page comes back. Cached a minute — the tab polls on a timer.
+ */
+async function siteOrders(days: number): Promise<any[]> {
+  const hit = ordersCache.get(days);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.orders;
+  const all: any[] = [];
+  let before: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const batch = await siteOrdersPage(days, before);
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+    const oldest = batch[batch.length - 1]?.createdAt ?? batch[batch.length - 1]?.created_at;
+    if (!oldest || oldest === before) break;
+    before = String(oldest);
+  }
+  ordersCache.set(days, { at: Date.now(), orders: all });
+  return all;
 }
 
 const path = (u: string | null) => { try { return u ? new URL(u, "https://x.co").pathname : null; } catch { return null; } };
@@ -142,7 +170,7 @@ export function registerRealPeptidesOrders(app: Express) {
         byChannel[r.channel].orders++;
         byChannel[r.channel].revenue += r.total;
       }
-      res.json({ configured: true, range: days, orders: rows, byChannel });
+      res.json({ configured: true, range: days, orders: rows, byChannel, generatedAt: new Date().toISOString() });
     } catch (e: any) {
       if (e.message === "not-configured") {
         return res.json({ configured: false, hint: "Connect the new realpeptides.co backend first (RP_SITE_API_URL + RP_SITE_OPS_TOKEN)." });

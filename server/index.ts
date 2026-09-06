@@ -34,6 +34,7 @@ import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
 import { registerRealPeptidesContacts } from "./realpeptides-contacts";
+import { registerRpImageSync, startRpImageSyncLoop } from "./realpeptides-images";
 import { registerTasksRoutes } from "./tasks";
 import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
@@ -95,6 +96,7 @@ registerRealPeptidesOrders(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesContacts(app);
+registerRpImageSync(app);
   registerTasksRoutes(app);
   registerEmailPlannerRoutes(app);
 registerRealPeptidesWholesale(app);
@@ -158,6 +160,7 @@ async function start() {
     startDirtDailyReportLoop();
     startEmailReportWarmer();
     startRpInventorySyncLoop();
+    startRpImageSyncLoop();
   });
 }
 

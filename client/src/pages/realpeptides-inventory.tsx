@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Minus, Plus, FileDown, Tag, Upload, History, X, Loader2,
-  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp,
+  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp, ImageIcon,
 } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
@@ -114,6 +114,19 @@ export default function RealPeptidesInventory() {
   const say = (m: string) => { setFlash(m); setTimeout(() => setFlash(null), 5000); };
   const t = ITEM_TEXT[item];
   const sync = statsQ.data?.lastSync;
+  const noImage = useMemo(() => skus.filter((s) => !thumbUrl(s)).length, [skus]);
+  const [imgBusy, setImgBusy] = useState(false);
+  async function syncImages() {
+    setImgBusy(true);
+    try {
+      const r = await fetch("/api/ops/realpeptides/inventory/images/sync", { method: "POST", credentials: "include" });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      qc.invalidateQueries({ queryKey: ["coa-skus"] });
+      say(`Images: ${j.uploaded} filled from the website${j.missing?.length ? ` · ${j.missing.length} have no photo on the site yet (${j.missing.slice(0, 4).join(", ")}${j.missing.length > 4 ? "…" : ""})` : ""}.`);
+    } catch (e: any) { say(`Image sync failed: ${e.message}`); }
+    finally { setImgBusy(false); }
+  }
 
   function orderPdf() {
     const n = downloadOrderPdf(skus, item);
@@ -136,6 +149,11 @@ export default function RealPeptidesInventory() {
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
+            {canEdit && noImage > 0 && (
+              <button type="button" onClick={syncImages} disabled={imgBusy} className={ui.ghost} title="Copy each product's photo from realpeptides.co into the tracker (runs on its own every 6 hours)">
+                {imgBusy ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />} Fill {noImage} missing image{noImage === 1 ? "" : "s"}
+              </button>
+            )}
             <button type="button" onClick={() => setShowForecast(true)} disabled={!skus.length} className={ui.ghost}><TrendingUp size={15} /> Forecast</button>
             <button type="button" onClick={orderPdf} disabled={!skus.length} className={ui.primary}>
               <FileDown size={15} /> {t.order}{counts.low ? ` (${counts.low})` : ""}
@@ -197,6 +215,8 @@ export default function RealPeptidesInventory() {
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ops-text-muted" />
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products, SKUs…" className={`${ui.input} pl-9`} />
       </div>
+
+      <RecentMoves />
 
       {skusQ.isLoading ? (
         <div className="py-16 text-center text-sm text-ops-text-muted">Loading inventory…</div>
@@ -285,7 +305,7 @@ function useAdjust(sku: Sku, item: InvItem, onChanged: () => void, onSay: (m: st
     finally { setBusy(false); }
   }
   const adjust = (delta: number) =>
-    run(() => api(`/skus/${sku.id}/stock`, { method: "POST", body: JSON.stringify({ delta, item }) }),
+    run(() => api(`/skus/${sku.id}/stock`, { method: "POST", body: JSON.stringify({ delta, item, note: delta > 0 ? "manual add" : "manual remove" }) }),
       `${sku.product_name}: ${delta > 0 ? "+" : ""}${delta} ${noun}.`);
   const setExact = (n: number) =>
     run(() => api(`/skus/${sku.id}/stock`, { method: "POST", body: JSON.stringify({ set: n, item, note: "manual count" }) }),
@@ -581,6 +601,62 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
 
 // ─── Movement history ──────────────────────────────────────────────
 
+interface MoveRow { id: number; sku_id: number; sku_code: string; product_name: string; item: string; delta: string; new_stock: string; note: string | null; changed_by: string | null; created_at: string }
+
+/** What a movement was, in words: who did it and why, never just a number. */
+function describeMove(l: MoveRow): { label: string; who: string } {
+  const d = Number(l.delta);
+  const note = (l.note || "").toLowerCase();
+  const who = l.changed_by === "site-sync" || note.startsWith("order #") ? "website order" : l.changed_by || "system";
+  let label = l.note || "";
+  if (note === "manual add") label = `Manual add +${d}`;
+  else if (note === "manual remove") label = `Manual remove ${d}`;
+  else if (note === "manual count") label = `Counted at ${Number(l.new_stock)}`;
+  else if (!label) label = d > 0 ? `+${d}` : d < 0 ? `${d}` : `Set to ${Number(l.new_stock)}`;
+  return { label, who };
+}
+
+/** Every stock change across the shelf, newest first — the audit trail Justin asked for. */
+function RecentMoves() {
+  const [open, setOpen] = useState(true);
+  const q = useQuery({
+    queryKey: ["coa-stock-log-all"],
+    queryFn: () => api<{ log: MoveRow[] }>("/stock-log?limit=40"),
+    refetchInterval: 60_000,
+  });
+  const log = q.data?.log ?? [];
+  return (
+    <div className="mb-5 rounded-2xl border border-ops-border bg-ops-surface shadow-card">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="flex items-center gap-2 text-sm font-semibold text-ops-text"><History size={15} /> Recent stock moves</span>
+        <span className="text-xs text-ops-text-muted">{log.length ? `last ${log.length} · ${open ? "hide" : "show"}` : ""}</span>
+      </button>
+      {open && (
+        <div className="max-h-72 overflow-y-auto border-t border-ops-border px-4 py-2">
+          {!q.data ? <div className="py-3 text-xs text-ops-text-muted">Loading…</div> : !log.length ? <div className="py-3 text-xs text-ops-text-muted">No movements yet.</div> : (
+            <ul className="divide-y divide-ops-border/50 text-xs">
+              {log.map((l) => {
+                const d = Number(l.delta);
+                const { label, who } = describeMove(l);
+                return (
+                  <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-ops-text-muted">
+                    <span className="w-28 shrink-0 tabular-nums">{new Date(l.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                    <span className="min-w-0 flex-1 truncate text-ops-text" title={l.product_name}>{l.product_name}</span>
+                    <span className={`w-12 shrink-0 text-right font-semibold tabular-nums ${d > 0 ? "text-fitscript-green" : d < 0 ? "text-red-400" : "text-ops-text"}`}>{d > 0 ? `+${d}` : d === 0 ? "set" : d}</span>
+                    <span className="w-16 shrink-0 tabular-nums text-ops-text">→ {Number(l.new_stock)}{l.item === "label" ? " lbl" : ""}</span>
+                    <span className="w-44 shrink-0 truncate">{label}</span>
+                    <span className="w-44 shrink-0 truncate" title={who}>by {who}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useStockLog(skuId: number) {
   return useQuery({
     queryKey: ["coa-stock-log", skuId],
@@ -604,8 +680,8 @@ function LogList({ log }: { log: { id: number; item: string; delta: string; new_
               {d > 0 ? `+${d}` : d === 0 ? "set" : d}
             </span>
             <span className="tabular-nums text-ops-text">→ {Number(l.new_stock)}</span>
-            {l.note && <span>· {l.note}</span>}
-            {l.changed_by && <span>· {l.changed_by}</span>}
+            <span>· {describeMove({ ...l, sku_id: 0, sku_code: "", product_name: "" }).label}</span>
+            <span>· by {describeMove({ ...l, sku_id: 0, sku_code: "", product_name: "" }).who}</span>
           </li>
         );
       })}

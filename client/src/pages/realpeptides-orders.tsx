@@ -16,7 +16,7 @@ interface Order {
   channel: string; landing: string | null; campaign: string | null; referrer: string | null;
 }
 interface Payload {
-  configured: boolean; hint?: string; range: number;
+  configured: boolean; hint?: string; range: number; generatedAt?: string;
   orders: Order[]; byChannel: Record<string, { orders: number; revenue: number }>;
 }
 
@@ -47,7 +47,10 @@ export default function RealPeptidesOrders() {
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },
+    refetchInterval: 60_000,
   });
+  const asOf = q.data?.generatedAt ? new Date(q.data.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+  const rangeLabel = range === 1 ? "last 24 hours" : `last ${range} days`;
 
   const orders = q.data?.orders ?? [];
   const shown = useMemo(() => {
@@ -67,13 +70,13 @@ export default function RealPeptidesOrders() {
       <PageHero
         eyebrow="Real Peptides"
         title="Orders"
-        subtitle={`${orders.length} orders · ${money(totalRevenue)} in the last ${range} days, organized by how each one came in.`}
+        subtitle={`${orders.length.toLocaleString()} paid orders · ${money(totalRevenue)} in order totals (before refunds) in the ${rangeLabel}, organized by how each one came in.${asOf ? ` Live · as of ${asOf}.` : ""}`}
         actions={
           <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
-            {[7, 30, 90].map((d) => (
+            {[1, 7, 30, 90].map((d) => (
               <button key={d} type="button" onClick={() => setRange(d)}
                 className={`rounded-lg px-3 py-1.5 text-sm font-medium ${range === d ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
-                {d}d
+                {d === 1 ? "24h" : `${d}d`}
               </button>
             ))}
           </div>
