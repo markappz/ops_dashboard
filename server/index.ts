@@ -39,6 +39,7 @@ import { registerTasksRoutes } from "./tasks";
 import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
 import { registerPagesRoutes } from "./pages";
+import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
 import { verifyPawgenConnection } from "./db";
 
 const app = express();
@@ -93,6 +94,7 @@ registerPeptideURoutes(app);
 registerPawgenRoutes(app);
 registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
+registerRpRankingRoutes(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesContacts(app);
@@ -161,6 +163,7 @@ async function start() {
     startEmailReportWarmer();
     startRpInventorySyncLoop();
     startRpImageSyncLoop();
+    startRpRankingLoop();
   });
 }
 

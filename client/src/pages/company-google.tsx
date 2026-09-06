@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
+import { RpRankingMachine } from "../components/rp-ranking-machine";
 
 /**
  * Traffic (GA4) and SEO (Search Console) for ANY brand.
@@ -273,6 +274,7 @@ export function CompanySeo({ company, label, domain }: BrandProps) {
           </div>
         </>
       )}
+      {company === "realpeptides" && <RpRankingMachine />}
       <ContentPerformance company={company} domain={domain} />
     </div>
   );
