@@ -4,6 +4,31 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-06 — RP SEO tab: Ranking Machine scoreboard (weekly Search Console cohorts)
+
+Paul asked for the SEO program's measurement loop to live in ops instead of a laptop script.
+
+- **Server** `server/rp-ranking.ts`: tables `ops_rp_seo_cohorts` / `ops_rp_seo_snapshots` / `ops_rp_seo_runs`
+  (created on boot, raw SQL). Cohort membership seeds from `server/data/rp-seo-cohorts.json`
+  (903 URLs: 30 compound hubs, 763 twin-merge winners, 23 query-mined pages, 86 calculator posts, the
+  flagship calculator) — append there, upserts on boot. `runScoreboard()` pulls Search Console by page
+  (7d ending 3 days ago + 28d, #fragment rows folded) through the existing RP Google connection and
+  writes one snapshot row per cohort/window. Weekly loop: Monday 11:00 UTC, plus a catch-up on boot when
+  the last snapshot is older than 6 days (prod only, or `OPS_ENABLE_SCAN=1`).
+- **Routes** `/api/ops/rp/ranking` (cohorts, latest vs previous, 28d, sparkline series, run stamps,
+  `connected`), `/api/ops/rp/ranking/cohort?name=` (per-URL 28d drill-down, 1h cache),
+  `POST /api/ops/rp/ranking/run` (snapshot now), `POST /api/ops/rp/ranking/freshness` (stamp the
+  quarterly freshness cycle, which still runs from clomark-nexus by hand).
+- **UI** `client/src/components/rp-ranking-machine.tsx`, rendered inside the SEO tab for Real Peptides
+  only: cohort table with week-over-week delta chips (red past a 25% drop), 28d clicks, click-trend
+  sparkline, expandable URL list, "Snapshot now" and "Mark freshness run" buttons, and a reconnect
+  banner when the Google token cannot refresh.
+- **Blocker found while testing:** the stored pc@realpeptides.co Google token in ops no longer
+  refreshes (`getAuthenticatedClient` returns null). Paul reconnects Google for Real Peptides via
+  Integrations; the first snapshot then runs on boot. Tables + cohort seed already exist in RDS
+  (created by the local test run).
+- Not pushed yet — awaiting Paul's go.
+
 ## 2026-09-01 — RP Email tab: Sales column for campaigns (broadcast attribution)
 
 Paul: opens/clicks/sales from email weren't showing in ops. Root cause was upstream — the
