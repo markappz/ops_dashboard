@@ -4,7 +4,7 @@ import { LineChart, Line, ResponsiveContainer } from "recharts";
 
 type Snap = { taken_on: string; clicks: number; impressions: number; position: number; urls_seen: number; urls_total: number } | null;
 type Cohort = { cohort: string; urls: number; latest: Snap; previous: Snap; month: Snap; series: { date: string; clicks: number; impressions: number; position: number }[] };
-type Payload = { configured: boolean; cohorts: Cohort[]; runs: Record<string, { last_run: string; note: string }>; nextWeeklyAt: string; error?: string };
+type Payload = { configured: boolean; connected?: boolean; cohorts: Cohort[]; runs: Record<string, { last_run: string; note: string }>; nextWeeklyAt: string; error?: string };
 type UrlRow = { url: string; clicks: number; impressions: number; position: number };
 
 const num = (n: number | undefined | null) => (n ?? 0).toLocaleString();
@@ -99,6 +99,12 @@ export function RpRankingMachine() {
       {run.isError && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{(run.error as Error).message}</div>}
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
       {data?.error && <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{data.error}</div>}
+      {data && data.connected === false && (
+        <div className="mb-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">
+          The Real Peptides Google connection can no longer refresh its Search Console token, so snapshots cannot run.{" "}
+          <a href="/api/ops/google/connect?company=realpeptides" className="underline">Reconnect Google as pc@realpeptides.co</a> and the next snapshot fills this in.
+        </div>
+      )}
       {data?.cohorts && (
         <div className="overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
           <table className="w-full text-sm">

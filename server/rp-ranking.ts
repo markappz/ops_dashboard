@@ -164,6 +164,7 @@ export function registerRpRankingRoutes(app: Express) {
 
   app.get("/api/ops/rp/ranking", async (_req, res) => {
     try {
+      const connected = Boolean(await getAuthenticatedClient(COMPANY).catch(() => null));
       const [snaps, runs, counts] = await Promise.all([
         pool.query(`SELECT taken_on, days, cohort, clicks, impressions, position, urls_seen, urls_total
                     FROM ops_rp_seo_snapshots WHERE taken_on > NOW() - INTERVAL '120 days' ORDER BY taken_on ASC`),
@@ -181,7 +182,7 @@ export function registerRpRankingRoutes(app: Express) {
           series: w.map((s) => ({ date: s.taken_on, clicks: s.clicks, impressions: s.impressions, position: s.position })) };
       });
       const runMap = Object.fromEntries(runs.rows.map((r) => [r.kind, r]));
-      res.json({ configured: true, cohorts, runs: runMap, nextWeeklyAt: new Date(Date.now() + msUntilNextMonday()).toISOString() });
+      res.json({ configured: true, connected, cohorts, runs: runMap, nextWeeklyAt: new Date(Date.now() + msUntilNextMonday()).toISOString() });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
