@@ -8,6 +8,8 @@ type Payload = { configured: boolean; connected?: boolean; cohorts: Cohort[]; ru
 type UrlRow = { url: string; clicks: number; impressions: number; position: number };
 
 const num = (n: number | undefined | null) => (n ?? 0).toLocaleString();
+const ORDER = ["Compound hubs", "Twin-merge winners", "Query-mined pages", "Calculator posts", "Flagship calculator"];
+const cell = (snap: Snap, v: number | undefined, fmt: (n: number) => string = num) => (snap ? fmt(v ?? 0) : "—");
 const when = (iso?: string) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—");
 
 /** Week-over-week chip: green up, red past a 25% drop, muted otherwise. Position is inverted (lower is better). */
@@ -114,15 +116,15 @@ export function RpRankingMachine() {
               </tr>
             </thead>
             <tbody>
-              {data.cohorts.map((c) => (
+              {[...data.cohorts].sort((a, b) => (ORDER.indexOf(a.cohort) + 99) % 99 - (ORDER.indexOf(b.cohort) + 99) % 99).map((c) => (
                 <>
                   <tr key={c.cohort} onClick={() => setOpen(open === c.cohort ? null : c.cohort)} className="cursor-pointer border-b border-ops-border/50 last:border-0 hover:bg-ops-bg/40">
                     <td className="px-4 py-2.5 text-ops-text">{c.cohort}<span className="ml-2 text-[11px] text-ops-text-muted">{open === c.cohort ? "▾" : "▸"}</span></td>
                     <td className="px-4 py-2.5 text-ops-text-muted">{c.latest ? `${num(c.latest.urls_seen)} / ${num(c.urls)}` : num(c.urls)}</td>
-                    <td className="px-4 py-2.5 text-ops-text">{num(c.latest?.clicks)}<Delta now={c.latest?.clicks} before={c.previous?.clicks} /></td>
-                    <td className="px-4 py-2.5 text-ops-text">{num(c.latest?.impressions)}<Delta now={c.latest?.impressions} before={c.previous?.impressions} /></td>
-                    <td className="px-4 py-2.5 text-ops-text">{c.latest?.position ? c.latest.position.toFixed(1) : "—"}<Delta now={c.latest?.position} before={c.previous?.position} invert pct={false} /></td>
-                    <td className="px-4 py-2.5 text-ops-text-muted">{num(c.month?.clicks)}</td>
+                    <td className="px-4 py-2.5 text-ops-text">{cell(c.latest, c.latest?.clicks)}{c.latest && <Delta now={c.latest.clicks} before={c.previous?.clicks} />}</td>
+                    <td className="px-4 py-2.5 text-ops-text">{cell(c.latest, c.latest?.impressions)}{c.latest && <Delta now={c.latest.impressions} before={c.previous?.impressions} />}</td>
+                    <td className="px-4 py-2.5 text-ops-text">{cell(c.latest, c.latest?.position, (n) => (n ? n.toFixed(1) : "—"))}{c.latest && <Delta now={c.latest.position} before={c.previous?.position} invert pct={false} />}</td>
+                    <td className="px-4 py-2.5 text-ops-text-muted">{cell(c.month, c.month?.clicks)}</td>
                     <td className="px-4 py-2.5"><Spark series={c.series} /></td>
                   </tr>
                   {open === c.cohort && <tr key={`${c.cohort}-urls`}><td colSpan={7} className="p-0"><CohortUrls name={c.cohort} /></td></tr>}
