@@ -345,79 +345,110 @@ export function registerTrackingRoutes(app: Express) {
   // templates stamp utm_content=<slug>); purchase credit goes to the buyer's
   // LAST content CTA touch before the purchase event.
   app.get("/api/ops/content-performance", async (req, res) => {
+    const client = await pool.connect();
     try {
       const site = String(req.query.site || "");
       const days = Math.min(365, Math.max(1, parseInt(String(req.query.days || "30"), 10) || 30));
       if (!site) return res.status(400).json({ error: "site required" });
+      const d = String(days);
+      // Reporting on the shared production RDS: every statement below runs on this one client
+      // under a timeout, so a runaway plan dies instead of starving the pixel ingest.
+      await client.query(`SET statement_timeout = '25s'`);
 
-      const [views, clicks, attributed, influenced] = await Promise.all([
-        pool.query(`
-          SELECT page_url, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors
-          FROM touchpoints
-          WHERE site = $1 AND event_type = 'page_view'
-            AND created_at > NOW() - ($2 || ' days')::interval
-            AND page_url ~ '^/(blog|conditions|breeds|locations)/'
-          GROUP BY page_url`, [site, days]),
-        pool.query(`
-          SELECT utm_content AS slug, COALESCE(utm_medium, 'blog') AS kind,
-                 COUNT(*)::int AS cta_clicks,
-                 COUNT(*) FILTER (WHERE utm_term = 'sticky')::int AS sticky_clicks
-          FROM touchpoints
-          WHERE site = $1 AND event_type = 'page_view'
-            AND utm_source = 'content' AND utm_content IS NOT NULL
-            AND created_at > NOW() - ($2 || ' days')::interval
-          GROUP BY 1, 2`, [site, days]),
-        pool.query(`
-          SELECT lc.utm_content AS slug, COALESCE(lc.utm_medium, 'blog') AS kind,
-                 COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue
-          FROM touchpoints p
-          JOIN LATERAL (
-            SELECT t.utm_content, t.utm_medium
+      // Pixel rows may carry full URLs (realpeptides.co does) - reduce to a bare path.
+      const PATH = `rtrim(regexp_replace(regexp_replace(t.page_url, '^https?://[^/]+', ''), '[?#].*$', ''), '/')`;
+      // Which paths are articles: the sitemap classification when we have it for this site
+      // (realpeptides posts live at root slugs), else the legacy /blog-style prefixes.
+      const classified = ((await client.query(`SELECT 1 FROM ops_site_pages WHERE site = $1 AND kind = 'blog' LIMIT 1`, [site])).rowCount ?? 0) > 0;
+      const ARTICLES = classified
+        ? `SELECT t.visitor_id, t.created_at, ${PATH} AS path FROM touchpoints t
+             JOIN ops_site_pages sp ON sp.site = t.site AND sp.kind = 'blog' AND rtrim(sp.path, '/') = ${PATH}
+           WHERE t.site = $1 AND t.event_type = 'page_view' AND t.created_at > NOW() - ($2 || ' days')::interval`
+        : `SELECT t.visitor_id, t.created_at, ${PATH} AS path FROM touchpoints t
+           WHERE t.site = $1 AND t.event_type = 'page_view' AND t.created_at > NOW() - ($2 || ' days')::interval
+             AND t.page_url ~ '^/(blog|conditions|breeds|locations)/'`;
+      // Does this site tag its article CTAs (utm_source=content)? If not, fall back to the
+      // visitor's page sequence: article → product page → purchase.
+      const tagged = ((await client.query(`SELECT 1 FROM touchpoints WHERE site = $1 AND utm_source = 'content' AND created_at > NOW() - ($2 || ' days')::interval LIMIT 1`, [site, d])).rowCount ?? 0) > 0;
+
+      let views: { rows: any[] }, clicks: { rows: any[] }, attributed: { rows: any[] }, influenced: { rows: any[] };
+      if (tagged) {
+        [views, clicks, attributed, influenced] = await Promise.all([
+          client.query(`WITH av AS (${ARTICLES}) SELECT path, COUNT(*)::int AS views, COUNT(DISTINCT visitor_id)::int AS visitors FROM av GROUP BY path`, [site, d]),
+          client.query(`
+            SELECT '/' || COALESCE(utm_medium, 'blog') || '/' || utm_content AS path,
+                   COUNT(*)::int AS cta_clicks, COUNT(*) FILTER (WHERE utm_term = 'sticky')::int AS sticky_clicks
+            FROM touchpoints WHERE site = $1 AND event_type = 'page_view' AND utm_source = 'content' AND utm_content IS NOT NULL
+              AND created_at > NOW() - ($2 || ' days')::interval GROUP BY 1`, [site, d]),
+          client.query(`
+            SELECT '/' || COALESCE(lc.utm_medium, 'blog') || '/' || lc.utm_content AS path,
+                   COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue
+            FROM touchpoints p
+            JOIN LATERAL (SELECT t.utm_content, t.utm_medium FROM touchpoints t
+              WHERE t.site = p.site AND t.visitor_id = p.visitor_id AND t.event_type = 'page_view' AND t.utm_source = 'content'
+                AND t.utm_content IS NOT NULL AND t.created_at <= p.created_at ORDER BY t.created_at DESC LIMIT 1) lc ON TRUE
+            WHERE p.site = $1 AND p.event_type = 'purchase' AND p.created_at > NOW() - ($2 || ' days')::interval GROUP BY 1`, [site, d]),
+          client.query(`WITH av AS (${ARTICLES})
+            SELECT COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue FROM touchpoints p
+            WHERE p.site = $1 AND p.event_type = 'purchase' AND p.created_at > NOW() - ($2 || ' days')::interval
+              AND EXISTS (SELECT 1 FROM av WHERE av.visitor_id = p.visitor_id AND av.created_at <= p.created_at)`, [site, d]),
+        ]);
+      } else {
+        // One pass over the window: classify each hit, number article views per visitor, then read
+        // CTA (article → product within 30 min), attributed (last article view within 7 days before
+        // a purchase) and influenced (any article view before a purchase) off the same sequence.
+        const ARTICLE_TEST = classified
+          ? `EXISTS (SELECT 1 FROM ops_site_pages sp WHERE sp.site = $1 AND sp.kind = 'blog' AND rtrim(sp.path, '/') = pv.path)`
+          : `pv.path ~ '^/(blog|conditions|breeds|locations)'`;
+        const one = await client.query(`
+          WITH pv AS (
+            SELECT t.visitor_id, t.created_at, t.event_type, COALESCE(t.revenue, 0) AS revenue, ${PATH} AS path
             FROM touchpoints t
-            WHERE t.site = p.site AND t.visitor_id = p.visitor_id
-              AND t.event_type = 'page_view' AND t.utm_source = 'content'
-              AND t.utm_content IS NOT NULL AND t.created_at <= p.created_at
-            ORDER BY t.created_at DESC LIMIT 1
-          ) lc ON TRUE
-          WHERE p.site = $1 AND p.event_type = 'purchase'
-            AND p.created_at > NOW() - ($2 || ' days')::interval
-          GROUP BY 1, 2`, [site, days]),
-        pool.query(`
-          SELECT COUNT(*)::int AS purchases, COALESCE(SUM(p.revenue), 0)::float AS revenue
-          FROM touchpoints p
-          WHERE p.site = $1 AND p.event_type = 'purchase'
-            AND p.created_at > NOW() - ($2 || ' days')::interval
-            AND EXISTS (
-              SELECT 1 FROM touchpoints t
-              WHERE t.site = p.site AND t.visitor_id = p.visitor_id
-                AND t.event_type = 'page_view' AND t.created_at <= p.created_at
-                AND t.page_url ~ '^/(blog|conditions|breeds|locations)/')`, [site, days]),
-      ]);
+            WHERE t.site = $1 AND t.event_type IN ('page_view', 'purchase') AND t.created_at > NOW() - ($2 || ' days')::interval
+          ), cls AS (
+            SELECT pv.*, (pv.event_type = 'page_view' AND ${ARTICLE_TEST}) AS is_article,
+                   (pv.event_type = 'page_view' AND pv.path ~ '^/(products|shop|pack)') AS is_product
+            FROM pv
+          ), seq AS (
+            SELECT c.*,
+              COUNT(*) FILTER (WHERE is_article) OVER w AS art_seq,
+              LAG(created_at) OVER w AS prev_at, LAG(is_article) OVER w AS prev_is_article, LAG(path) OVER w AS prev_path
+            FROM cls c WINDOW w AS (PARTITION BY visitor_id ORDER BY created_at ROWS UNBOUNDED PRECEDING)
+          ), arts AS (SELECT visitor_id, art_seq, path, created_at FROM seq WHERE is_article)
+          SELECT 'view' AS kind, path, COUNT(*)::int AS n, COUNT(DISTINCT visitor_id)::int AS m, 0::float AS rev FROM arts GROUP BY path
+          UNION ALL
+          SELECT 'cta', prev_path, COUNT(*)::int, 0, 0 FROM seq
+            WHERE is_product AND prev_is_article AND created_at - prev_at < INTERVAL '30 minutes' GROUP BY prev_path
+          UNION ALL
+          SELECT 'attr', a.path, COUNT(*)::int, 0, COALESCE(SUM(p.revenue), 0)::float FROM seq p
+            JOIN arts a ON a.visitor_id = p.visitor_id AND a.art_seq = p.art_seq
+            WHERE p.event_type = 'purchase' AND p.art_seq > 0 AND p.created_at - a.created_at < INTERVAL '7 days' GROUP BY a.path
+          UNION ALL
+          SELECT 'infl', NULL, COUNT(*)::int, 0, COALESCE(SUM(revenue), 0)::float FROM seq WHERE event_type = 'purchase' AND art_seq > 0`, [site, d]);
+        const pick = (k: string) => one.rows.filter((r) => r.kind === k);
+        views = { rows: pick("view").map((r) => ({ path: r.path, views: r.n, visitors: r.m })) };
+        clicks = { rows: pick("cta").map((r) => ({ path: r.path, cta_clicks: r.n, sticky_clicks: 0 })) };
+        attributed = { rows: pick("attr").map((r) => ({ path: r.path, purchases: r.n, revenue: r.rev })) };
+        influenced = { rows: pick("infl").map((r) => ({ purchases: r.n, revenue: r.rev })) };
+      }
 
-      // Merge by kind/slug — an article can appear via views, clicks or sales.
-      const byKey = new Map<string, any>();
-      const row = (kind: string, slug: string) => {
-        const k = `${kind}/${slug}`;
-        if (!byKey.has(k)) byKey.set(k, { path: `/${k}`, kind, slug, views: 0, visitors: 0, ctaClicks: 0, stickyClicks: 0, purchases: 0, revenue: 0 });
-        return byKey.get(k);
+      const byPath = new Map<string, any>();
+      const row = (path: string) => {
+        const p = path || "/";
+        if (!byPath.has(p)) {
+          const parts = p.replace(/^\//, "").split("/");
+          byPath.set(p, { path: p, kind: parts.length > 1 ? parts[0] : "blog", slug: parts[parts.length - 1], views: 0, visitors: 0, ctaClicks: 0, stickyClicks: 0, purchases: 0, revenue: 0 });
+        }
+        return byPath.get(p);
       };
-      for (const v of views.rows) {
-        const m = /^\/([^/]+)\/(.+)$/.exec(v.page_url);
-        if (!m) continue;
-        Object.assign(row(m[1], m[2]), { views: v.views, visitors: v.visitors });
-      }
-      for (const c of clicks.rows) {
-        const r = row(c.kind, c.slug);
-        r.ctaClicks = c.cta_clicks; r.stickyClicks = c.sticky_clicks;
-      }
-      for (const a of attributed.rows) {
-        const r = row(a.kind, a.slug);
-        r.purchases = a.purchases; r.revenue = a.revenue;
-      }
+      for (const v of views.rows) Object.assign(row(v.path), { views: v.views, visitors: v.visitors });
+      for (const c of clicks.rows) { const r = row(c.path); r.ctaClicks = c.cta_clicks; r.stickyClicks = c.sticky_clicks; }
+      for (const a of attributed.rows) { const r = row(a.path); r.purchases = a.purchases; r.revenue = a.revenue; }
 
-      const articles = [...byKey.values()].sort((a, b) => b.revenue - a.revenue || b.ctaClicks - a.ctaClicks || b.views - a.views);
+      const articles = [...byPath.values()].sort((a, b) => b.revenue - a.revenue || b.ctaClicks - a.ctaClicks || b.views - a.views);
       res.json({
         days,
+        attribution: tagged ? "utm" : "sequence",
         totals: {
           articles: articles.length,
           views: articles.reduce((s, a) => s + a.views, 0),
@@ -429,9 +460,12 @@ export function registerTrackingRoutes(app: Express) {
         },
         articles: articles.slice(0, 500),
       });
-    } catch (e) {
-      console.error("content-performance failed:", e);
-      res.status(500).json({ error: "content-performance failed" });
+    } catch (e: any) {
+      console.error("content-performance failed:", e?.message ?? e);
+      res.status(500).json({ error: /statement timeout/i.test(String(e?.message)) ? "content-performance timed out (25s) - try a shorter window" : "content-performance failed" });
+    } finally {
+      await client.query(`RESET statement_timeout`).catch(() => undefined);
+      client.release();
     }
   });
 

@@ -40,6 +40,7 @@ import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
 import { registerPagesRoutes } from "./pages";
 import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
+import { registerRpContentLive } from "./rp-content-live";
 import { verifyPawgenConnection } from "./db";
 
 const app = express();
@@ -95,6 +96,7 @@ registerPawgenRoutes(app);
 registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
 registerRpRankingRoutes(app);
+registerRpContentLive(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesContacts(app);
