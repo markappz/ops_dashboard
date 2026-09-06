@@ -20,6 +20,7 @@ Paul flagged two stale RP views. Both were data-source problems, not display bug
   395c345, pushed by the ops session) via `/api/ops/rp/content-live` (10-min cache): published posts,
   new vs updated in 7/30 days, hubs, References count, calculators, recent changes, plus 30-day
   Search Console. Clomark audit scores older than 60 days now read "stale — last audit <date>".
+- **Revenue by content page** (added right after): first-touch attribution from realpeptides `/api/ops-attribution?days=` (ops session's 6e273a2: `rp_src` cookie → `Order.attribution`) via `/api/ops/rp/attribution`. Shows attributed revenue, orders in window, coverage % (orders that carry a first-touch record; pre-deploy orders never will, so it climbs over 2-4 weeks), and revenue per landing page with 7/30/90-day toggle.
 - **Incident while testing:** the first draft of the attribution query used lateral joins and never
   returned; retries stacked 16 copies on the shared RDS for 20+ minutes and the pixel ingest queued
   behind them. Cancelled via `pg_stat_activity`; the timeout above is the guard. Memory note written.
