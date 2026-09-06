@@ -453,6 +453,16 @@ export function registerClomarkRoutes(app: Express) {
     }
   });
 
+  app.post("/api/ops/clomark/keyword-intel/run", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
+    if (!cfg?.businessId) return res.status(503).json({ error: "Clomark business ID not configured" });
+    try {
+      res.json(await clomarkFetch(`/api/ops/business/${cfg.businessId}/keyword-intel/run`, cfg, { method: "POST", body: JSON.stringify(req.body || {}) }));
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
   app.post("/api/ops/clomark/keyword-intel/push", async (req, res) => {
     const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) return res.status(503).json({ error: "Clomark business ID not configured" });

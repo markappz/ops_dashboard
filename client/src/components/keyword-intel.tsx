@@ -23,6 +23,15 @@ export function KeywordIntel({ company }: { company: string }) {
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["keyword-intel-pushes", company] }),
   });
+  const [seeds, setSeeds] = useState("");
+  const run = useMutation({
+    mutationFn: async () => {
+      const list = seeds.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+      const r = await fetch(`/api/ops/clomark/keyword-intel/run?company=${company}`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ seeds: list.length ? list : undefined, letters: false }) });
+      if (!r.ok) throw new Error((await r.json()).error ?? "run failed");
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["keyword-intel", company] }),
+  });
   const pushByCluster = new Map<string, Push>();
   for (const p of pushes.data?.pushes ?? []) if (!pushByCluster.has(p.cluster_id)) pushByCluster.set(p.cluster_id, p);
   const STATUS: Record<string, string> = { generating: "text-sky-400", queued: "text-sky-400", generated: "text-amber-400", gated: "text-amber-400", published: "text-emerald-400", failed: "text-red-400" };
@@ -30,13 +39,20 @@ export function KeywordIntel({ company }: { company: string }) {
   for (const k of data?.keywords ?? []) if (k.cluster_id) kwByCluster.set(k.cluster_id, [...(kwByCluster.get(k.cluster_id) ?? []), k]);
   return (
     <section className="mb-8">
-      <div className="mb-3">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
         <h2 className="text-lg font-medium text-ops-text">Keyword intelligence</h2>
         <p className="text-xs text-ops-text-muted">
           Real demand, not estimates: Search Console queries the site already appears for plus live Google Autocomplete, clustered into page-sized pillars by Opus. Priority = impressions + autocomplete breadth + gap, minus what already ranks top 3.
-          {data?.run && <> Last run {ago(data.run.created_at)} on seeds “{data.run.seeds.join("”, “")}” · {num(data.run.stats?.candidates)} queries ({num(data.run.stats?.fromGsc)} from Search Console).</>}
+          {data?.run && <> Last run {ago(data.run.created_at)} on seeds “{data.run.seeds.join("”, “")}” · {num(data.run.stats?.candidates)} queries ({num(data.run.stats?.fromGsc)} from Search Console). Refreshes weekly on the same seeds.</>}
         </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input value={seeds} onChange={(e) => setSeeds(e.target.value)} placeholder={data?.run ? "seeds (blank = same as last run)" : "seed keywords, comma-separated"} className="w-72 rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-xs text-ops-text placeholder:text-ops-text-muted focus:outline-none" />
+          <button onClick={() => run.mutate()} disabled={run.isPending} className="rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-xs text-ops-text hover:bg-ops-bg disabled:opacity-50">{run.isPending ? "Running (1-3 min)…" : "Run now"}</button>
+        </div>
       </div>
+      {run.isError && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{(run.error as Error).message}</div>}
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
       {push.isError && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{(push.error as Error).message}</div>}
       {data?.error && <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-500">{data.error}</div>}
