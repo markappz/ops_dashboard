@@ -4,6 +4,26 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-06 (later) — RP Content tab live data + Content → sales attribution fixed
+
+Paul flagged two stale RP views. Both were data-source problems, not display bugs.
+
+- **SEO → Content → sales showed zeros.** The pixel on realpeptides.co records full URLs and posts live
+  at root slugs, so the old `page_url ~ '^/(blog|…)/'` filter matched nothing, and RP article CTAs
+  carry no `utm_source=content`. `content-performance` now normalises paths, takes articles from
+  `ops_site_pages` (kind=blog) and, for untagged sites, attributes by sequence (article → product
+  within 30 min = CTA click; last article view within 7 days before a purchase = attributed sale).
+  One window-function pass, one pooled client, `statement_timeout 25s`. 30-day RP result at fix time:
+  55,879 article views, 234 CTA clicks, 68 attributed purchases ($15.3k).
+- **Content tab showed only the Clomark queue** (audit score from 10/2025, "0 published"). New
+  "Live on realpeptides.co" block reads the site's token-gated `/api/ops-content` (realpeptides
+  395c345, pushed by the ops session) via `/api/ops/rp/content-live` (10-min cache): published posts,
+  new vs updated in 7/30 days, hubs, References count, calculators, recent changes, plus 30-day
+  Search Console. Clomark audit scores older than 60 days now read "stale — last audit <date>".
+- **Incident while testing:** the first draft of the attribution query used lateral joins and never
+  returned; retries stacked 16 copies on the shared RDS for 20+ minutes and the pixel ingest queued
+  behind them. Cancelled via `pg_stat_activity`; the timeout above is the guard. Memory note written.
+
 ## 2026-09-06 — RP SEO tab: Ranking Machine scoreboard (weekly Search Console cohorts)
 
 Paul asked for the SEO program's measurement loop to live in ops instead of a laptop script.
