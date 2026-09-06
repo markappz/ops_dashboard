@@ -442,6 +442,17 @@ export function registerClomarkRoutes(app: Express) {
     },
   );
 
+  // Keyword intelligence (Clomark docs/KEYWORD_INTEL.md): latest clusters for the Content tab.
+  app.get("/api/ops/clomark/keyword-intel", async (req, res) => {
+    const cfg = getConfig(companyOf(req));
+    if (!cfg?.businessId) return res.status(503).json({ error: "Clomark business ID not configured" });
+    try {
+      res.json(await clomarkFetch(`/api/ops/business/${cfg.businessId}/keyword-intel`, cfg));
+    } catch (e: any) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/clomark/activities", async (req, res) => {
     const cfg = getConfig(companyOf(req));
     if (!cfg?.businessId) {

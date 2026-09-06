@@ -34,6 +34,7 @@ export function CompanyContent({ company, label }: { company: ClomarkCompany; la
         />
         {company === "realpeptides" && <RpContentLive />}
         {company === "realpeptides" && <RpRevenueByPage />}
+        <KeywordIntel company={company} />
         <ClomarkSection />
       </div>
     </ClomarkCompanyContext.Provider>
@@ -55,6 +56,7 @@ import { InlineError, hasApiError } from "../components/query-error";
 import { ModalPortal } from "../components/modal-portal";
 import { RpContentLive } from "../components/rp-content-live";
 import { RpRevenueByPage } from "../components/rp-revenue-by-page";
+import { KeywordIntel } from "../components/keyword-intel";
 
 interface GSCQuery {
   query: string;
