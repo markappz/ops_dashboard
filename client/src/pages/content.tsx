@@ -454,7 +454,7 @@ interface ClomarkOverview {
   keywords: { all: number; byStatus: Record<string, number> };
   content: {
     suggestions: { all: number; byStatus: Record<string, number> };
-    generated: { all: number; byStatus: Record<string, number> };
+    generated: { all: number; byStatus: Record<string, number>; published?: number; lastUploadedAt?: string | null };
   };
   seoScore: { overallScore?: number; createdAt?: string } | null;
   seoScoreTrend: { overallScore: number; createdAt: string }[];
@@ -1041,7 +1041,9 @@ function ClomarkBody({ data }: { data: ClomarkOverview }) {
         <KpiTile
           label="Generated Content"
           value={gen.all.toLocaleString()}
-          sub={`${gen.byStatus.published ?? gen.byStatus.completed ?? 0} published`}
+          sub={gen.published !== undefined
+            ? `${gen.published.toLocaleString()} published on the site${gen.lastUploadedAt ? ` · last ${new Date(gen.lastUploadedAt).toLocaleDateString()}` : ""}`
+            : `${gen.byStatus.published ?? gen.byStatus.completed ?? 0} published`}
         />
       </div>
 
@@ -1051,8 +1053,8 @@ function ClomarkBody({ data }: { data: ClomarkOverview }) {
           <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
             Keyword Pipeline
           </div>
-          {Object.keys(kw.byStatus).length === 0 ? (
-            <div className="text-xs text-ops-text-muted">No keywords yet.</div>
+          {Object.keys(kw.byStatus).length === 0 || kw.all === 0 ? (
+            <div className="text-xs text-ops-text-muted">Keyword tracking is not in use for this brand.</div>
           ) : (
             <div className="space-y-1.5">
               {Object.entries(kw.byStatus)
@@ -1103,6 +1105,11 @@ function ClomarkBody({ data }: { data: ClomarkOverview }) {
           <div className="text-xs text-ops-text-muted uppercase tracking-wider mb-3">
             Recent AI Activity
           </div>
+          {activities[0]?.createdAt && Date.now() - new Date(activities[0].createdAt).getTime() > 30 * 86_400_000 && (
+            <div className="mb-3 rounded-lg border border-ops-border bg-ops-bg/40 px-3 py-2 text-xs text-ops-text-muted">
+              Clomark last generated for this brand on {new Date(activities[0].createdAt).toLocaleDateString()}. Newer changes ship straight to the site and appear in the live block above.
+            </div>
+          )}
           {activities.length === 0 ? (
             <div className="text-xs text-ops-text-muted">No activity yet.</div>
           ) : (
