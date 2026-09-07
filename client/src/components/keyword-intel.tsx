@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 type Cluster = { id: string; pillar: string; intent: string; content_type: string; priority: number; rationale: string; keywords: string[]; coverage: { covered: number; total: number; pages: string[] }; score_breakdown: { impressions: number; breadth: number; gap: number; penalty: number } };
 type Keyword = { keyword: string; cluster_id: string | null; sources: { seed?: boolean; gsc?: boolean; autocomplete?: string[] }; gsc: { impressions: number; clicks: number; position: number; page: string | null } | null; volume: number | null; covered_by: string | null };
 type Push = { id: string; cluster_id: string; status: string; content_type: string; published_url: string | null; error: string | null; created_at: string; content_title: string | null; compliance_passed: boolean | null };
-type Payload = { error?: string; run: { id: string; seeds: string[]; status: string; stats: { candidates: number; fromGsc: number; fromAutocomplete: number; clusters: number }; created_at: string } | null; clusters: Cluster[]; keywords: Keyword[] };
+type Payload = { error?: string; inProgress?: { id: string; created_at: string } | null; run: { id: string; seeds: string[]; status: string; stats: { candidates: number; fromGsc: number; fromAutocomplete: number; clusters: number }; created_at: string } | null; clusters: Cluster[]; keywords: Keyword[] };
 
 const num = (n?: number | null) => (n ?? 0).toLocaleString();
 const ago = (iso: string) => { const d = Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000); return d === 0 ? "today" : `${d}d ago`; };
@@ -14,7 +14,7 @@ const INTENT: Record<string, string> = { informational: "text-sky-400", commerci
 export function KeywordIntel({ company }: { company: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery<Payload>({ queryKey: ["keyword-intel", company], queryFn: async () => (await fetch(`/api/ops/clomark/keyword-intel?company=${company}`, { credentials: "include" })).json() });
+  const { data, isLoading } = useQuery<Payload>({ queryKey: ["keyword-intel", company], queryFn: async () => (await fetch(`/api/ops/clomark/keyword-intel?company=${company}`, { credentials: "include" })).json(), refetchInterval: (q) => (q.state.data?.inProgress ? 8_000 : false) });
   const pushes = useQuery<{ pushes: Push[] }>({ queryKey: ["keyword-intel-pushes", company], queryFn: async () => (await fetch(`/api/ops/clomark/keyword-intel/pushes?company=${company}`, { credentials: "include" })).json(), refetchInterval: 30_000 });
   const push = useMutation({
     mutationFn: async (vars: { clusterId: string; contentType: "blog" | "seo_page" }) => {
@@ -49,7 +49,7 @@ export function KeywordIntel({ company }: { company: string }) {
         </div>
         <div className="flex items-center gap-2">
           <input value={seeds} onChange={(e) => setSeeds(e.target.value)} placeholder={data?.run ? "seeds (blank = same as last run)" : "seed keywords, comma-separated"} className="w-72 rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-xs text-ops-text placeholder:text-ops-text-muted focus:outline-none" />
-          <button onClick={() => run.mutate()} disabled={run.isPending} className="rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-xs text-ops-text hover:bg-ops-bg disabled:opacity-50">{run.isPending ? "Running (1-3 min)…" : "Run now"}</button>
+          <button onClick={() => run.mutate()} disabled={run.isPending || !!data?.inProgress} className="rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-xs text-ops-text hover:bg-ops-bg disabled:opacity-50">{run.isPending || data?.inProgress ? "Running (1-3 min)…" : "Run now"}</button>
         </div>
       </div>
       {run.isError && <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{(run.error as Error).message}</div>}
