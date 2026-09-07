@@ -38,7 +38,7 @@ interface ClomarkConfig {
  */
 const COMPANY_BUSINESS: Record<string, string> = {
   fitscript: "533eac81-2538-4ae8-9cc2-b578587cbcad",
-  pawgen: "71d86e68-79ef-4ed1-a5be-e77d1c58927d",
+  pawgen: "b19357ec-95c7-49e3-9894-195adc9f105b", // the real profile (2,912 posts, receiver); 71d86e68 no longer exists
   realpeptides: "b68ed2a5-7e8d-4b4c-aae3-424f0f580099",
   peptideu: "c9843d66-dee6-44d0-bcac-5b7da113e69e",
 };
