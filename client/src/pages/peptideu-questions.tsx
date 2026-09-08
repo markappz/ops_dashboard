@@ -142,7 +142,7 @@ export default function PeptideuQuestions() {
       ) : (
         <div className="space-y-6">
           <div className="text-xs text-ops-text-muted">Analysed {insights.sampleSize} recent questions{insights.generatedAt ? ` · updated ${ago(insights.generatedAt)}` : ""} · auto-refreshes daily.</div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SuggestionCard head="Suggested new modules" sub="Gaps with real demand" items={insights.moduleSuggestions} empty="No clear module gaps." />
             <SuggestionCard head="Suggested office hours" sub="Live-session topics" items={insights.officeHoursSuggestions} empty="No office-hours suggestions." />
           </div>
@@ -155,7 +155,7 @@ export default function PeptideuQuestions() {
                   <div className="text-sm font-medium text-ops-text">{t.topic}</div>
                   <div className="text-xs text-ops-text-muted mt-0.5 italic">e.g. "{t.example}"</div>
                 </div>
-                <span className={`text-xs font-medium shrink-0 ${t.covered ? "text-ops-text-muted" : "text-fitscript-green"}`}>
+                <span className={`text-xs font-medium max-w-[45%] text-right break-words ${t.covered ? "text-ops-text-muted" : "text-fitscript-green"}`}>
                   {t.covered ? `✓ ${t.coveredBy || "covered"}` : "gap"}
                 </span>
               </div>

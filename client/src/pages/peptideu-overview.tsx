@@ -104,7 +104,7 @@ export default function PeptideuOverview() {
       </div>
 
       {/* Revenue estimate row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4 mb-6">
         <PuKpi label="MRR (est.)" value={money(snapshot.mrrEstimate)} sub="premium × yearly plan" accent />
         <PuKpi label="ARR (est.)" value={money(snapshot.arrEstimate)} />
         <PuKpi label="Premium members" value={snapshot.premiumUsers.toLocaleString()} accent />
@@ -112,7 +112,7 @@ export default function PeptideuOverview() {
       </div>
 
       {/* Users row */}
-      <div className="grid grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 md:gap-4 mb-6">
         <PuKpi label="Total Users" value={snapshot.totalUsers.toLocaleString()} />
         <PuKpi label="Free" value={snapshot.freeUsers.toLocaleString()} />
         <PuKpi label="Signups (7d)" value={snapshot.signups7d.toLocaleString()} />
@@ -127,7 +127,7 @@ export default function PeptideuOverview() {
       </div>
 
       {/* Funnel + Ranks */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Funnel stages={funnel || []} />
         <Ranks rows={ranks || []} />
       </div>

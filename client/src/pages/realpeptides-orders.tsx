@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, Mail, MousePointerClick, Newspaper, Share2, Bot, Link2, CircleDot, EyeOff, Globe } from "lucide-react";
+import { Search, Mail, MousePointerClick, Newspaper, Share2, Bot, Link2, CircleDot, EyeOff, Globe, Handshake, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { ui } from "./coa/api";
 
@@ -14,24 +14,54 @@ interface Order {
   id: string; number: string; createdAt: string; email: string | null;
   total: number; status: string | null; items: { name: string; qty: number }[];
   channel: string; landing: string | null; campaign: string | null; referrer: string | null;
+  coupon?: string | null; affiliate?: string | null; attributedBy?: "pixel" | "site" | "none";
 }
 interface Payload {
   configured: boolean; hint?: string; range: number; generatedAt?: string;
   orders: Order[]; byChannel: Record<string, { orders: number; revenue: number }>;
 }
 
-const CHANNELS: Record<string, { label: string; icon: React.ReactNode; cls: string }> = {
-  "organic-search": { label: "SEO / Search", icon: <Globe size={13} />, cls: "bg-fitscript-green/15 text-fitscript-green" },
-  blog: { label: "Blog", icon: <Newspaper size={13} />, cls: "bg-sky-500/15 text-sky-400" },
-  email: { label: "Email", icon: <Mail size={13} />, cls: "bg-violet-500/15 text-violet-400" },
-  paid: { label: "Paid ads", icon: <MousePointerClick size={13} />, cls: "bg-amber-500/15 text-amber-500" },
-  social: { label: "Social", icon: <Share2 size={13} />, cls: "bg-pink-500/15 text-pink-400" },
-  ai: { label: "AI assistants", icon: <Bot size={13} />, cls: "bg-cyan-500/15 text-cyan-400" },
-  referral: { label: "Referral", icon: <Link2 size={13} />, cls: "bg-orange-500/15 text-orange-400" },
-  direct: { label: "Direct", icon: <CircleDot size={13} />, cls: "bg-ops-border text-ops-text-muted" },
-  untracked: { label: "Untracked", icon: <EyeOff size={13} />, cls: "bg-ops-border text-ops-text-muted" },
+const CHANNELS: Record<string, { label: string; icon: React.ReactNode; cls: string; what: string }> = {
+  affiliate: { label: "Affiliate", icon: <Handshake size={13} />, cls: "bg-emerald-500/15 text-emerald-400", what: "An affiliate link (?ref=) or an affiliate-owned coupon code is on the order. Campaign shows which affiliate." },
+  email: { label: "Email", icon: <Mail size={13} />, cls: "bg-violet-500/15 text-violet-400", what: "Clicked from an email (utm_medium=email or an email platform as utm_source), or used a flow coupon (WELCOME, CARTSAVER, BIBLE, COMEBACK)." },
+  "paid-google": { label: "Paid · Google", icon: <MousePointerClick size={13} />, cls: "bg-amber-500/15 text-amber-500", what: "Google Ads click id (gclid) or a paid utm_medium with google/youtube as source." },
+  "paid-meta": { label: "Paid · Meta", icon: <MousePointerClick size={13} />, cls: "bg-blue-500/15 text-blue-400", what: "Meta click id (fbclid) or a paid utm_medium with fb/ig/meta as source." },
+  "paid-tiktok": { label: "Paid · TikTok", icon: <MousePointerClick size={13} />, cls: "bg-fuchsia-500/15 text-fuchsia-400", what: "TikTok click id (ttclid) or a paid utm_medium with tiktok as source." },
+  "paid-other": { label: "Paid · other", icon: <MousePointerClick size={13} />, cls: "bg-amber-500/10 text-amber-400", what: "A paid utm_medium (cpc, ppc, paid, display…) from any other platform." },
+  "organic-search": { label: "SEO / Search", icon: <Globe size={13} />, cls: "bg-fitscript-green/15 text-fitscript-green", what: "Came from Google, Bing, DuckDuckGo or Yahoo and landed on a product, collection or static page." },
+  blog: { label: "Blog", icon: <Newspaper size={13} />, cls: "bg-sky-500/15 text-sky-400", what: "Landed on a /blogs/ post — from search or any other way in. Content did the selling." },
+  social: { label: "Social", icon: <Share2 size={13} />, cls: "bg-pink-500/15 text-pink-400", what: "Referrer was Instagram, Facebook, X, TikTok, YouTube, Reddit, Threads, LinkedIn or Pinterest, or utm_medium=social / utm_source=ig|fb|x|tiktok. In-app browsers often strip the referrer, so a tagged link is the only way social gets full credit." },
+  ai: { label: "AI assistants", icon: <Bot size={13} />, cls: "bg-cyan-500/15 text-cyan-400", what: "Referrer was ChatGPT, Perplexity, Claude, Gemini or Copilot." },
+  referral: { label: "Referral", icon: <Link2 size={13} />, cls: "bg-orange-500/15 text-orange-400", what: "Any other external site linked here (forums, partners, press)." },
+  direct: { label: "Direct", icon: <CircleDot size={13} />, cls: "bg-ops-border text-ops-text-muted", what: "No referrer and no UTMs: typed the URL, used a bookmark, or came from an app (Instagram, X, TikTok, iMessage, email apps) that hid where they came from. Untagged social traffic lands here." },
+  untracked: { label: "Untracked", icon: <EyeOff size={13} />, cls: "bg-ops-border text-ops-text-muted", what: "No pixel beacon and no first-touch cookie on the order (blocked tracking, or older than the beacon). Not guessed." },
 };
-const ORDERED = ["organic-search", "blog", "email", "paid", "social", "ai", "referral", "direct", "untracked"];
+const ORDERED = ["affiliate", "email", "paid-google", "paid-meta", "paid-tiktok", "paid-other", "organic-search", "blog", "social", "ai", "referral", "direct", "untracked"];
+
+function Legend() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm text-ops-text">
+        <span className="flex items-center gap-2"><Info size={14} /> What counts as what</span>
+        <span className="text-xs text-ops-text-muted">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="grid gap-2 border-t border-ops-border px-4 py-3 text-xs text-ops-text-muted md:grid-cols-2">
+          {ORDERED.map((k) => (
+            <div key={k} className="flex gap-2">
+              <span className={`mt-0.5 inline-flex h-5 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold ${CHANNELS[k].cls}`}>{CHANNELS[k].icon} {CHANNELS[k].label}</span>
+              <span>{CHANNELS[k].what}</span>
+            </div>
+          ))}
+          <div className="md:col-span-2 mt-1 border-t border-ops-border pt-2">
+            Each order gets exactly one channel, in the order listed (affiliate wins over email, email over paid, and so on). The source is the buyer's <em>first</em> touch when the pixel remembered one, else the session that bought, else the site's own first-touch cookie. Totals are order values before refunds.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
@@ -58,7 +88,8 @@ export default function RealPeptidesOrders() {
     const s = query.trim().toLowerCase();
     if (s) list = list.filter((o) =>
       o.number.toLowerCase().includes(s) || (o.email ?? "").toLowerCase().includes(s) ||
-      o.items.some((i) => i.name.toLowerCase().includes(s)) || (o.campaign ?? "").toLowerCase().includes(s));
+      o.items.some((i) => i.name.toLowerCase().includes(s)) || (o.campaign ?? "").toLowerCase().includes(s) ||
+      (o.coupon ?? "").toLowerCase().includes(s) || (o.affiliate ?? "").toLowerCase().includes(s));
     return list;
   }, [orders, channel, query]);
 
@@ -93,7 +124,7 @@ export default function RealPeptidesOrders() {
 
       {q.data?.configured && (
         <>
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-7">
             <ChannelTile k="all" label="All orders" count={orders.length} revenue={totalRevenue} active={channel === "all"} onPick={setChannel} />
             {ORDERED.filter((k) => byChannel[k]).map((k) => (
               <ChannelTile key={k} k={k} label={CHANNELS[k].label} icon={CHANNELS[k].icon}
@@ -101,9 +132,11 @@ export default function RealPeptidesOrders() {
             ))}
           </div>
 
+          <Legend />
+
           <div className="relative mb-4 max-w-md">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ops-text-muted" />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search order #, email, product, campaign…" className={`${ui.input} pl-9`} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search order #, email, product, campaign, coupon, affiliate…" className={`${ui.input} pl-9`} />
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-ops-border bg-ops-surface shadow-card">
@@ -137,7 +170,7 @@ export default function RealPeptidesOrders() {
                       <td className="max-w-[220px] px-4 py-3 text-xs text-ops-text-muted">
                         <span className="line-clamp-2">
                           {o.channel === "untracked" ? "no pixel match"
-                            : [o.landing, o.campaign && `“${o.campaign}”`, o.referrer && `from ${o.referrer}`].filter(Boolean).join(" · ") || "—"}
+                            : [o.landing, o.campaign && `“${o.campaign}”`, o.referrer && `from ${o.referrer}`, o.coupon && `code ${o.coupon}`, o.attributedBy === "site" && "(site cookie)"].filter(Boolean).join(" · ") || "—"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-ops-text-muted">{o.status ?? "—"}</td>

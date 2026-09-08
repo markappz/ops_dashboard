@@ -22,11 +22,14 @@ export interface OrderRow {
   total: number;
   status: string | null;
   items: { name: string; qty: number }[];
-  channel: string;          // email | paid | organic-search | blog | social | ai | referral | direct | untracked
+  channel: string;          // affiliate | email | paid-google | paid-meta | paid-tiktok | paid-other | ai | social | blog | organic-search | referral | direct | untracked
   landing: string | null;   // landing page path of the buying session
   campaign: string | null;  // utm_campaign (or utm_source for email)
   referrer: string | null;
   firstTouch: boolean;      // true when attribution came from the remembered first touch
+  coupon: string | null;
+  affiliate: string | null; // affiliate username/email when a Referral or affiliate coupon is on the order
+  attributedBy: "pixel" | "site" | "none";
 }
 
 function config() {
@@ -82,29 +85,52 @@ const path = (u: string | null) => { try { return u ? new URL(u, "https://x.co")
 const host = (u: string | null) => { try { return u ? new URL(u).hostname.replace(/^www\./, "") : null; } catch { return null; } };
 
 const SEARCH = /google\.|bing\.|duckduckgo\.|yahoo\.|ecosia\./;
-const SOCIAL = /facebook\.|instagram\.|twitter\.|x\.com|t\.co|tiktok\.|reddit\.|youtube\.|linkedin\.|pinterest\./;
+const SOCIAL = /facebook\.|instagram\.|twitter\.|x\.com|t\.co|tiktok\.|reddit\.|youtube\.|linkedin\.|pinterest\.|threads\./;
 const AI = /chatgpt\.|openai\.|perplexity\.|claude\.|gemini\.google|copilot\./;
+const META_SRC = /^(fb|ig|facebook|instagram|meta|threads)$/;
+const TIKTOK_SRC = /^(tt|tiktok)$/;
+const GOOGLE_SRC = /^(google|adwords|gads|youtube)$/;
+const PAID_MEDIUM = /^(cpc|ppc|paid|paid_social|paidsocial|paid-social|display|cpm|sponsored)$/;
+const EMAIL_COUPONS = new Set(["WELCOME", "CARTSAVER", "BIBLE", "COMEBACK"]);
 
-/** One buying session → a channel a marketer recognizes. Order of checks matters. */
-function classify(t: {
+export interface Touch {
   utm_source: string | null; utm_medium: string | null; utm_campaign: string | null;
   gclid?: string | null; fbclid?: string | null; ttclid?: string | null;
   referrer: string | null; landing: string | null;
-}): { channel: string; campaign: string | null } {
+}
+
+/**
+ * One buying session → a channel a marketer recognizes. Precedence, top wins:
+ *   affiliate  — a Referral row or an affiliate-owned coupon on the order
+ *   email      — utm_medium=email, an email platform as source, or a flow coupon
+ *   paid-*     — click ids (gclid/fbclid/ttclid) or a paid utm_medium, split by platform
+ *   ai         — ChatGPT / Perplexity / Claude / Gemini referrer
+ *   social     — social referrer or utm_medium=social
+ *   blog / organic-search — search-engine referrer (blog when the landing page is a post)
+ *   referral   — any other external site
+ *   direct     — no referrer and no UTMs: typed, bookmarked, or an in-app browser
+ *                that stripped the referrer (Instagram/X/TikTok often do)
+ */
+export function classify(t: Touch, extra: { affiliate?: string | null; couponSource?: string | null } = {}): { channel: string; campaign: string | null } {
   const medium = (t.utm_medium || "").toLowerCase();
   const source = (t.utm_source || "").toLowerCase();
   const ref = host(t.referrer) || "";
   const landing = t.landing || "";
   const campaign = t.utm_campaign || null;
 
-  if (medium === "email" || source.includes("campaignrefinery") || source.includes("moosend") || source === "email") {
-    return { channel: "email", campaign: campaign || t.utm_source };
+  if (extra.affiliate) return { channel: "affiliate", campaign: extra.affiliate };
+  if (medium === "email" || source === "email" || /campaignrefinery|moosend|resend|klaviyo/.test(source) || (extra.couponSource && EMAIL_COUPONS.has(extra.couponSource))) {
+    return { channel: "email", campaign: campaign || t.utm_source || (extra.couponSource ? `${extra.couponSource.toLowerCase()} flow` : null) };
   }
-  if (t.gclid || t.fbclid || t.ttclid || ["cpc", "ppc", "paid", "paid_social"].includes(medium)) {
-    return { channel: "paid", campaign };
+  const paid = !!(t.gclid || t.fbclid || t.ttclid) || PAID_MEDIUM.test(medium);
+  if (paid) {
+    if (t.gclid || GOOGLE_SRC.test(source)) return { channel: "paid-google", campaign };
+    if (t.fbclid || META_SRC.test(source)) return { channel: "paid-meta", campaign };
+    if (t.ttclid || TIKTOK_SRC.test(source)) return { channel: "paid-tiktok", campaign };
+    return { channel: "paid-other", campaign: campaign || t.utm_source };
   }
   if (AI.test(ref) || source === "chatgpt" || source === "perplexity") return { channel: "ai", campaign };
-  if (SOCIAL.test(ref) || medium === "social") return { channel: "social", campaign };
+  if (SOCIAL.test(ref) || medium === "social" || META_SRC.test(source) || TIKTOK_SRC.test(source) || source === "x" || source === "twitter") return { channel: "social", campaign: campaign || t.utm_source };
   if (SEARCH.test(ref) || medium === "organic") {
     return { channel: /^\/blogs?\//.test(landing) ? "blog" : "organic-search", campaign };
   }
@@ -118,7 +144,7 @@ async function purchaseAttribution(days: number) {
   const { rows } = await pool.query(`
     SELECT t.event_data->>'order_id' AS order_id,
            t.utm_source AS t_source, t.utm_medium AS t_medium, t.utm_campaign AS t_campaign,
-           s.utm_source, s.utm_medium, s.utm_campaign, s.gclid, s.fbclid, s.referrer, s.landing_page
+           s.utm_source, s.utm_medium, s.utm_campaign, s.gclid, s.fbclid, s.ttclid, s.referrer, s.landing_page
     FROM touchpoints t
     LEFT JOIN visitor_sessions s ON s.visitor_id = t.visitor_id AND s.session_id = t.session_id AND s.site = t.site
     WHERE t.site = $1 AND t.event_type = 'purchase'
@@ -137,21 +163,32 @@ export function registerRealPeptidesOrders(app: Express) {
       const [orders, attr] = await Promise.all([siteOrders(days), purchaseAttribution(days)]);
       const rows: OrderRow[] = orders.map((o: any) => {
         const a = attr.get(String(o.id)) ?? attr.get(String(o.number));
-        let channel = "untracked", campaign: string | null = null, landing: string | null = null,
-            referrer: string | null = null, firstTouch = false;
+        const ft = o.firstTouch ?? null;
+        let touch: Touch | null = null;
+        let firstTouch = false;
+        let attributedBy: OrderRow["attributedBy"] = "none";
         if (a) {
           // Event-level UTMs (first-touch memory travels on the event) beat
           // session-level when the session itself arrived clean.
-          const merged = {
+          touch = {
             utm_source: a.t_source || a.utm_source, utm_medium: a.t_medium || a.utm_medium,
-            utm_campaign: a.t_campaign || a.utm_campaign, gclid: a.gclid, fbclid: a.fbclid,
+            utm_campaign: a.t_campaign || a.utm_campaign, gclid: a.gclid, fbclid: a.fbclid, ttclid: a.ttclid,
             referrer: a.referrer, landing: path(a.landing_page),
           };
-          ({ channel, campaign } = classify(merged));
-          landing = path(a.landing_page);
-          referrer = host(a.referrer);
           firstTouch = !!(a.t_source && !a.utm_source);
+          attributedBy = "pixel";
+        } else if (ft) {
+          // No pixel purchase beacon (blocked, or fired before the beacon existed):
+          // fall back to the site's own first-touch cookie snapshot on the order.
+          touch = { utm_source: ft.source, utm_medium: ft.medium, utm_campaign: ft.campaign, referrer: ft.referrer ? `https://${ft.referrer}/` : null, landing: ft.landing };
+          firstTouch = true;
+          attributedBy = "site";
         }
+        const extra = { affiliate: o.affiliate ?? null, couponSource: o.couponSource ?? null };
+        let channel = "untracked", campaign: string | null = null;
+        if (touch) ({ channel, campaign } = classify(touch, extra));
+        else if (extra.affiliate) ({ channel, campaign } = classify({ utm_source: null, utm_medium: null, utm_campaign: null, referrer: null, landing: null }, extra));
+        else if (extra.couponSource && EMAIL_COUPONS.has(extra.couponSource)) ({ channel, campaign } = classify({ utm_source: null, utm_medium: "email", utm_campaign: null, referrer: null, landing: null }, extra));
         return {
           id: String(o.id),
           number: String(o.number ?? o.id),
@@ -160,7 +197,13 @@ export function registerRealPeptidesOrders(app: Express) {
           total: Math.round(Number(o.totalCents ?? 0)) / 100,
           status: o.status ?? null,
           items: (o.items ?? []).map((i: any) => ({ name: String(i.name), qty: Number(i.qty ?? i.quantity ?? 1) })),
-          channel, landing, campaign, referrer, firstTouch,
+          channel, campaign,
+          landing: touch?.landing ?? null,
+          referrer: host(touch?.referrer ?? null),
+          firstTouch,
+          coupon: o.couponCode ?? null,
+          affiliate: o.affiliate ?? null,
+          attributedBy,
         };
       });
 

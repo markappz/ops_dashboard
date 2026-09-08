@@ -21,6 +21,7 @@ interface Contacts {
   new?: { today: number; week: number; month: number; window: number };
   newCustomers?: { today: number; week: number; month: number; window: number };
   bySource?: { source: string; count: number }[];
+  listBuilding?: { source: string; today: number; week: number; month: number; total: number }[];
   daily?: { date: string; count: number }[];
   recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean }[];
 }
@@ -94,10 +95,69 @@ function Sources({ rows, total }: { rows: { source: string; count: number }[]; t
     <div className="space-y-2">
       {rows.map((r) => (
         <div key={r.source} className="text-sm">
-          <div className="flex justify-between gap-3"><span className="truncate text-ops-text">{r.source}</span><span className="shrink-0 tabular-nums text-ops-text-muted">{num(r.count)} · {total ? Math.round((r.count / total) * 100) : 0}%</span></div>
+          <div className="flex justify-between gap-3"><span className="truncate text-ops-text" title={r.source}>{label(r.source)}</span><span className="shrink-0 tabular-nums text-ops-text-muted">{num(r.count)} · {total ? Math.round((r.count / total) * 100) : 0}%</span></div>
           <div className="mt-1 h-1.5 rounded bg-ops-border"><div className="h-full rounded bg-brand-blue-500" style={{ width: `${total ? (r.count / total) * 100 : 0}%` }} /></div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Plain-English names for the site's capture points, so the team reads lists, not code. */
+const SOURCE_LABEL: Record<string, { name: string; where: string }> = {
+  "offer-capture": { name: "Site offer popup", where: "Discount offer popup on realpeptides.co" },
+  "age-gate": { name: "Age gate", where: "Email captured at the age-verification gate" },
+  "optin-peptide-playbook": { name: "Peptides 101 guide", where: "Welcome / playbook opt-in" },
+  "optin-fat-loss": { name: "Fat Loss Bible", where: "Fat-loss guide opt-in" },
+  "optin-metabolic-guide": { name: "Metabolic guide", where: "Metabolic guide opt-in" },
+  "optin-hair-growth": { name: "Hair Growth guide", where: "Hair protocol opt-in" },
+  "optin-sexual-health": { name: "Sexual Health Brief", where: "sexualhealthguide.com opt-in" },
+  resubscribe: { name: "Re-subscribe", where: "/resubscribe consent page" },
+  poll: { name: "Site poll", where: "On-site poll capture" },
+  website: { name: "Website form", where: "Generic site form" },
+  checkout: { name: "Checkout", where: "Bought — counted as a customer, not a lead" },
+  account: { name: "Account signup", where: "Created an account — not a lead" },
+};
+const label = (src: string) => SOURCE_LABEL[src]?.name ?? src;
+
+/** Which list produces which leads: every capture source × today / 7d / 30d / all time. */
+function ListBuilding({ rows }: { rows: NonNullable<Contacts["listBuilding"]> }) {
+  if (!rows.length) return <div className="text-sm text-ops-text-muted">Nothing captured yet.</div>;
+  const sum = (k: "today" | "week" | "month" | "total") => rows.reduce((a, r) => a + r[k], 0);
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[560px] text-sm">
+        <thead>
+          <tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted">
+            <th className="py-2 pr-3 font-medium">List / capture point</th>
+            <th className="py-2 px-3 text-right font-medium">Today</th>
+            <th className="py-2 px-3 text-right font-medium">7 days</th>
+            <th className="py-2 px-3 text-right font-medium">30 days</th>
+            <th className="py-2 pl-3 text-right font-medium">All time</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-ops-border/50">
+          {rows.map((r) => (
+            <tr key={r.source}>
+              <td className="py-2 pr-3">
+                <div className="text-ops-text">{label(r.source)}</div>
+                <div className="text-[11px] text-ops-text-muted">{SOURCE_LABEL[r.source]?.where ?? `source: ${r.source}`}</div>
+              </td>
+              <td className={`py-2 px-3 text-right tabular-nums ${r.today ? "text-fitscript-green font-semibold" : "text-ops-text-muted"}`}>{num(r.today)}</td>
+              <td className="py-2 px-3 text-right tabular-nums text-ops-text">{num(r.week)}</td>
+              <td className="py-2 px-3 text-right tabular-nums text-ops-text">{num(r.month)}</td>
+              <td className="py-2 pl-3 text-right tabular-nums text-ops-text-muted">{num(r.total)}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-ops-border font-semibold">
+            <td className="py-2 pr-3 text-ops-text">All lists</td>
+            <td className="py-2 px-3 text-right tabular-nums text-ops-text">{num(sum("today"))}</td>
+            <td className="py-2 px-3 text-right tabular-nums text-ops-text">{num(sum("week"))}</td>
+            <td className="py-2 px-3 text-right tabular-nums text-ops-text">{num(sum("month"))}</td>
+            <td className="py-2 pl-3 text-right tabular-nums text-ops-text-muted">{num(sum("total"))}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -112,7 +172,7 @@ function Recent({ rows }: { rows: NonNullable<Contacts["recent"]> }) {
           <span className="flex shrink-0 items-center gap-2 text-xs text-ops-text-muted">
             {c.buyer && <span className="rounded-full bg-fitscript-green/15 px-2 py-0.5 text-[10px] font-semibold text-fitscript-green">buyer</span>}
             {c.unsubscribed && <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">unsub</span>}
-            <span className="truncate">{c.source}</span>
+            <span className="truncate" title={c.source}>{label(c.source)}</span>
             <span>{new Date(c.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           </span>
         </div>
@@ -171,6 +231,9 @@ export default function RealPeptidesLeads() {
               <Sources rows={c.bySource ?? []} total={c.new?.window ?? 0} />
             </Panel>
           </div>
+          <Panel title="List building" subtitle="Which list produces which leads — every capture point on the site, by window. Checkout and account signups are customers, not leads, and are excluded.">
+            <ListBuilding rows={c.listBuilding ?? []} />
+          </Panel>
           <Panel title="Latest leads" subtitle="Newest 50 marketing captures">
             <Recent rows={c.recent ?? []} />
           </Panel>

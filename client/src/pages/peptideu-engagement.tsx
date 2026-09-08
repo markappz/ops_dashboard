@@ -23,7 +23,7 @@ function Card({ label, blurb, events, users, unit }: { label: string; blurb: str
     <div className="bg-ops-surface border border-ops-border rounded-xl p-5">
       <div className="text-sm font-semibold text-ops-text">{label}</div>
       <div className="text-xs text-ops-text-muted mb-4">{blurb}</div>
-      <div className="flex items-end gap-6">
+      <div className="flex flex-wrap items-end gap-x-6 gap-y-2">
         <div>
           <div className="text-2xl font-bold text-ops-text tabular-nums">{events.toLocaleString()}</div>
           <div className="text-xs text-ops-text-muted">{unit}</div>
@@ -53,7 +53,7 @@ export default function PeptideuEngagement() {
         <p className="text-sm text-ops-text-muted mt-1">Usage across PeptideU's core tools</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {FEATURES.map((f) => {
           const m = data[f.key];
           return <Card key={f.key} label={f.label} blurb={f.blurb} events={m.events} users={m.users} unit={f.unit} />;

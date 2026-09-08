@@ -44,8 +44,8 @@ export default function PeptideuCurriculum() {
         <p className="text-sm text-ops-text-muted mt-1">Module completion &amp; quiz pass rates across {rows.length} modules</p>
       </div>
 
-      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-ops-surface border border-ops-border rounded-xl overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-ops-border text-xs uppercase tracking-wider text-ops-text-muted">
               <th className="text-left font-medium px-5 py-3 w-8">#</th>
