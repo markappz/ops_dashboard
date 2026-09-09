@@ -3205,3 +3205,9 @@ Shipped tracker `725abb4` → ops `b014f0b` on Paul's go; CI green both; prod-ve
 - Tracker: `skus.supplier` (startup ALTER), PATCH /skus/:id accepts `supplier`, `GET /api/suppliers` (roster + counts), `POST /api/skus/assign-suppliers` (rule: capsule/tablet → Mike; spray/serum/NS/cream/gel → Caleb; else vials → Ming; `overwrite` flag; otherwise only unassigned). Ops PROXY_ALLOW += /suppliers.
 - Ops `coa/PurchaseOrders.tsx`: PoBuilder replaces "PO from shortfall" + "Custom PO". Supplier chips (badge = below-target count), prefilled table (stock / target / on order / weeks of cover / supplier select / qty / remove), search to add, note, Save PO for <supplier>; PO cards unchanged (PDF, Mark ordered, check-in). Velocity passed from the Inventory page for the cover column.
 **Not done on purpose:** no supplier assigned yet (all 86 unassigned) — the first "Assign by type" click is Justin's/Paul's call, every product editable after.
+
+## 2026-09-09 (late) — Ordered POs are editable and deletable
+Paul + Justin (Loom 58bc8e43…, transcript unavailable): PO #4 was ordered and locked to check-in only. Tracker `e4710e0` → ops `2b1f875`, on Paul's go, CI green both, prod-verified: PO #4 card shows PDF / Edit / Check in; Edit mode → Done / Un-order / Delete, 27 editable qty inputs + add-product search.
+- Tracker pos.ts: PATCH items and DELETE items allowed on draft+ordered (qty ≥ received; remove only when received=0); new POST /pos/:id/items (adds or tops up a line); DELETE /pos/:id allowed while nothing received (draft or ordered), refuses after receipts ("cancel instead"); PATCH /pos/:id accepts supplier/note and ordered→draft when nothing received.
+- Ops PoCard: Edit toggle on open POs (qty, remove, add, supplier select), Delete (nothing received) / Cancel PO (after receipts) with inline Yes/No confirm (no browser dialogs), Un-order. Check-in unchanged.
+Still nobody has assigned suppliers (all 86 unassigned) — Justin's first click.
