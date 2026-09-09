@@ -18,6 +18,7 @@ export interface Sku {
   product_url: string | null;
   thumbnail_url: string | null;
   image_doc_id: number | null;
+  image_source_ref?: string | null;
   label_doc_id: number | null;
   form: string | null;
   current_stock: number | null;

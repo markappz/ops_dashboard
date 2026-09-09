@@ -116,14 +116,14 @@ export default function RealPeptidesInventory() {
   const sync = statsQ.data?.lastSync;
   const noImage = useMemo(() => skus.filter((s) => !thumbUrl(s)).length, [skus]);
   const [imgBusy, setImgBusy] = useState(false);
-  async function syncImages() {
+  async function syncImages(force = false) {
     setImgBusy(true);
     try {
-      const r = await fetch("/api/ops/realpeptides/inventory/images/sync", { method: "POST", credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/inventory/images/sync${force ? "?force=1" : ""}`, { method: "POST", credentials: "include" });
       const j = await r.json();
       if (j.error) throw new Error(j.error);
       qc.invalidateQueries({ queryKey: ["coa-skus"] });
-      say(`Images: ${j.uploaded} filled from the website${j.missing?.length ? ` · ${j.missing.length} have no photo on the site yet (${j.missing.slice(0, 4).join(", ")}${j.missing.length > 4 ? "…" : ""})` : ""}.`);
+      say(`Images: ${j.uploaded} filled, ${j.replaced} refreshed from the website${j.missing?.length ? ` · ${j.missing.length} have no photo on the site (${j.missing.slice(0, 4).join(", ")}${j.missing.length > 4 ? "…" : ""})` : ""}.`);
     } catch (e: any) { say(`Image sync failed: ${e.message}`); }
     finally { setImgBusy(false); }
   }
@@ -149,9 +149,10 @@ export default function RealPeptidesInventory() {
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
-            {canEdit && noImage > 0 && (
-              <button type="button" onClick={syncImages} disabled={imgBusy} className={ui.ghost} title="Copy each product's photo from realpeptides.co into the tracker (runs on its own every 6 hours)">
-                {imgBusy ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />} Fill {noImage} missing image{noImage === 1 ? "" : "s"}
+            {canEdit && (
+              <button type="button" onClick={() => syncImages(noImage === 0)} disabled={imgBusy} className={ui.ghost}
+                title={noImage > 0 ? "Copy each missing product photo from realpeptides.co (also runs on its own every 6 hours)" : "Re-pull every product photo from realpeptides.co — use after re-shooting the catalog"}>
+                {imgBusy ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />} {noImage > 0 ? `Fill ${noImage} missing image${noImage === 1 ? "" : "s"}` : "Refresh photos from site"}
               </button>
             )}
             <button type="button" onClick={() => setShowForecast(true)} disabled={!skus.length} className={ui.ghost}><TrendingUp size={15} /> Forecast</button>

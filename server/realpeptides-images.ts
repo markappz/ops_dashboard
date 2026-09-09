@@ -3,9 +3,11 @@
  *
  * The storefront already has a photo for every variant; the tracker only had
  * one when someone uploaded it by hand, so the Inventory tab showed blanks.
- * Every 6h (and on demand) this matches tracker SKUs without a vaulted image
- * to site variants by SKU code, downloads the storefront image and files it
- * as a `product_image` document — the same path a manual upload takes.
+ * Every 6h (and on demand) this matches tracker SKUs to site variants by SKU
+ * code, downloads the storefront image and files it as a `product_image`
+ * document — the same path a manual upload takes. Each upload is tagged with
+ * the image URL it came from, so when the site's photo changes (a re-shoot)
+ * the next run replaces it; `force` re-pulls everything regardless.
  */
 import type { Express } from "express";
 
@@ -16,6 +18,8 @@ export interface ImageSyncResult {
   at: string;
   checked: number;
   uploaded: number;
+  replaced: number;
+  forced: boolean;
   missing: string[];   // tracker products with no image and no site match
   failed: string[];
   error?: string;
@@ -63,29 +67,42 @@ async function uploadImage(skuId: number, name: string, imageUrl: string): Promi
   fd.append("file", new Blob([await img.arrayBuffer()], { type }), `${name.replace(/[^\w.-]+/g, "_")}.${ext}`);
   fd.append("sku_id", String(skuId));
   fd.append("category", "product_image");
+  fd.append("source", "site-sync");
+  fd.append("source_ref", imageUrl);
   const r = await fetch(`${tracker.base}/api/documents`, {
     method: "POST", headers: { Authorization: `Bearer ${tracker.token}` }, body: fd, signal: AbortSignal.timeout(60_000),
   });
   if (!r.ok) throw new Error(`tracker ${r.status}: ${(await r.text()).slice(0, 120)}`);
 }
 
-export async function runRpImageSync(): Promise<ImageSyncResult> {
+/** A SKU needs a pull when it has no image, the site's photo URL changed since we filed one, or the caller forces it. */
+function needsPull(s: any, siteImage: string | undefined, force: boolean): boolean {
+  if (!s.image_doc_id) return true;
+  if (!siteImage) return false;
+  if (force) return true;
+  return !!s.image_source_ref && s.image_source_ref !== siteImage;
+}
+
+export async function runRpImageSync(force = false): Promise<ImageSyncResult> {
   if (running && lastRun) return lastRun;
   running = true;
-  const result: ImageSyncResult = { at: new Date().toISOString(), checked: 0, uploaded: 0, missing: [], failed: [] };
+  const result: ImageSyncResult = { at: new Date().toISOString(), checked: 0, uploaded: 0, replaced: 0, forced: force, missing: [], failed: [] };
   try {
     const tracker = trackerCfg();
     if (!tracker) throw new Error("tracker not configured");
     const [images, skus] = await Promise.all([siteImages(), getJson(`${tracker.base}/api/skus`, tracker.token)]);
-    const todo = (skus.skus ?? []).filter((s: any) => !s.image_doc_id);
+    const all: any[] = skus.skus ?? [];
+    const todo = all.filter((s) => needsPull(s, (images.get(norm(s.sku_code)) ?? (s.coa_name ? images.get(norm(s.coa_name)) : undefined))?.image, force));
     result.checked = todo.length;
-    for (const s of todo.slice(0, MAX_PER_RUN)) {
+    for (const s of todo.slice(0, force ? 500 : MAX_PER_RUN)) {
       const hit = images.get(norm(s.sku_code)) ?? (s.coa_name ? images.get(norm(s.coa_name)) : undefined);
       if (!hit) { result.missing.push(s.product_name); continue; }
-      try { await uploadImage(s.id, s.product_name, hit.image); result.uploaded++; }
-      catch (e: any) { result.failed.push(`${s.product_name}: ${e.message}`); }
+      try {
+        await uploadImage(s.id, s.product_name, hit.image);
+        if (s.image_doc_id) result.replaced++; else result.uploaded++;
+      } catch (e: any) { result.failed.push(`${s.product_name}: ${e.message}`); }
     }
-    console.log(`[OPS][RP] image sync: ${result.uploaded} uploaded, ${result.missing.length} without a site image, ${result.failed.length} failed`);
+    console.log(`[OPS][RP] image sync${force ? " (forced)" : ""}: ${result.uploaded} new, ${result.replaced} replaced, ${result.missing.length} without a site image, ${result.failed.length} failed`);
   } catch (e: any) {
     result.error = e.message;
     console.error("[OPS][RP] image sync:", e.message);
@@ -104,8 +121,8 @@ export function startRpImageSyncLoop() {
 
 export function registerRpImageSync(app: Express) {
   app.get("/api/ops/realpeptides/inventory/images", (_req, res) => res.json({ last: lastRun }));
-  app.post("/api/ops/realpeptides/inventory/images/sync", async (_req, res) => {
-    try { res.json(await runRpImageSync()); }
+  app.post("/api/ops/realpeptides/inventory/images/sync", async (req, res) => {
+    try { res.json(await runRpImageSync(String(req.query.force || "") === "1")); }
     catch (e: any) { res.status(502).json({ error: e.message }); }
   });
 }
