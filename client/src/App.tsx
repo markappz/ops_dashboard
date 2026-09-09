@@ -50,6 +50,7 @@ import PawgenOverview from "./pages/pawgen-overview";
 import { CompanyTraffic, CompanySeo } from "./pages/company-google";
 import CompanyIntegrations from "./pages/company-integrations";
 import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
+import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
@@ -165,6 +166,7 @@ export default function App() {
 
           {/* PeptideU */}
           <Route path="/peptideu" component={PeptideuOverview} />
+          <Route path="/peptideu/email" component={PeptideuEmail} />
           <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/requests" component={PeptideuRequests} />
           <Route path="/peptideu/moderation" component={PeptideuModeration} />
@@ -178,6 +180,7 @@ export default function App() {
 
           {/* pawgen */}
           <Route path="/pawgen" component={PawgenOverview} />
+          <Route path="/pawgen/email" component={PawgenEmail} />
           <Route path="/pawgen/orders" component={PawgenOrders} />
           <Route path="/pawgen/leads" component={PawgenLeads} />
           <Route path="/pawgen/marketing" component={PawgenMarketing} />

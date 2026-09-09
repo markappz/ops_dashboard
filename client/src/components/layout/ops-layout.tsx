@@ -15,6 +15,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
     label: "PeptideU",
     items: [
       { path: "/peptideu", label: "Overview", icon: "grid" },
+      { path: "/peptideu/email", label: "Email", icon: "mail" },
       { path: "/peptideu/members", label: "Members", icon: "users" },
       { path: "/peptideu/requests", label: "Requests", icon: "file-text" },
       { path: "/peptideu/moderation", label: "Moderation", icon: "shield" },
@@ -36,6 +37,7 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
     label: "pawgen",
     items: [
       { path: "/pawgen", label: "Overview", icon: "grid" },
+      { path: "/pawgen/email", label: "Email", icon: "mail" },
       { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
       { path: "/pawgen/leads", label: "Leads", icon: "funnel" },
       { path: "/pawgen/marketing", label: "Marketing", icon: "megaphone" },
