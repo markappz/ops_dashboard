@@ -64,6 +64,19 @@ jobs:
           jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
             task-definition-live.json > task-definition-baseline.json
 
+      # Secret refs must be "<secret-arn>:<KEY>::". Hand-registered revisions have
+      # twice shipped refs spliced into another key's ARN (…:ADMIN_EMAILS:NEW_KEY::),
+      # which ECS rejects with "unexpected ARN format" and the deploy rolls back.
+      # Normalize every ref to its own key so the baseline can never carry that.
+      - name: Normalize secret refs in the baseline
+        run: |
+          jq '(.containerDefinitions[].secrets // []) |= map(
+                .valueFrom |= (if test(":secret:[^:]+:") then (capture("^(?<arn>arn:aws:secretsmanager:[^:]+:[^:]+:secret:[^:]+)").arn) else . end)
+                | .valueFrom = (.valueFrom + ":" + .name + "::")
+              )' task-definition-baseline.json > task-definition-normalized.json
+          mv task-definition-normalized.json task-definition-baseline.json
+          jq -r '.containerDefinitions[].secrets[] | "\(.name) \(.valueFrom)"' task-definition-baseline.json | grep -v ':[A-Z0-9_]*::$' && { echo "unnormalized secret ref"; exit 1; } || true
+
       - name: Render task definition with new image
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
