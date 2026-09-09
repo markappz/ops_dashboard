@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
-  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck,
+  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
 import { api, ui, thumbUrl, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
@@ -101,7 +101,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
           {pos.map((po) => (
-            <PoCard key={po.id} po={po} busy={busy} run={run} onSay={onSay} />
+            <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max"]} busy={busy} run={run} onSay={onSay} />
           ))}
         </div>
       </div>
@@ -109,7 +109,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
   );
 }
 
-// ─── One PO card, with per-line check-in for ordered POs ───────────
+// ─── One PO card: editable while open, per-line check-in once ordered ──
 
 const CHIP: Record<string, string> = {
   draft: "bg-ops-border text-ops-text-muted",
@@ -118,33 +118,48 @@ const CHIP: Record<string, string> = {
   cancelled: "bg-red-500/15 text-red-400",
 };
 
-function PoCard({ po, busy, run, onSay }: {
-  po: Po; busy: number | "new" | "paste" | null;
+function PoCard({ po, skus, suppliers, busy, run, onSay }: {
+  po: Po; skus: Sku[]; suppliers: string[]; busy: number | "new" | "paste" | null;
   run: (key: number, fn: () => Promise<unknown>, done?: string) => Promise<void>;
   onSay: (m: string) => void;
 }) {
+  const open = po.status === "draft" || po.status === "ordered";
   const [checkin, setCheckin] = useState(false);
+  const [editing, setEditing] = useState(po.status === "draft");
+  const [confirm, setConfirm] = useState<"delete" | "cancel" | null>(null);
   const [qtys, setQtys] = useState<Record<number, string>>({});
-  const [draftQtys, setDraftQtys] = useState<Record<number, string>>({});
-
-  const saveDraftQty = (item: PoItem) => {
-    const v = Number(draftQtys[item.id]);
-    if (!Number.isFinite(v) || v <= 0 || v === Number(item.qty)) return;
-    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ qty: v }) }));
-  };
-  const removeLine = (item: PoItem) =>
-    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "DELETE" }),
-      `${item.product_name} removed from PO #${po.id}.`);
+  const [editQtys, setEditQtys] = useState<Record<number, string>>({});
+  const [addQ, setAddQ] = useState("");
 
   const units = po.items.reduce((a, i) => a + Number(i.qty), 0);
   const received = po.items.reduce((a, i) => a + Number(i.received_qty), 0);
   const remaining = poRemaining(po);
   const partly = po.status === "ordered" && received > 0;
 
+  const saveQty = (item: PoItem) => {
+    const v = Number(editQtys[item.id]);
+    if (!Number.isFinite(v) || v <= 0 || v === Number(item.qty)) return;
+    if (v < Number(item.received_qty)) return onSay(`${item.product_name}: ${Number(item.received_qty)} already received — can't go lower.`);
+    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ qty: v }) }));
+  };
+  const removeLine = (item: PoItem) =>
+    run(po.id, () => api(`/pos/${po.id}/items/${item.id}`, { method: "DELETE" }), `${item.product_name} removed from PO #${po.id}.`);
+  const addLine = (sku: Sku) => {
+    setAddQ("");
+    run(po.id, () => api(`/pos/${po.id}/items`, { method: "POST", body: JSON.stringify({ sku_id: sku.id, qty: orderQty(sku) || 10 }) }), `${sku.product_name} added to PO #${po.id} — set the quantity.`);
+  };
   const setStatus = (status: string, done: string) =>
     run(po.id, () => api(`/pos/${po.id}`, { method: "PATCH", body: JSON.stringify({ status }) }), done);
-  const removeDraft = () =>
-    run(po.id, () => api(`/pos/${po.id}`, { method: "DELETE" }), `Draft PO #${po.id} deleted.`);
+  const setSupplier = (supplier: string) =>
+    run(po.id, () => api(`/pos/${po.id}`, { method: "PATCH", body: JSON.stringify({ supplier }) }));
+  const remove = () => run(po.id, () => api(`/pos/${po.id}`, { method: "DELETE" }), `PO #${po.id} deleted — its ${units} units no longer count as on-order.`);
+
+  const hits = useMemo(() => {
+    const needle = addQ.trim().toLowerCase();
+    if (!needle) return [];
+    const on = new Set(po.items.map((i) => i.sku_id));
+    return skus.filter((s) => !on.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle))).slice(0, 6);
+  }, [addQ, skus, po.items]);
 
   const lines = () => po.items
     .map((i) => ({ item_id: i.id, qty: Number(qtys[i.id] ?? "") }))
@@ -166,66 +181,79 @@ function PoCard({ po, busy, run, onSay }: {
     });
   };
 
+  const small = "px-2.5 py-1.5 text-xs";
   return (
     <div className="rounded-xl border border-ops-border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ops-border bg-ops-bg/40 px-4 py-2.5">
-        <div className="flex items-center gap-2.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5">
           <span className="whitespace-nowrap text-sm font-semibold text-ops-text">PO #{po.id}</span>
-          <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[po.status]}`}>
-            {partly ? "partly received" : po.status}
-          </span>
-          <span className="text-xs text-ops-text-muted">
-            {po.items.length} lines · {partly ? `${received}/${units} in` : `${units} units`} · {new Date(po.created_at).toLocaleDateString()}
-            {po.supplier ? ` · ${po.supplier}` : ""}
-          </span>
+          <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[po.status]}`}>{partly ? "partly received" : po.status}</span>
+          {open && editing ? (
+            <select value={po.supplier ?? ""} onChange={(e) => setSupplier(e.target.value)} disabled={busy !== null} className="h-7 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
+              <option value="">supplier…</option>
+              {suppliers.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+            </select>
+          ) : po.supplier ? <span className="text-xs font-medium text-ops-text">{po.supplier}</span> : null}
+          <span className="text-xs text-ops-text-muted">{po.items.length} lines · {partly ? `${received}/${units} in` : `${units} units`} · {new Date(po.created_at).toLocaleDateString()}</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button type="button" onClick={() => downloadPoPdf(po)} title="Download PDF" className={`${ui.ghost} px-2 py-1.5 text-xs`}><FileDown size={13} /> PDF</button>
-          {po.status === "draft" && (
-            <>
-              <button type="button" disabled={busy !== null} onClick={() => setStatus("ordered", `PO #${po.id} marked ordered — items now show as on-order.`)}
-                className={`${ui.primary} px-2.5 py-1.5 text-xs`}><Send size={13} /> Mark ordered</button>
-              <button type="button" disabled={busy !== null} onClick={removeDraft} title="Delete draft"
-                className="p-1.5 text-ops-text-muted hover:text-red-400"><Trash2 size={14} /></button>
-            </>
-          )}
-          {po.status === "ordered" && (
-            <button type="button" disabled={busy !== null} onClick={() => setCheckin(!checkin)}
-              className={`${checkin ? ui.ghost : ui.primary} px-2.5 py-1.5 text-xs`}>
-              {busy === po.id ? <Loader2 size={13} className="animate-spin" /> : <PackageCheck size={13} />}
-              Check in {checkin ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button type="button" onClick={() => downloadPoPdf(po)} title="Download PDF" className={`${ui.ghost} ${small}`}><FileDown size={13} /> PDF</button>
+          {open && (
+            <button type="button" disabled={busy !== null} onClick={() => { setEditing(!editing); setCheckin(false); setConfirm(null); }} className={`${editing ? ui.primary : ui.ghost} ${small}`} title="Change quantities, add or remove lines">
+              <Pencil size={13} /> {editing ? "Done" : "Edit"}
             </button>
+          )}
+          {po.status === "draft" && (
+            <button type="button" disabled={busy !== null} onClick={() => setStatus("ordered", `PO #${po.id} marked ordered — items now show as on-order.`)} className={`${ui.primary} ${small}`}><Send size={13} /> Mark ordered</button>
+          )}
+          {po.status === "ordered" && !editing && (
+            <button type="button" disabled={busy !== null} onClick={() => setCheckin(!checkin)} className={`${checkin ? ui.ghost : ui.primary} ${small}`}>
+              {busy === po.id ? <Loader2 size={13} className="animate-spin" /> : <PackageCheck size={13} />} Check in {checkin ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+          )}
+          {open && editing && (
+            confirm ? (
+              <span className="flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-400">
+                {confirm === "delete" ? `Delete PO #${po.id}?` : `Cancel PO #${po.id}? ${remaining} open units stop counting as on-order.`}
+                <button type="button" disabled={busy !== null} onClick={() => (confirm === "delete" ? remove() : setStatus("cancelled", `PO #${po.id} cancelled.`))} className="rounded-md bg-red-500 px-2 py-0.5 font-semibold text-white">Yes</button>
+                <button type="button" onClick={() => setConfirm(null)} className="px-1 text-ops-text-muted hover:text-ops-text">No</button>
+              </span>
+            ) : (
+              <>
+                {po.status === "ordered" && received === 0 && (
+                  <button type="button" disabled={busy !== null} onClick={() => setStatus("draft", `PO #${po.id} is a draft again — nothing counts as on-order until it's re-ordered.`)} className={`${ui.ghost} ${small}`} title="Move back to draft (nothing received yet)"><Undo2 size={13} /> Un-order</button>
+                )}
+                <button type="button" disabled={busy !== null} onClick={() => setConfirm(received > 0 ? "cancel" : "delete")}
+                  title={received > 0 ? "Units were already checked in, so this cancels the remainder instead of deleting" : "Delete this PO"}
+                  className={`${small} inline-flex items-center gap-1 rounded-lg text-ops-text-muted hover:text-red-400`}><Trash2 size={13} /> {received > 0 ? "Cancel PO" : "Delete"}</button>
+              </>
+            )
           )}
         </div>
       </div>
 
-      <ul className="max-h-56 divide-y divide-ops-border/50 overflow-y-auto px-4 py-1 text-xs">
+      <ul className="max-h-64 divide-y divide-ops-border/50 overflow-y-auto px-4 py-1 text-xs">
         {po.items.map((i) => {
           const left = remainingOf(i);
+          const got = Number(i.received_qty);
           return (
             <li key={i.id} className="flex items-center justify-between gap-2 py-1.5">
               <span className="min-w-0 truncate text-ops-text">{i.product_name} <span className="text-ops-text-muted">({i.sku_code})</span></span>
               <span className="flex shrink-0 items-center gap-2">
-                {po.status === "ordered" && Number(i.received_qty) > 0 && (
-                  <span className={`tabular-nums ${left ? "text-amber-500" : "text-fitscript-green"}`}>{Number(i.received_qty)} in{left ? ` · ${left} open` : ""}</span>
-                )}
-                {po.status === "received" && Number(i.received_qty) < Number(i.qty) && (
-                  <span className="tabular-nums text-red-400">{Number(i.qty) - Number(i.received_qty)} short</span>
-                )}
+                {po.status === "ordered" && got > 0 && <span className={`tabular-nums ${left ? "text-amber-500" : "text-fitscript-green"}`}>{got} in{left ? ` · ${left} open` : ""}</span>}
+                {po.status === "received" && got < Number(i.qty) && <span className="tabular-nums text-red-400">{Number(i.qty) - got} short</span>}
                 {checkin && po.status === "ordered" ? (
                   <input value={qtys[i.id] ?? ""} inputMode="numeric" placeholder={left ? `${left} open` : "done"} disabled={!left}
                     onChange={(e) => setQtys({ ...qtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
                     className="h-7 w-20 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
-                ) : po.status === "draft" ? (
+                ) : open && editing ? (
                   <>
-                    <input value={draftQtys[i.id] ?? String(Number(i.qty))} inputMode="numeric"
-                      onChange={(e) => setDraftQtys({ ...draftQtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
-                      onBlur={() => saveDraftQty(i)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveDraftQty(i); }}
-                      disabled={busy !== null}
+                    <input value={editQtys[i.id] ?? String(Number(i.qty))} inputMode="numeric"
+                      onChange={(e) => setEditQtys({ ...editQtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
+                      onBlur={() => saveQty(i)} onKeyDown={(e) => { if (e.key === "Enter") saveQty(i); }} disabled={busy !== null}
                       className="h-7 w-16 rounded-md border border-ops-border bg-ops-bg px-1 text-center font-semibold tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
-                    <button type="button" disabled={busy !== null} onClick={() => removeLine(i)} title="Remove from this PO"
-                      className="p-1 text-ops-text-muted hover:text-red-400"><Trash2 size={13} /></button>
+                    <button type="button" disabled={busy !== null || got > 0} onClick={() => removeLine(i)} title={got > 0 ? "Units already received — lower the quantity instead" : "Remove from this PO"}
+                      className="p-1 text-ops-text-muted hover:text-red-400 disabled:opacity-30"><Trash2 size={13} /></button>
                   </>
                 ) : (
                   <span className="font-semibold tabular-nums text-ops-text">{Number(i.qty)}</span>
@@ -236,29 +264,35 @@ function PoCard({ po, busy, run, onSay }: {
         })}
       </ul>
 
-      {checkin && po.status === "ordered" && (
+      {open && editing && (
+        <div className="relative border-t border-ops-border px-4 py-2">
+          <Search size={13} className="absolute left-7 top-1/2 -translate-y-1/2 text-ops-text-muted" />
+          <input value={addQ} onChange={(e) => setAddQ(e.target.value)} placeholder="Add a product to this PO — search name or SKU…" className={`${ui.input} h-8 pl-8 text-xs`} />
+          {hits.length > 0 && (
+            <div className="absolute left-4 right-4 z-10 mt-1 overflow-hidden rounded-xl border border-ops-border bg-ops-surface shadow-card">
+              {hits.map((s) => (
+                <button key={s.id} type="button" onClick={() => addLine(s)} className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-ops-bg">
+                  <span className="truncate text-ops-text">{s.product_name}</span><span className="shrink-0 text-ops-text-muted">{s.sku_code}{s.supplier ? ` · ${s.supplier}` : ""}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {checkin && po.status === "ordered" && !editing && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ops-border bg-ops-bg/40 px-4 py-2.5">
           <button type="button" className="text-xs text-ops-text-muted underline-offset-2 hover:underline"
-            onClick={() => setQtys(Object.fromEntries(po.items.filter((i) => remainingOf(i) > 0).map((i) => [i.id, String(remainingOf(i))])))}>
-            Fill all open quantities
-          </button>
+            onClick={() => setQtys(Object.fromEntries(po.items.filter((i) => remainingOf(i) > 0).map((i) => [i.id, String(remainingOf(i))])))}>Fill all open quantities</button>
           <div className="flex items-center gap-1.5">
-            <button type="button" disabled={busy !== null} onClick={() => doCheckin(false)} className={`${ui.primary} px-2.5 py-1.5 text-xs`}>
-              <PackageCheck size={13} /> Check in
-            </button>
-            <button type="button" disabled={busy !== null} onClick={() => doCheckin(true)}
-              title="Stock in what's entered and close the PO — anything left never arrived and stops counting as on-order"
-              className={`${ui.ghost} px-2.5 py-1.5 text-xs hover:text-red-400`}>
-              Check in & close short
-            </button>
+            <button type="button" disabled={busy !== null} onClick={() => doCheckin(false)} className={`${ui.primary} ${small}`}><PackageCheck size={13} /> Check in</button>
+            <button type="button" disabled={busy !== null} onClick={() => doCheckin(true)} title="Stock in what's entered and close the PO — anything left never arrived and stops counting as on-order" className={`${ui.ghost} ${small} hover:text-red-400`}>Check in & close short</button>
           </div>
         </div>
       )}
     </div>
   );
 }
-
-// ─── Custom PO builder: Justin picks the lines, he knows the demand ─
 
 // ─── New PO builder: supplier → prefilled review list → save ────────
 
