@@ -15,6 +15,7 @@ import express, { type Express, type Request, type Response } from "express";
 import multer from "multer";
 import { pool } from "./db";
 import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
+import { windowOf } from "./lib/window";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
@@ -58,15 +59,13 @@ async function trafficTotals(since: number) {
   return rows[0];
 }
 
-/** Sessions/visitors for a window ending `endOffsetDays` ago (0 = now). */
-async function trafficWindow(since: number, endOffsetDays: number) {
+/** Sessions/visitors between two instants. */
+async function trafficBetween(from: Date, to: Date) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS sessions, COUNT(DISTINCT visitor_id)::int AS visitors
      FROM visitor_sessions
-     WHERE site = $1
-       AND created_at > NOW() - (($2::int + $3::int) || ' days')::interval
-       AND created_at <= NOW() - ($3::int || ' days')::interval`,
-    [SITE, since, endOffsetDays]
+     WHERE site = $1 AND created_at > $2 AND created_at <= $3`,
+    [SITE, from, to]
   );
   return rows[0];
 }
@@ -385,16 +384,17 @@ export function registerRealPeptidesRoutes(app: Express) {
    * Clomark are composed client-side from their own endpoints.
    */
   app.get("/api/ops/realpeptides/overview", async (req, res) => {
-    const since = days(req.query.range);
+    const win = windowOf(req.query as Record<string, unknown>);
+    const since = win.days;
     try {
       const [ever, cur, prev] = await Promise.all([
         pool.query(`SELECT EXISTS(SELECT 1 FROM visitor_sessions WHERE site = $1) AS ok`, [SITE]),
-        trafficWindow(since, 0),
-        trafficWindow(since, since),
+        trafficBetween(win.from, win.to),
+        trafficBetween(win.prevFrom, win.prevTo),
       ]);
       let sales: any;
       if (siteConfigured()) {
-        try { sales = await siteSalesSummary(since); }
+        try { sales = await siteSalesSummary(win); }
         catch (e: any) {
           sales = /404/.test(e.message)
             ? { configured: false, hint: "Ops is wired and waiting — the site's /api/ops-summary isn't live yet." }
@@ -403,7 +403,7 @@ export function registerRealPeptidesRoutes(app: Express) {
       } else {
         sales = { configured: false, hint: "Connect realpeptides.co: set RP_SITE_API_URL + RP_SITE_OPS_TOKEN on ops (the site's /api/ops-summary endpoint)." };
       }
-      res.json({ range: since, sales, traffic: { pixelInstalled: ever.rows[0]?.ok === true, current: cur, previous: prev } });
+      res.json({ range: since, window: { from: win.from.toISOString(), to: win.to.toISOString(), custom: win.custom }, sales, traffic: { pixelInstalled: ever.rows[0]?.ok === true, current: cur, previous: prev } });
     } catch (e) {
       fail(res, "Overview", e);
     }

@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
 import { api as coaApi, type Sku } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
 
@@ -54,10 +55,11 @@ function Section({ title, hint, children }: { title: string; hint?: React.ReactN
 const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json());
 const MINUTE = 60_000;
 
-function useOverviewData(range: number, forceRef: React.MutableRefObject<boolean>) {
-  const pageDays = Math.min(90, Math.max(7, range));
-  const ov = useQuery({ queryKey: ["rp-overview", range], queryFn: () => get(`/api/ops/realpeptides/overview?range=${range}`), refetchInterval: MINUTE });
-  const contacts = useQuery({ queryKey: ["rp-contacts", range], queryFn: () => get(`/api/ops/realpeptides/contacts?range=${range}`), refetchInterval: MINUTE });
+function useOverviewData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
+  const rq = rangeQuery(range);
+  const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
+  const ov = useQuery({ queryKey: ["rp-overview", rq], queryFn: () => get(`/api/ops/realpeptides/overview?${rq}`), refetchInterval: MINUTE });
+  const contacts = useQuery({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
   const skus = useQuery({ queryKey: ["coa-skus"], queryFn: () => coaApi<{ skus: Sku[] }>("/skus"), retry: false, refetchInterval: MINUTE });
   const pages = useQuery({
     queryKey: ["rp-pages-summary", pageDays],
@@ -148,10 +150,10 @@ function ContentCards({ pages, clomark }: { pages: ReturnType<typeof useOverview
   );
 }
 
-function TopProducts({ sales, range }: { sales: any; range: number }) {
+function TopProducts({ sales, range }: { sales: any; range: DateRange }) {
   if (!sales?.configured) return null;
   return (
-    <Section title="Top products" hint={`${range === 1 ? "last 24 hours" : `${range} days`} · by revenue`}>
+    <Section title="Top products" hint={`${range.key === "custom" ? `${range.from.toLocaleDateString()} – ${range.to.toLocaleDateString()}` : range.label.toLowerCase()} · by revenue`}>
       <div className="overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
         <table className="w-full text-sm">
           <thead><tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted"><th className="px-4 py-3 font-medium">Product</th><th className="px-4 py-3 text-right font-medium">Units</th><th className="px-4 py-3 text-right font-medium">Orders</th><th className="px-4 py-3 text-right font-medium">Net revenue</th></tr></thead>
@@ -196,9 +198,9 @@ function Health({ d }: { d: ReturnType<typeof useOverviewData> }) {
 
 export default function RealPeptidesOverview() {
   const qc = useQueryClient();
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useDateRange("rp-overview");
   const forceRef = useRef(false);
-  const rlabel = range === 1 ? "24h" : `${range}d`;
+  const rlabel = range.key === "custom" ? `${rangeDays(range)}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const d = useOverviewData(range, forceRef);
   const traffic = d.ov.data?.traffic;
   const pg = d.pages.data?.totals;
@@ -220,9 +222,7 @@ export default function RealPeptidesOverview() {
             <button type="button" onClick={refreshAll} disabled={refreshing} title="Re-pull everything, including a fresh sitemap crawl" className="inline-flex items-center gap-1.5 rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text hover:border-ops-text-muted disabled:opacity-60">
               <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> Refresh
             </button>
-            <select value={range} onChange={(e) => setRange(Number(e.target.value))} className="rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-fitscript-green focus:outline-none">
-              {[1, 7, 30, 90].map((n) => <option key={n} value={n}>{n === 1 ? "Last 24 hours" : `Last ${n} days`}</option>)}
-            </select>
+            <DateRangePicker value={range} onChange={setRange} />
           </>
         }
       />

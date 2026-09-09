@@ -14,8 +14,9 @@
  * UI shows the connect state — never a fabricated zero.
  */
 import type { SalesSummary, SalesWindow } from "./woocommerce";
+import type { Window } from "./lib/window";
 
-const cache = new Map<number, { at: number; data: SalesSummary }>();
+const cache = new Map<string, { at: number; data: SalesSummary }>();
 const CACHE_MS = 10 * 60_000;
 
 function config() {
@@ -44,13 +45,14 @@ function window(w: any): SalesWindow {
   };
 }
 
-export async function siteSalesSummary(range: number): Promise<SalesSummary> {
+export async function siteSalesSummary(win: Window): Promise<SalesSummary> {
   const cfg = config();
   if (!cfg) throw new Error("New-site API not configured (RP_SITE_API_URL / RP_SITE_OPS_TOKEN)");
-  const hit = cache.get(range);
+  const range = win.days;
+  const hit = cache.get(win.key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
 
-  const r = await fetch(`${cfg.base}/api/ops-summary?days=${range}`, {
+  const r = await fetch(`${cfg.base}/api/ops-summary?${win.site}`, {
     headers: { Authorization: `Bearer ${cfg.token}`, "User-Agent": "FitScriptOps/1.0" },
     signal: AbortSignal.timeout(30_000),
   });
@@ -69,6 +71,6 @@ export async function siteSalesSummary(range: number): Promise<SalesSummary> {
     pending: Number(j.pending ?? 0),
     fetchedAt: new Date().toISOString(),
   };
-  cache.set(range, { at: Date.now(), data });
+  cache.set(win.key, { at: Date.now(), data });
   return data;
 }

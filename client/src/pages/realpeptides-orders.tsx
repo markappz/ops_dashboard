@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Mail, MousePointerClick, Newspaper, Share2, Bot, Link2, CircleDot, EyeOff, Globe, Handshake, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { ui } from "./coa/api";
 
 /**
@@ -66,21 +67,22 @@ function Legend() {
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 export default function RealPeptidesOrders() {
-  const [range, setRange] = useState(30);
+  const [range, setRange] = useDateRange("rp-orders");
   const [channel, setChannel] = useState("all");
   const [query, setQuery] = useState("");
+  const rq = rangeQuery(range);
 
   const q = useQuery({
-    queryKey: ["rp-orders", range],
+    queryKey: ["rp-orders", rq],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/orders?range=${range}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/orders?${rq}`, { credentials: "include" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },
     refetchInterval: 60_000,
   });
   const asOf = q.data?.generatedAt ? new Date(q.data.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
-  const rangeLabel = range === 1 ? "last 24 hours" : `last ${range} days`;
+  const rangeLabel = range.key === "custom" ? `${range.from.toLocaleDateString()} – ${range.to.toLocaleDateString()}` : range.label.toLowerCase();
 
   const orders = q.data?.orders ?? [];
   const shown = useMemo(() => {
@@ -101,17 +103,8 @@ export default function RealPeptidesOrders() {
       <PageHero
         eyebrow="Real Peptides"
         title="Orders"
-        subtitle={`${orders.length.toLocaleString()} paid orders · ${money(totalRevenue)} in order totals (before refunds) in the ${rangeLabel}, organized by how each one came in.${asOf ? ` Live · as of ${asOf}.` : ""}`}
-        actions={
-          <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
-            {[1, 7, 30, 90].map((d) => (
-              <button key={d} type="button" onClick={() => setRange(d)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${range === d ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
-                {d === 1 ? "24h" : `${d}d`}
-              </button>
-            ))}
-          </div>
-        }
+        subtitle={`${orders.length.toLocaleString()} paid orders · ${money(totalRevenue)} in order totals (before refunds) · ${rangeLabel}, organized by how each one came in.${asOf ? ` Live · as of ${asOf}.` : ""}`}
+        actions={<DateRangePicker value={range} onChange={setRange} />}
       />
 
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading orders…</div>}

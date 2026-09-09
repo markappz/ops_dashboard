@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 
 /**
  * Leads for Real Peptides.
@@ -196,8 +197,10 @@ function LegacyLists({ range }: { range: number }) {
 }
 
 export default function RealPeptidesLeads() {
-  const [range, setRange] = useState(30);
-  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", range], queryFn: () => get(`/api/ops/realpeptides/contacts?range=${range}`), refetchInterval: MINUTE });
+  const [range, setRange] = useDateRange("rp-leads");
+  const rq = rangeQuery(range);
+  const days = rangeDays(range);
+  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
   const c = q.data;
   const asOf = c?.generatedAt ? new Date(c.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
 
@@ -208,9 +211,7 @@ export default function RealPeptidesLeads() {
         title="Leads"
         subtitle={`realpeptides.co's CRM is the list of record and mirrors every segment to Resend.${asOf ? ` Live · as of ${asOf}.` : ""}`}
         actions={
-          <select value={range} onChange={(e) => setRange(Number(e.target.value))} className="rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-fitscript-green focus:outline-none">
-            {[7, 30, 90].map((n) => <option key={n} value={n}>Last {n} days</option>)}
-          </select>
+          <DateRangePicker value={range} onChange={setRange} />
         }
       />
 
@@ -223,7 +224,7 @@ export default function RealPeptidesLeads() {
           <Totals c={c} />
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
-              <Panel title={`New leads · last ${range} days`} subtitle={`${num(c.new?.window)} marketing captures · ${num(c.newCustomers?.window)} new customers in the window`}>
+              <Panel title={`New leads · ${range.key === "custom" ? `${range.from.toLocaleDateString()} – ${range.to.toLocaleDateString()}` : range.label.toLowerCase()}`} subtitle={`${num(c.new?.window)} marketing captures · ${num(c.newCustomers?.window)} new customers in the window`}>
                 <DailyBars daily={c.daily ?? []} />
               </Panel>
             </div>
@@ -237,7 +238,7 @@ export default function RealPeptidesLeads() {
           <Panel title="Latest leads" subtitle="Newest 50 marketing captures">
             <Recent rows={c.recent ?? []} />
           </Panel>
-          <LegacyLists range={range} />
+          <LegacyLists range={days} />
         </div>
       )}
     </div>

@@ -11,6 +11,7 @@
  */
 import type { Express } from "express";
 import { pool } from "./db";
+import { windowOf, type Window } from "./lib/window";
 
 const SITE = "realpeptides";
 
@@ -41,14 +42,14 @@ function config() {
 
 const PAGE = 500;
 const MAX_PAGES = 40;
-const ordersCache = new Map<number, { at: number; orders: any[] }>();
+const ordersCache = new Map<string, { at: number; orders: any[] }>();
 const CACHE_MS = 60_000;
 
-async function siteOrdersPage(days: number, before: string | null): Promise<any[]> {
+async function siteOrdersPage(win: Window, before: string | null): Promise<any[]> {
   const cfg = config();
   if (!cfg) throw new Error("not-configured");
   const cursor = before ? `&before=${encodeURIComponent(before)}` : "";
-  const r = await fetch(`${cfg.base}/api/ops-orders?days=${days}&limit=${PAGE}${cursor}`, {
+  const r = await fetch(`${cfg.base}/api/ops-orders?${win.site}&limit=${PAGE}${cursor}`, {
     headers: { Authorization: `Bearer ${cfg.token}`, "User-Agent": "FitScriptOps/1.0" },
     signal: AbortSignal.timeout(30_000),
   });
@@ -64,20 +65,20 @@ async function siteOrdersPage(days: number, before: string | null): Promise<any[
  * paging: keep asking for orders strictly older than the oldest seen until a
  * short page comes back. Cached a minute — the tab polls on a timer.
  */
-async function siteOrders(days: number): Promise<any[]> {
-  const hit = ordersCache.get(days);
+async function siteOrders(win: Window): Promise<any[]> {
+  const hit = ordersCache.get(win.key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.orders;
   const all: any[] = [];
   let before: string | null = null;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const batch = await siteOrdersPage(days, before);
+    const batch = await siteOrdersPage(win, before);
     all.push(...batch);
     if (batch.length < PAGE) break;
     const oldest = batch[batch.length - 1]?.createdAt ?? batch[batch.length - 1]?.created_at;
     if (!oldest || oldest === before) break;
     before = String(oldest);
   }
-  ordersCache.set(days, { at: Date.now(), orders: all });
+  ordersCache.set(win.key, { at: Date.now(), orders: all });
   return all;
 }
 
@@ -140,7 +141,7 @@ export function classify(t: Touch, extra: { affiliate?: string | null; couponSou
 }
 
 /** purchase touchpoints keyed by order_id, with their session's context. */
-async function purchaseAttribution(days: number) {
+async function purchaseAttribution(win: Window) {
   const { rows } = await pool.query(`
     SELECT t.event_data->>'order_id' AS order_id,
            t.utm_source AS t_source, t.utm_medium AS t_medium, t.utm_campaign AS t_campaign,
@@ -149,8 +150,8 @@ async function purchaseAttribution(days: number) {
     LEFT JOIN visitor_sessions s ON s.visitor_id = t.visitor_id AND s.session_id = t.session_id AND s.site = t.site
     WHERE t.site = $1 AND t.event_type = 'purchase'
       AND t.event_data->>'order_id' IS NOT NULL
-      AND t.created_at > NOW() - ($2 || ' days')::interval
-  `, [SITE, days + 2]);
+      AND t.created_at > $2 AND t.created_at <= $3
+  `, [SITE, new Date(win.from.getTime() - 2 * 86_400_000), new Date(win.to.getTime() + 86_400_000)]);
   const map = new Map<string, any>();
   for (const r of rows) map.set(String(r.order_id), r);
   return map;
@@ -158,9 +159,10 @@ async function purchaseAttribution(days: number) {
 
 export function registerRealPeptidesOrders(app: Express) {
   app.get("/api/ops/realpeptides/orders", async (req, res) => {
-    const days = Math.min(365, Math.max(1, parseInt(String(req.query.range || "30"), 10) || 30));
+    const win = windowOf(req.query as Record<string, unknown>);
+    const days = win.days;
     try {
-      const [orders, attr] = await Promise.all([siteOrders(days), purchaseAttribution(days)]);
+      const [orders, attr] = await Promise.all([siteOrders(win), purchaseAttribution(win)]);
       const rows: OrderRow[] = orders.map((o: any) => {
         const a = attr.get(String(o.id)) ?? attr.get(String(o.number));
         const ft = o.firstTouch ?? null;
@@ -213,7 +215,7 @@ export function registerRealPeptidesOrders(app: Express) {
         byChannel[r.channel].orders++;
         byChannel[r.channel].revenue += r.total;
       }
-      res.json({ configured: true, range: days, orders: rows, byChannel, generatedAt: new Date().toISOString() });
+      res.json({ configured: true, range: days, window: { from: win.from.toISOString(), to: win.to.toISOString(), custom: win.custom }, orders: rows, byChannel, generatedAt: new Date().toISOString() });
     } catch (e: any) {
       if (e.message === "not-configured") {
         return res.json({ configured: false, hint: "Connect the new realpeptides.co backend first (RP_SITE_API_URL + RP_SITE_OPS_TOKEN)." });
