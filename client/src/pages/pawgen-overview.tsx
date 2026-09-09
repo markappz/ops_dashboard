@@ -1,177 +1,129 @@
+import { useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { PageHero } from "../components/page-hero";
+import { rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
+import { Card, CommandHero, DailyBars, Delta, Health, Panel, Section, Breakdown, MINUTE, clock, get, num, usd, rangeLabel, rangeShort, type HealthRow } from "../components/command-center";
 
-// Optional everywhere: a 503 "not connected" or 500 carries only `error`, and the
-// fetch resolves it like any other body. Optional fields force a guard at each read
-// — the same bug class that white-screened the orders tab in August.
-interface Overview {
-  window?: { days: number };
-  totals?: {
-    revenueAllTime: number;
-    ordersAllTime: number;
-    revenueWindow: number;
-    ordersWindow: number;
-    aov: number;
-    pendingPayments: number;
-    refunded: number;
-    customers: number;
-    repeatCustomers: number;
-  };
-  backlog?: { count: number; value: number; oldestAt: string | null };
-  series?: { date: string; revenue: number; orders: number }[];
-  byPack?: { key: string; orders: number; revenue: number }[];
-  byMethod?: { key: string; orders: number; revenue: number }[];
-  error?: string;
+/**
+ * pawgen Command Center — K9-REPAIR sales, fulfilment, leads, traffic and the
+ * content machine, on the same kit as Real Peptides: every tile reads the feed
+ * its tab reads, polls every minute, and compares to the previous window.
+ */
+
+function useData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
+  const rq = rangeQuery(range);
+  const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
+  const cmd = useQuery({ queryKey: ["pawgen-command", rq], queryFn: () => get(`/api/ops/pawgen/command?${rq}`), refetchInterval: MINUTE });
+  const pages = useQuery({
+    queryKey: ["pawgen-pages-summary", pageDays],
+    queryFn: () => { const force = forceRef.current ? "&refresh=1" : ""; forceRef.current = false; return get(`/api/ops/pages?company=pawgen&days=${pageDays}&summary=1${force}`); },
+    staleTime: 5 * MINUTE, refetchInterval: 5 * MINUTE,
+  });
+  const clomark = useQuery({ queryKey: ["ops-clomark-overview", "pawgen"], queryFn: () => get("/api/ops/clomark/overview?company=pawgen"), staleTime: 5 * MINUTE, refetchInterval: 5 * MINUTE });
+  return { cmd, pages, clomark };
 }
 
-const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const PACK_LABEL: Record<string, string> = { "1-pack": "1 pack", "2-pack": "2 packs", "4-pack": "4 packs" };
-
-function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: "warn" | "good"; hint?: string }) {
-  const color = tone === "warn" ? "text-yellow-500" : tone === "good" ? "text-fitscript-green" : "text-ops-text";
+function SalesRow({ d, range }: { d: any; range: DateRange }) {
+  const s = d?.sales; const t = d?.traffic; const rl = rangeShort(range);
   return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${color}`}>{value}</div>
-      {hint && <div className="mt-1 text-xs text-ops-text-muted">{hint}</div>}
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <Card label={`Revenue · ${rl}`} accent to="/pawgen/orders" value={s ? <>{usd(s.current.revenue)}<Delta cur={s.current.revenue} prev={s.previous.revenue} /></> : "…"} sub={s ? `${num(s.current.orders)} paid orders · all time ${usd(s.allTime.revenue)}` : undefined} />
+      <Card label="Average order" to="/pawgen/orders" value={s ? <>{usd(s.current.aov)}<Delta cur={s.current.aov} prev={s.previous.aov} /></> : "…"} sub={s ? `${num(s.current.customers)} customers · ${num(s.allTime.repeatCustomers)} repeat buyers all time` : undefined} />
+      <Card label={`Sessions · ${rl}`} to="/pawgen/marketing" value={t?.pixelInstalled ? <>{num(t.current.sessions)}<Delta cur={t.current.sessions} prev={t.previous.sessions} /></> : "—"} sub={t?.pixelInstalled ? `${num(t.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
+      <Card label="New customers" to="/pawgen/orders" value={d?.newCustomers ? <>{num(d.newCustomers.window)}<Delta cur={d.newCustomers.window} prev={d.newCustomers.previous} /></> : "…"} sub={d?.newCustomers ? `${num(d.newCustomers.today)} today · ${num(d.newCustomers.week)} 7d · ${num(d.newCustomers.month)} 30d` : "first paid order"} />
     </div>
   );
 }
 
-/** Pure-CSS bars — no chart dependency for what is a sparkline. */
-function RevenueBars({ series }: { series: { date: string; revenue: number }[] }) {
-  const max = Math.max(...series.map((d) => d.revenue), 1);
+function LeadsRow({ d }: { d: any }) {
+  const l = d?.leads;
+  const conv = l && l.total ? Math.round((l.converted / l.total) * 100) : 0;
   return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">Revenue by day</div>
-      <div className="flex h-32 items-end gap-[3px]">
-        {series.map((d) => (
-          <div
-            key={d.date}
-            className="flex-1 rounded-sm bg-fitscript-green/70 hover:bg-fitscript-green transition-colors"
-            style={{ height: `${Math.max(2, (d.revenue / max) * 100)}%` }}
-            title={`${d.date} · ${usd(d.revenue)}`}
-          />
-        ))}
-      </div>
-      <div className="mt-2 flex justify-between text-[11px] text-ops-text-muted">
-        <span>{series[0]?.date}</span>
-        <span>peak {usd(max)}</span>
-        <span>{series[series.length - 1]?.date}</span>
-      </div>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Card label="Guide leads" to="/pawgen/marketing" value={l ? num(l.total) : "…"} sub={l ? `${num(l.guideSent)} guides sent` : undefined} />
+      <Card label="New leads · today" value={l ? num(l.today) : "…"} tone={l?.today ? "good" : undefined} sub="last 24 hours" />
+      <Card label="New leads · 7 days" value={l ? num(l.week) : "…"} sub={l?.week ? `${Math.round(l.week / 7)}/day` : "last 7 days"} />
+      <Card label="New leads · 30 days" value={l ? num(l.month) : "…"} sub={l?.bySource?.[0] ? `top source · ${l.bySource[0].source}` : "last 30 days"} />
+      <Card label="Lead → buyer" value={l ? `${conv}%` : "…"} tone={conv >= 5 ? "good" : undefined} sub={l ? `${num(l.converted)} leads bought` : undefined} />
     </div>
   );
 }
 
-function Breakdown({ title, rows }: { title: string; rows: { key: string; orders: number; revenue: number }[] }) {
-  const total = rows.reduce((s, r) => s + r.revenue, 0) || 1;
+function FulfilmentRow({ d }: { d: any }) {
+  const b = d?.backlog; const s = d?.sales;
+  const age = b?.oldestAt ? Math.floor((Date.now() - new Date(b.oldestAt).getTime()) / 86_400_000) : null;
   return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">{title}</div>
-      <div className="space-y-2">
-        {rows.length === 0 && <div className="text-sm text-ops-text-muted">No paid orders yet.</div>}
-        {rows.map((r) => (
-          <div key={r.key}>
-            <div className="flex justify-between text-sm">
-              <span className="text-ops-text">{PACK_LABEL[r.key] ?? r.key}</span>
-              <span className="text-ops-text-muted">
-                {usd(r.revenue)} · {r.orders}
-              </span>
-            </div>
-            <div className="mt-1 h-1.5 rounded-full bg-ops-border">
-              <div className="h-1.5 rounded-full bg-fitscript-green/70" style={{ width: `${(r.revenue / total) * 100}%` }} />
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <Card label="To ship" to="/pawgen/orders" value={b ? num(b.count) : "…"} tone={b?.count ? "warn" : "good"} sub={b ? `${usd(b.value)} paid, not yet shipped` : undefined} />
+      <Card label="Oldest unshipped" to="/pawgen/orders" value={age === null ? "—" : `${age}d`} tone={age !== null && age >= 3 ? "bad" : undefined} sub={b?.oldestAt ? new Date(b.oldestAt).toLocaleDateString() : "nothing waiting"} />
+      <Card label="Pending payments" to="/pawgen/orders" value={s ? num(s.pendingPayments) : "…"} tone={s?.pendingPayments ? "warn" : undefined} sub="checkout started, not paid" />
+      <Card label="Refunded" to="/pawgen/orders" value={s ? num(s.refunded) : "…"} sub="all time" />
+    </div>
+  );
+}
+
+function ContentRow({ pages, clomark }: { pages: any; clomark: any }) {
+  const pg = pages.data?.totals; const cl = clomark.data; const gsc = pages.data?.gsc?.connected;
+  const kinds = Object.entries(pg?.byKind ?? {}).sort((a: any, b: any) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${num(v as number)} ${k}`).join(", ");
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Card label="Live URLs" to="/pawgen/pages" value={pg ? num(pg.live) : pages.isLoading ? "…" : "—"} sub={pages.data?.sitemap ? `crawled ${clock(pages.data.sitemap.fetchedAt)} · ${kinds}` : undefined} />
+      <Card label="Getting impressions" to="/pawgen/pages" value={gsc && pg ? num(pg.indexedProxy) : "—"} sub={gsc && pg ? `${pg.live ? Math.round((pg.indexedProxy / pg.live) * 100) : 0}% of live URLs` : "needs Search Console"} tone={gsc && pg && pg.live && pg.indexedProxy / pg.live < 0.5 ? "warn" : undefined} />
+      <Card label="Search clicks" to="/pawgen/pages" value={gsc ? <>{num(pg?.clicks)}<Delta cur={pg?.clicks ?? 0} prev={pg?.prevClicks ?? 0} /></> : pages.isLoading ? "…" : "—"} sub={gsc ? `${num(pg?.impressions)} impressions · Google through ${pages.data?.window?.end}` : pages.data?.gsc?.error ?? "Search Console"} />
+      <Card label="Clomark suggestions" to="/pawgen/content" value={cl?.content ? num(cl.content.suggestions.all) : clomark.isLoading ? "…" : "—"} sub={cl?.content ? `${num(cl.content.suggestions.byStatus?.pending ?? 0)} pending` : clomark.data?.error ?? undefined} />
+      <Card label="Generated content" to="/pawgen/content" value={cl?.content ? num(cl.content.generated.all) : "—"} sub={cl?.content ? `${num(cl.content.generated.byStatus?.published ?? 0)} published in Clomark` : undefined} />
     </div>
   );
 }
 
 export default function PawgenOverview() {
-  const [days, setDays] = useState(30);
-  const { data, isLoading } = useQuery<Overview>({
-    queryKey: ["pawgen-overview", days],
-    queryFn: async () => {
-      const r = await fetch(`/api/ops/pawgen/overview?days=${days}`, { credentials: "include" });
-      try {
-        return await r.json();
-      } catch {
-        return { error: `Overview request failed (HTTP ${r.status})` };
-      }
-    },
-  });
+  const [range, setRange] = useDateRange("pawgen-overview");
+  const forceRef = useRef(false);
+  const q = useData(range, forceRef);
+  const d = q.cmd.data?.configured === false ? { ...q.cmd.data, sales: null, leads: null, backlog: null, newCustomers: null, traffic: null } : q.cmd.data;
+  const refreshing = [q.cmd, q.pages, q.clomark].some((x) => x.isFetching);
+  const series = useMemo(() => (d?.sales?.series ?? []).map((r: any) => ({ date: r.date, value: r.revenue })), [d]);
+  const leadSeries = useMemo(() => (d?.leads?.daily ?? []).map((r: any) => ({ date: r.date, value: r.count })), [d]);
 
-  const t = data?.totals;
+  const health: HealthRow[] = [
+    ["Orders (Supabase)", d?.configured ? "ok" : q.cmd.isError ? "bad" : d ? "off" : "…", d?.configured ? `as of ${clock(d.generatedAt)}` : d?.hint ?? (q.cmd.error as Error)?.message ?? ""],
+    ["Pixel", d?.traffic?.pixelInstalled ? "ok" : "off", d?.traffic?.pixelInstalled ? "reporting" : "no events yet"],
+    ["Sitemap", q.pages.data?.sitemap && !q.pages.data.sitemap.error ? "ok" : q.pages.data?.sitemap?.error ? "bad" : "…", q.pages.data?.sitemap ? q.pages.data.sitemap.error ?? `crawled ${clock(q.pages.data.sitemap.fetchedAt)}` : ""],
+    ["Search Console", q.pages.data?.gsc?.connected ? "ok" : q.pages.isLoading ? "…" : "off", q.pages.data?.gsc?.connected ? `${num(q.pages.data.gsc.pages)} pages` : q.pages.data?.gsc?.error ?? ""],
+    ["Clomark", q.clomark.data?.content ? "ok" : q.clomark.data?.error ? "bad" : "…", q.clomark.data?.content ? "connected" : q.clomark.data?.error ?? ""],
+  ];
 
   return (
     <div>
-      <PageHero
-        eyebrow="pawgen"
-        title="Overview"
-        subtitle="K9-REPAIR revenue, fulfilment backlog and product mix."
-        actions={
-          <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-            className="rounded-lg border border-ops-border bg-ops-surface px-3 py-1.5 text-sm text-ops-text"
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-          </select>
-        }
-      />
+      <CommandHero eyebrow="pawgen" subtitle="K9-REPAIR at a glance — sales, fulfilment, leads, traffic, search and the content machine." range={range} setRange={setRange} keys={["pawgen-command", "pawgen-pages-summary", "ops-clomark-overview"]} refreshing={refreshing} onRefresh={() => { forceRef.current = true; }} />
 
-      {data?.error && (
-        <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
-          <div className="font-medium text-red-400">pawgen overview unavailable</div>
-          <div className="text-sm text-red-400/80">{data.error}</div>
+      {d && !d.configured && <div className="mb-6 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm text-yellow-500">{d.hint}</div>}
+      {q.cmd.isError && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.cmd.error as Error).message}</div>}
+
+      <SalesRow d={d} range={range} />
+
+      <Section title="Leads" hint="guide magnet · pawgen.com">
+        <LeadsRow d={d} />
+      </Section>
+
+      <Section title="Fulfilment" hint={d?.backlog ? `as of ${clock(d.generatedAt)}` : undefined}>
+        <FulfilmentRow d={d} />
+      </Section>
+
+      <Section title="Content & search footprint" hint="Clomark · sitemap · Search Console">
+        <ContentRow pages={q.pages} clomark={q.clomark} />
+      </Section>
+
+      <Section title={`Sales · ${rangeLabel(range)}`}>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2"><Panel title="Revenue by day" subtitle={`${usd(d?.sales?.current.revenue)} · ${num(d?.sales?.current.orders)} paid orders`}><DailyBars rows={series} money label="revenue" /></Panel></div>
+          <Panel title="By pack" subtitle="revenue share"><Breakdown rows={d?.sales?.byPack ?? []} money empty="No paid orders in this window." /></Panel>
+          <Panel title="By payment method" subtitle="revenue share"><Breakdown rows={d?.sales?.byMethod ?? []} money empty="No paid orders in this window." /></Panel>
+          <Panel title="By source" subtitle="first-touch ref_source at checkout"><Breakdown rows={d?.sales?.bySource ?? []} money empty="No attributed orders in this window." /></Panel>
+          <Panel title="Leads by day" subtitle={`${num(d?.leads?.window)} guide signups in the window`}><DailyBars rows={leadSeries} label="leads" /></Panel>
         </div>
-      )}
+      </Section>
 
-      {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
-
-      {t && (
-        <>
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <Stat label={`Revenue (${data?.window?.days ?? days}d)`} value={usd(t.revenueWindow)} hint={`${t.ordersWindow} orders`} />
-            <Stat label="Revenue (all time)" value={usd(t.revenueAllTime)} hint={`${t.ordersAllTime} paid orders`} />
-            <Stat label="Average order" value={usd(t.aov)} />
-            <Stat
-              label="To fulfil"
-              value={String(data?.backlog?.count ?? 0)}
-              tone={(data?.backlog?.count ?? 0) > 0 ? "warn" : undefined}
-              hint={data?.backlog?.count ? `${usd(data.backlog.value)} waiting to ship` : "all shipped"}
-            />
-          </div>
-
-          {(data?.backlog?.count ?? 0) > 0 && data?.backlog?.oldestAt && (
-            <div className="mb-6 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 text-sm">
-              <span className="font-medium text-yellow-500">{data.backlog.count} paid orders are still unfulfilled</span>
-              <span className="text-ops-text-muted">
-                {" "}
-                — oldest placed {new Date(data.backlog.oldestAt).toLocaleDateString()}. That's {usd(data.backlog.value)} of
-                product customers have paid for and not received.
-              </span>
-            </div>
-          )}
-
-          <div className="mb-6 grid gap-4 lg:grid-cols-3">
-            <div className="lg:col-span-2">{data?.series && <RevenueBars series={data.series} />}</div>
-            <div className="grid gap-4">
-              <Stat label="Customers" value={String(t.customers)} hint={`${t.repeatCustomers} bought more than once`} />
-              <Stat label="Pending payments" value={String(t.pendingPayments)} hint={t.refunded ? `${t.refunded} refunded` : undefined} />
-            </div>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Breakdown title="By pack" rows={data?.byPack ?? []} />
-            <Breakdown title="By payment method" rows={data?.byMethod ?? []} />
-          </div>
-        </>
-      )}
+      <Health rows={health} />
     </div>
   );
 }
