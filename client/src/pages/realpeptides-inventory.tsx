@@ -260,7 +260,7 @@ export default function RealPeptidesInventory() {
 
       {item === "product" && !skusQ.isLoading && <TopSellers skus={skus} />}
 
-      {showPos && <PurchaseOrders skus={skus} onClose={() => setShowPos(false)} onSay={say} />}
+      {showPos && <PurchaseOrders skus={skus} velocity={velocity} onClose={() => setShowPos(false)} onSay={say} />}
       {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
       {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
       {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity}

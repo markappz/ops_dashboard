@@ -1,34 +1,39 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
-  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp,
+  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck,
 } from "lucide-react";
 import { api, ui, thumbUrl, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
-import { downloadPoPdf, orderQty, isLow } from "./order-pdf";
+import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
- * Purchase orders: what's been ordered from the manufacturer and when it
- * arrives. "Ordered" quantities show as on-order in the inventory table and
- * come off the reorder math. Check-ins are partial and per-line — each box
- * that lands stocks its contents in (audited) and the PO stays open with the
- * remainder until everything shows up or it's closed short. The paste box
- * turns the fulfilment team's "Product - qty" text into a check-in.
+ * Purchase orders, per supplier. "New PO" opens a review list pre-filled with
+ * every product below target for the chosen supplier (recommended quantity =
+ * target − stock − on-order, rounded up to boxes of ten) that the team can
+ * edit, trim or add to, then Save → PDF → Mark ordered. Ordered quantities
+ * show as on-order in the inventory table and come off the reorder math;
+ * check-ins are per line and audited; the paste box turns the fulfilment
+ * team's "Product - qty" text into a check-in.
  */
 
 const remainingOf = (i: PoItem) => Math.max(0, Number(i.qty) - Number(i.received_qty));
 const poRemaining = (po: Po) => po.items.reduce((a, i) => a + remainingOf(i), 0);
 
-export function PurchaseOrders({ skus, onClose, onSay }: { skus: Sku[]; onClose: () => void; onSay: (m: string) => void }) {
+type Velocity = Record<string, { units: Record<number, number>; weekly: number }>;
+
+export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: Sku[]; velocity?: Velocity; onClose: () => void; onSay: (m: string) => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<number | "new" | "paste" | null>(null);
-  const [mode, setMode] = useState<"list" | "custom" | "paste">("list");
+  const [mode, setMode] = useState<"list" | "new" | "paste">("list");
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
+  const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[]; counts: { supplier: string | null; products: number }[] }>("/suppliers") });
   const pos = posQ.data?.pos ?? [];
 
   const bump = () => {
     qc.invalidateQueries({ queryKey: ["coa-pos"] });
     qc.invalidateQueries({ queryKey: ["coa-skus"] });
+    qc.invalidateQueries({ queryKey: ["coa-suppliers"] });
   };
   async function run(key: number | "new" | "paste", fn: () => Promise<unknown>, done?: string) {
     setBusy(key);
@@ -37,40 +42,36 @@ export function PurchaseOrders({ skus, onClose, onSay }: { skus: Sku[]; onClose:
     finally { setBusy(null); }
   }
 
-  const shortfall = skus.filter((s) => isLow(s)).map((s) => ({ sku_id: s.id, qty: orderQty(s) ?? 0 })).filter((i) => i.qty > 0);
-  const createFromShortfall = () =>
-    run("new", () => api("/pos", { method: "POST", body: JSON.stringify({ supplier: "Manufacturer", items: shortfall }) }),
-      `Draft PO created — ${shortfall.length} line${shortfall.length === 1 ? "" : "s"}. Mark it ordered when it's sent.`);
+  const lowCount = skus.filter((s) => isLow(s) && (orderQty(s) ?? 0) > 0).length;
 
   return (
     <div className={ui.modal} onClick={onClose}>
-      <div className={`${ui.sheet} max-w-3xl`} onClick={(e) => e.stopPropagation()}>
+      <div className={`${ui.sheet} max-w-4xl`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-ops-border p-5">
           <div>
             <h2 className="text-base font-semibold text-ops-text">Purchase orders</h2>
-            <p className="text-xs text-ops-text-muted">Ordered quantities count as on-order; check-ins stock in what actually arrived, box by box.</p>
+            <p className="text-xs text-ops-text-muted">One PO per supplier. Ordered quantities count as on-order; check-ins stock in what actually arrived, box by box.</p>
           </div>
           <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={20} /></button>
         </div>
 
         <div className="space-y-3 p-5">
-          <div className="grid gap-2 sm:grid-cols-3">
-            <button type="button" onClick={createFromShortfall} disabled={busy !== null || !shortfall.length} className={ui.primary}>
-              {busy === "new" ? <Loader2 size={15} className="animate-spin" /> : <ClipboardList size={15} />}
-              PO from shortfall ({shortfall.length})
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => setMode(mode === "new" ? "list" : "new")} className={mode === "new" ? ui.ghost : ui.primary}>
+              <Plus size={15} /> New PO{lowCount ? ` · ${lowCount} below target` : ""}
             </button>
-            <button type="button" onClick={() => setMode(mode === "custom" ? "list" : "custom")}
-              className={mode === "custom" ? ui.primary : ui.ghost}><Plus size={15} /> Custom PO</button>
             <button type="button" onClick={() => setMode(mode === "paste" ? "list" : "paste")}
               className={mode === "paste" ? ui.primary : ui.ghost}><ClipboardPaste size={15} /> Paste check-in</button>
           </div>
 
-          {mode === "custom" && (
-            <CustomPoBuilder skus={skus} busy={busy !== null}
-              onCreate={(items, supplier, note) =>
-                run("new", () => api("/pos", { method: "POST", body: JSON.stringify({ supplier, note, items }) }),
-                  `Draft PO created — ${items.length} line${items.length === 1 ? "" : "s"}. Mark it ordered when it's sent.`)
-                  .then(() => setMode("list"))} />
+          {mode === "new" && (
+            <PoBuilder skus={skus} velocity={velocity} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max"]} busy={busy !== null} onSay={onSay} bump={bump}
+              onCreate={async (items, supplier, note) => {
+                let created: Po | null = null;
+                await run("new", async () => { created = await api<Po>("/pos", { method: "POST", body: JSON.stringify({ supplier, note, items }) }); },
+                  `Draft PO for ${supplier} saved — ${items.length} line${items.length === 1 ? "" : "s"}, ${items.reduce((a, i) => a + i.qty, 0)} units. Download the PDF, then mark it ordered when it's sent.`);
+                if (created) setMode("list");
+              }} />
           )}
 
           {mode === "paste" && (
@@ -97,7 +98,7 @@ export function PurchaseOrders({ skus, onClose, onSay }: { skus: Sku[]; onClose:
           )}
 
           {posQ.isLoading && <div className="py-8 text-center text-sm text-ops-text-muted">Loading POs…</div>}
-          {!posQ.isLoading && !pos.length && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet.</div>}
+          {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
           {pos.map((po) => (
             <PoCard key={po.id} po={po} busy={busy} run={run} onSay={onSay} />
@@ -259,32 +260,84 @@ function PoCard({ po, busy, run, onSay }: {
 
 // ─── Custom PO builder: Justin picks the lines, he knows the demand ─
 
-function CustomPoBuilder({ skus, busy, onCreate }: {
-  skus: Sku[]; busy: boolean;
+// ─── New PO builder: supplier → prefilled review list → save ────────
+
+const ALL = "__all__";
+
+function weeksOf(s: Sku, velocity: Velocity): string {
+  const v = velocity[s.sku_code];
+  if (!v?.weekly) return "—";
+  const cur = Math.max(0, stockNum(s.current_stock) ?? 0);
+  return `${(cur / v.weekly).toFixed(1)}w · ${Math.round(v.weekly)}/wk`;
+}
+
+function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump }: {
+  skus: Sku[]; velocity: Velocity; suppliers: string[]; busy: boolean;
   onCreate: (items: { sku_id: number; qty: number }[], supplier: string, note: string) => void;
+  onSay: (m: string) => void; bump: () => void;
 }) {
+  const unassigned = skus.filter((s) => !s.supplier).length;
+  const firstWithNeed = suppliers.find((sp) => skus.some((s) => s.supplier === sp && isLow(s) && (orderQty(s) ?? 0) > 0));
+  const [supplier, setSupplier] = useState<string>(firstWithNeed ?? (unassigned === skus.length ? ALL : suppliers[0]));
   const [q, setQ] = useState("");
-  const [supplier, setSupplier] = useState("Manufacturer");
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<{ sku: Sku; qty: string }[]>([]);
+  const [assigning, setAssigning] = useState(false);
+
+  // Pre-fill: everything below target for this supplier, with the recommended quantity.
+  useEffect(() => {
+    const pick = skus.filter((s) => (supplier === ALL || s.supplier === supplier) && isLow(s) && (orderQty(s) ?? 0) > 0);
+    setLines(pick.map((s) => ({ sku: s, qty: String(orderQty(s) ?? "") })));
+  }, [supplier, skus]);
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return [];
     const chosen = new Set(lines.map((l) => l.sku.id));
-    return skus
-      .filter((s) => !chosen.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle)))
-      .slice(0, 6);
+    return skus.filter((s) => !chosen.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle))).slice(0, 6);
   }, [q, skus, lines]);
 
   const items = lines.map((l) => ({ sku_id: l.sku.id, qty: Number(l.qty) })).filter((i) => i.qty > 0);
+  const units = items.reduce((a, i) => a + i.qty, 0);
   const setQty = (id: number, qty: string) => setLines(lines.map((l) => (l.sku.id === id ? { ...l, qty } : l)));
+  const setSku = async (s: Sku, sup: string) => {
+    try { await api(`/skus/${s.id}`, { method: "PATCH", body: JSON.stringify({ supplier: sup }) }); bump(); }
+    catch (e: any) { onSay(`Couldn't set supplier: ${e.message}`); }
+  };
+  const autoAssign = async () => {
+    setAssigning(true);
+    try {
+      const r = await api<{ assigned: number; bySupplier: Record<string, number> }>("/skus/assign-suppliers", { method: "POST", body: JSON.stringify({}) });
+      bump();
+      onSay(`Assigned ${r.assigned} products by type: ${Object.entries(r.bySupplier).map(([k, v]) => `${k} ${v}`).join(", ")}. Change any product's supplier in the list below.`);
+    } catch (e: any) { onSay(`Auto-assign failed: ${e.message}`); }
+    finally { setAssigning(false); }
+  };
 
   return (
     <div className="space-y-3 rounded-xl border border-ops-border p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><Truck size={13} /> Supplier</span>
+        {suppliers.map((sp) => {
+          const need = skus.filter((s) => s.supplier === sp && isLow(s) && (orderQty(s) ?? 0) > 0).length;
+          return (
+            <button key={sp} type="button" onClick={() => setSupplier(sp)}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition ${supplier === sp ? "border-fitscript-green bg-fitscript-green/10 text-fitscript-green" : "border-ops-border text-ops-text hover:border-ops-text-muted"}`}>
+              {sp}{need ? <span className="ml-1.5 rounded-full bg-amber-500/15 px-1.5 text-[10px] font-semibold text-amber-500">{need}</span> : null}
+            </button>
+          );
+        })}
+        <button type="button" onClick={() => setSupplier(ALL)} className={`rounded-lg border px-3 py-1.5 text-sm ${supplier === ALL ? "border-fitscript-green bg-fitscript-green/10 text-fitscript-green" : "border-ops-border text-ops-text-muted hover:border-ops-text-muted"}`}>All</button>
+        {unassigned > 0 && (
+          <button type="button" onClick={autoAssign} disabled={assigning} className={`${ui.ghost} ml-auto px-2.5 py-1.5 text-xs`} title="Capsules & tablets → Mike, sprays & serums → Caleb, vials → Ming. Editable per product afterwards.">
+            {assigning ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />} Assign {unassigned} unassigned by type
+          </button>
+        )}
+      </div>
+
       <div className="relative">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ops-text-muted" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a product — search name or SKU…" className={`${ui.input} pl-8`} autoFocus />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a product that isn't below target — search name or SKU…" className={`${ui.input} pl-8`} />
         {hits.length > 0 && (
           <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-ops-border bg-ops-surface shadow-card">
             {hits.map((s) => {
@@ -292,13 +345,9 @@ function CustomPoBuilder({ skus, busy, onCreate }: {
               return (
                 <button key={s.id} type="button" onClick={() => { setLines([...lines, { sku: s, qty: String(orderQty(s) || "") }]); setQ(""); }}
                   className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-ops-bg">
-                  <span className="h-7 w-7 shrink-0 overflow-hidden rounded-md border border-ops-border bg-ops-bg">
-                    {img && <img src={img} alt="" className="h-full w-full object-cover" loading="lazy" />}
-                  </span>
+                  <span className="h-7 w-7 shrink-0 overflow-hidden rounded-md border border-ops-border bg-ops-bg">{img && <img src={img} alt="" className="h-full w-full object-cover" loading="lazy" />}</span>
                   <span className="min-w-0 flex-1 truncate text-ops-text">{s.product_name}</span>
-                  <span className="shrink-0 text-[11px] text-ops-text-muted">
-                    {s.sku_code}{s.do_not_replenish ? " · no-reorder" : ""}
-                  </span>
+                  <span className="shrink-0 text-[11px] text-ops-text-muted">{s.sku_code}{s.supplier ? ` · ${s.supplier}` : ""}{s.do_not_replenish ? " · no-reorder" : ""}</span>
                 </button>
               );
             })}
@@ -306,30 +355,70 @@ function CustomPoBuilder({ skus, busy, onCreate }: {
         )}
       </div>
 
-      {lines.length > 0 && (
-        <ul className="divide-y divide-ops-border/50 rounded-xl border border-ops-border">
-          {lines.map((l) => (
-            <li key={l.sku.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-              <span className="min-w-0 flex-1 truncate text-ops-text">{l.sku.product_name} <span className="text-[11px] text-ops-text-muted">({l.sku.sku_code})</span></span>
-              <input value={l.qty} inputMode="numeric" placeholder="qty" autoFocus={!l.qty}
-                onChange={(e) => setQty(l.sku.id, e.target.value.replace(/[^\d]/g, ""))}
-                className="h-8 w-20 rounded-md border border-ops-border bg-ops-bg text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
-              <button type="button" onClick={() => setLines(lines.filter((x) => x.sku.id !== l.sku.id))}
-                className="p-1 text-ops-text-muted hover:text-red-400"><Minus size={14} /></button>
-            </li>
-          ))}
-        </ul>
+      {lines.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-ops-border p-6 text-center text-sm text-ops-text-muted">
+          Nothing below target for {supplier === ALL ? "any supplier" : supplier}. Add products above if you still want to order.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-ops-border">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="border-b border-ops-border text-left text-[11px] uppercase tracking-wider text-ops-text-muted">
+                <th className="px-3 py-2 font-medium">Product</th>
+                <th className="px-2 py-2 text-right font-medium">Stock</th>
+                <th className="px-2 py-2 text-right font-medium">Target</th>
+                <th className="px-2 py-2 text-right font-medium">On order</th>
+                <th className="px-2 py-2 text-right font-medium">Cover</th>
+                <th className="px-2 py-2 font-medium">Supplier</th>
+                <th className="px-2 py-2 text-right font-medium">Order qty</th>
+                <th className="px-2 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-ops-border/50">
+              {lines.map((l) => {
+                const s = l.sku; const img = thumbUrl(s);
+                return (
+                  <tr key={s.id}>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="h-8 w-8 shrink-0 overflow-hidden rounded-md border border-ops-border bg-ops-bg">{img && <img src={img} alt="" className="h-full w-full object-cover" loading="lazy" />}</span>
+                        <div className="min-w-0"><div className="truncate text-ops-text">{s.product_name}</div><div className="text-[11px] text-ops-text-muted">{s.sku_code}</div></div>
+                      </div>
+                    </td>
+                    <td className={`px-2 py-2 text-right tabular-nums ${(stockNum(s.current_stock) ?? 0) <= 0 ? "text-red-400 font-semibold" : "text-ops-text"}`}>{stockNum(s.current_stock) ?? "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-ops-text-muted">{stockNum(s.ideal_stock) ?? "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums text-ops-text-muted">{stockNum(s.on_order) || "—"}</td>
+                    <td className="px-2 py-2 text-right text-xs text-ops-text-muted">{weeksOf(s, velocity)}</td>
+                    <td className="px-2 py-2">
+                      <select value={s.supplier ?? ""} onChange={(e) => setSku(s, e.target.value)} className="h-8 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
+                        <option value="">—</option>
+                        {suppliers.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <input value={l.qty} inputMode="numeric" onChange={(e) => setQty(s.id, e.target.value.replace(/[^\d]/g, ""))}
+                        className="h-8 w-20 rounded-md border border-ops-border bg-ops-bg text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
+                    </td>
+                    <td className="px-2 py-2 text-right">
+                      <button type="button" onClick={() => setLines(lines.filter((x) => x.sku.id !== s.id))} title="Remove from this PO" className="p-1 text-ops-text-muted hover:text-red-400"><Minus size={14} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Supplier" className={ui.input} />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className={ui.input} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the supplier (optional)" className={`${ui.input} flex-1`} />
+        <button type="button" disabled={busy || !items.length || supplier === ALL} title={supplier === ALL ? "Pick a supplier — POs are per supplier" : undefined}
+          onClick={() => onCreate(items, supplier, note.trim())} className={ui.primary}>
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <ClipboardList size={15} />}
+          Save PO for {supplier === ALL ? "…" : supplier} ({items.length} line{items.length === 1 ? "" : "s"} · {units} units)
+        </button>
       </div>
-      <button type="button" disabled={busy || !items.length} onClick={() => { onCreate(items, supplier.trim(), note.trim()); setLines([]); }}
-        className={`w-full ${ui.primary}`}>
-        {busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-        Create draft PO ({items.length} line{items.length === 1 ? "" : "s"} · {items.reduce((a, i) => a + i.qty, 0)} units)
-      </button>
+      <p className="text-[11px] text-ops-text-muted">Recommended quantity = target − (stock − held) − on order, rounded up to boxes of ten. Targets follow the "Stock up for" setting on the Inventory tab. Saving creates a draft; download the PDF from its card, then mark it ordered.</p>
     </div>
   );
 }

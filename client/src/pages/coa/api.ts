@@ -29,6 +29,7 @@ export interface Sku {
   held: number | null;
   requires_coa: boolean;
   do_not_replenish: boolean;
+  supplier?: string | null;
   cover_weeks: number | null;
   coa_test_date: string | null;
   coa_expiry_date: string | null;
