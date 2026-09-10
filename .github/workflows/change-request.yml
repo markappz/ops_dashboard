@@ -1,0 +1,137 @@
+name: Change request (Claude Code)
+
+# Fired by ops (repository_dispatch) when a team member asks for a dashboard
+# change. Claude Code builds it on a branch, the same typecheck + build gate
+# as deploys must pass, a pull request is opened, and the outcome is reported
+# back to ops. Nothing reaches main until an admin approves in ops.
+
+on:
+  repository_dispatch:
+    types: [change_request]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: change-request-${{ github.event.client_payload.id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REQ_ID: ${{ github.event.client_payload.id }}
+      REQ_TITLE: ${{ github.event.client_payload.title }}
+      REQ_BODY: ${{ github.event.client_payload.body }}
+      REQ_AREA: ${{ github.event.client_payload.area }}
+      REQ_COMPANY: ${{ github.event.client_payload.company }}
+      REQ_BY: ${{ github.event.client_payload.requested_by }}
+      OPS_URL: ${{ secrets.OPS_URL }}
+      OPS_CI_TOKEN: ${{ secrets.OPS_CI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Branch
+        run: |
+          git config user.name "ops-change-requests"
+          git config user.email "ops@fitscript.me"
+          echo "BRANCH=request/${REQ_ID}-$(echo "$REQ_TITLE" | tr -cs 'a-zA-Z0-9' '-' | tr 'A-Z' 'a-z' | cut -c1-40 | sed 's/-*$//')" >> "$GITHUB_ENV"
+      - run: git checkout -b "$BRANCH"
+
+      - name: Claude Code builds the change
+        id: claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm i -g @anthropic-ai/claude-code
+          cat > /tmp/prompt.md <<EOF
+          You are working in the FitScript ops dashboard repo (Express + React + Tailwind, see CLAUDE.md).
+          A team member requested this change through the dashboard.
+
+          Requested by: $REQ_BY
+          Area: ${REQ_AREA:-unspecified} · Brand: ${REQ_COMPANY:-unspecified}
+          Title: $REQ_TITLE
+
+          Request:
+          $REQ_BODY
+
+          Rules:
+          - Implement exactly this request, nothing more. Keep the existing design language and component kit.
+          - Real Peptides data comes only through the tracker proxy (/api/ops/realpeptides/coa/api/*) and the site's /api/ops-* reads. Never add DB credentials.
+          - Every function under 30 lines, TypeScript only, no comments that restate code.
+          - Do not touch .github/, Dockerfile, or secrets. Do not run git commands.
+          - When done, write a 3-6 line plain-English summary of what changed and where to /tmp/summary.md (no code).
+          EOF
+          set +e
+          claude -p "$(cat /tmp/prompt.md)" \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Edit,Write,Grep,Glob,Bash(npm run build),Bash(npx tsc *),Bash(ls *),Bash(cat *)" \
+            --max-turns 60 \
+            --output-format text > /tmp/claude.log 2>&1
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          tail -c 2000 /tmp/claude.log
+
+      - name: Gate (typecheck + build)
+        id: gate
+        run: |
+          set +e
+          npx tsc --noEmit > /tmp/tsc.log 2>&1; TSC=$?
+          npm run build > /tmp/build.log 2>&1; BUILD=$?
+          echo "tsc=$TSC build=$BUILD" >> "$GITHUB_OUTPUT"
+          if [ "$TSC" != "0" ] || [ "$BUILD" != "0" ]; then
+            echo "gate=fail" >> "$GITHUB_OUTPUT"; tail -c 1500 /tmp/tsc.log; tail -c 1500 /tmp/build.log
+          else
+            echo "gate=pass" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open pull request
+        id: pr
+        if: steps.gate.outputs.gate == 'pass'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then echo "changed=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git commit -q -m "$REQ_TITLE
+
+          Change request #$REQ_ID from $REQ_BY, built by Claude Code.
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+          git push -u origin "$BRANCH"
+          SUMMARY="$(cat /tmp/summary.md 2>/dev/null || echo 'No summary written.')"
+          URL=$(gh pr create --title "$REQ_TITLE" --body "Change request #$REQ_ID from $REQ_BY
+
+          **Request**
+          $REQ_BODY
+
+          **What changed**
+          $SUMMARY
+
+          Typecheck and production build passed in CI. Approve or reject in ops → Settings → Requests." --base main --head "$BRANCH")
+          echo "changed=yes" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "number=${URL##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Report back to ops
+        if: always()
+        run: |
+          SUMMARY="$(cat /tmp/summary.md 2>/dev/null | head -c 1500)"
+          if [ "${{ steps.gate.outputs.gate }}" = "pass" ] && [ "${{ steps.pr.outputs.changed }}" = "yes" ]; then
+            PAYLOAD=$(jq -n --arg s "$SUMMARY" --arg b "$BRANCH" --arg u "${{ steps.pr.outputs.url }}" --argjson n "${{ steps.pr.outputs.number || 0 }}" '{ok:true, summary:$s, branch:$b, pr_url:$u, pr_number:$n}')
+          else
+            ERR="gate: tsc=${{ steps.gate.outputs.tsc }} build=${{ steps.gate.outputs.build }}; claude exit=${{ steps.claude.outputs.exit }}; changed=${{ steps.pr.outputs.changed }}. $(tail -c 800 /tmp/tsc.log 2>/dev/null) $(tail -c 800 /tmp/build.log 2>/dev/null)"
+            PAYLOAD=$(jq -n --arg s "$SUMMARY" --arg b "$BRANCH" --arg e "$ERR" '{ok:false, summary:$s, branch:$b, error:$e}')
+          fi
+          curl -s -X POST "$OPS_URL/api/ops/change-requests/$REQ_ID/result" -H "Authorization: Bearer $OPS_CI_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD" -o /dev/null -w "ops callback %{http_code}\n"

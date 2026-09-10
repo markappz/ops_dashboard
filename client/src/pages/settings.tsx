@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useState } from "react";
 import type React from "react";
 import { PageHero } from "../components/page-hero";
+import { ChangeRequestsPanel } from "../components/change-request";
 
 interface SettingsData {
   session: { email: string | null; ttlDays: number };
@@ -41,7 +42,7 @@ interface ActionsResp {
   byKind: Array<{ target_kind: string; count: number }>;
 }
 
-type Tab = "general" | "admins" | "audit";
+type Tab = "general" | "admins" | "requests" | "audit";
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -84,6 +85,7 @@ export default function Settings() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "general", label: "General" },
     { key: "admins", label: "Team" },
+    { key: "requests", label: "Requests" },
     { key: "audit", label: "Admin Log" },
   ];
 
@@ -114,6 +116,7 @@ export default function Settings() {
 
       {tab === "general" && <GeneralTab data={data} />}
       {tab === "admins" && <AdminsTab currentAdminEmail={data?.session?.email ?? ""} />}
+      {tab === "requests" && <ChangeRequestsPanel />}
       {tab === "audit" && <AuditTab />}
     </div>
   );

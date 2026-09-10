@@ -38,7 +38,7 @@ export function PageHero({
             <p className="text-sm text-ops-text-muted mt-2 max-w-2xl">{subtitle}</p>
           )}
         </div>
-        {actions && <div className="flex items-center gap-2 flex-wrap md:flex-nowrap md:shrink-0">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-wrap md:max-w-[62%] md:shrink-0 md:justify-end">{actions}</div>}
       </div>
     </div>
   );

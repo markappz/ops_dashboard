@@ -12,6 +12,7 @@ import { Forecast } from "./coa/Forecast";
 import { TopSellers } from "./coa/TopSellers";
 import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
 import { AddProduct } from "./coa/AddProduct";
+import { RequestChangeButton } from "../components/change-request";
 
 /**
  * Real Peptides Inventory — the Shelf Planner replacement.
@@ -167,6 +168,7 @@ export default function RealPeptidesInventory() {
         subtitle={`${counts.all} products · ${counts.units.toLocaleString()} ${t.unit} on hand${counts.onOrder ? ` · ${counts.onOrder.toLocaleString()} on order` : ""}. Website orders sync in automatically; every change is logged.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <RequestChangeButton area="inventory" company="realpeptides" className={ui.ghost} />
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.ghost} title="New product or a new variant of an existing one"><Plus size={15} /> Add product</button>}

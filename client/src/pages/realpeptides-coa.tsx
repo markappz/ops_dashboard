@@ -5,6 +5,7 @@ import { PageHero } from "../components/page-hero";
 import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
 import { AddProduct } from "./coa/AddProduct";
+import { RequestChangeButton } from "../components/change-request";
 import { StatusDonut } from "./coa/StatusDonut";
 import { FamilyGrid } from "./coa/FamilyGrid";
 import { FamilyDetail } from "./coa/FamilyDetail";
@@ -91,6 +92,7 @@ export default function RealPeptidesCoa() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <input ref={csvRef} type="file" accept=".csv" hidden onChange={onCsv} />
+            <RequestChangeButton area="coa" company="realpeptides" className={ui.ghost} />
             <button type="button" onClick={() => setShowSummary(true)} className={ui.ghost}><ClipboardList size={15} /> Action Summary</button>
             <button type="button" onClick={() => exportSummaryCsv(skus.data?.skus ?? [])} disabled={!skus.data?.skus?.length} className={ui.ghost} title="Download every SKU's status as a spreadsheet"><Download size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => csvRef.current?.click()} className={ui.ghost}><Upload size={15} /> Import CSV</button>}

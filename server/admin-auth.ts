@@ -442,6 +442,8 @@ export function requireAuth(
 export function opsGate(req: Request, res: Response, next: NextFunction) {
   if (!req.path.startsWith("/api/ops/")) return next();
   if (req.path.startsWith("/api/ops/auth/")) return next();
+  // The change-request GitHub job reports back with its own bearer token (checked in the route).
+  if (/^\/api\/ops\/change-requests\/\d+\/result\/?$/.test(req.path) && req.method === "POST") return next();
   return requireAuth(req as AdminRequest, res, next);
 }
 
