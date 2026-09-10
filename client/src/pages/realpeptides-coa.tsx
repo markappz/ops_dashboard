@@ -4,6 +4,7 @@ import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Laye
 import { PageHero } from "../components/page-hero";
 import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
+import { AddProduct } from "./coa/AddProduct";
 import { StatusDonut } from "./coa/StatusDonut";
 import { FamilyGrid } from "./coa/FamilyGrid";
 import { FamilyDetail } from "./coa/FamilyDetail";
@@ -125,45 +126,8 @@ export default function RealPeptidesCoa() {
       {showAlerts && <AlertSettings onClose={() => setShowAlerts(false)} />}
       {showBulk && <BulkUpload skus={skus.data?.skus ?? []} onClose={() => setShowBulk(false)} onDone={(m) => { setShowBulk(false); say(m); refresh(); }} />}
       {showLabOrder && <LabOrder skus={skus.data?.skus ?? []} onClose={() => setShowLabOrder(false)} onSay={say} onChanged={refresh} />}
-      {showAdd && <AddProduct onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); refresh(); }} />}
+      {showAdd && <AddProduct skus={skus.data?.skus ?? []} onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); refresh(); }} />}
     </div>
   );
 }
 
-function AddProduct({ onClose, onDone }: { onClose: () => void; onDone: (msg: string) => void }) {
-  const [name, setName] = useState("");
-  const [code, setCode] = useState("");
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true); setErr(null);
-    try {
-      await api("/skus", { method: "POST", body: JSON.stringify({ product_name: name.trim(), sku_code: code.trim(), product_url: url.trim() || null }) });
-      onDone(`Added ${name.trim()} (${code.trim()}). It shows as "Needs COA" until a certificate is filed.`);
-    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
-  }
-
-  return (
-    <div className={ui.modal} onClick={onClose}>
-      <form onSubmit={submit} className={`${ui.sheet} max-w-lg`} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-ops-border p-5">
-          <h2 className="text-base font-semibold text-ops-text">Add a product</h2>
-          <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={20} /></button>
-        </div>
-        <div className="space-y-4 p-5">
-          <div><label className={ui.label}>Product name</label><input autoFocus value={name} onChange={(e) => setName(e.target.value)} className={ui.input} placeholder="BPC-157 - 10mg (Injectable)" required /></div>
-          <div><label className={ui.label}>SKU code</label><input value={code} onChange={(e) => setCode(e.target.value)} className={ui.input} placeholder="RP-BPC10V" required /></div>
-          <div><label className={ui.label}>Product page URL (optional)</label><input type="url" value={url} onChange={(e) => setUrl(e.target.value)} className={ui.input} placeholder="https://realpeptides.co/product/bpc-157-10mg" /></div>
-          {err && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{err}</div>}
-          <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className={ui.ghost}>Cancel</button>
-            <button type="submit" disabled={busy || !name.trim() || !code.trim()} className={ui.primary}>{busy ? "Adding…" : "Add product"}</button>
-          </div>
-        </div>
-      </form>
-    </div>
-  );
-}

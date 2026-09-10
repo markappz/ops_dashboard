@@ -287,7 +287,7 @@ async function proxyToTracker(req: Request, res: Response) {
       headers["content-type"] = "application/json";
       const json = { ...(req.body ?? {}) };
       // Stock movements and lab orders are audit-logged on the tracker — stamp who did it.
-      if (/^\/skus\/\d+\/stock\/?$/.test(sub) || /^\/lab-orders\/?$/.test(sub) || /^\/pos(\/|$)/.test(sub)) {
+      if (/^\/skus\/\d+\/stock\/?$/.test(sub) || /^\/skus\/?$/.test(sub) || /^\/lab-orders\/?$/.test(sub) || /^\/pos(\/|$)/.test(sub)) {
         json.by = (req as any).adminEmail || json.by;
       }
       body = JSON.stringify(json);

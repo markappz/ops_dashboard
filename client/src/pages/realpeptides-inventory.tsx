@@ -11,6 +11,7 @@ import { PurchaseOrders } from "./coa/PurchaseOrders";
 import { Forecast } from "./coa/Forecast";
 import { TopSellers } from "./coa/TopSellers";
 import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
+import { AddProduct } from "./coa/AddProduct";
 
 /**
  * Real Peptides Inventory — the Shelf Planner replacement.
@@ -135,6 +136,7 @@ export default function RealPeptidesInventory() {
     finally { setTargetsBusy(false); }
   }
   const [imgBusy, setImgBusy] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
   async function syncImages(force = false) {
     setImgBusy(true);
     try {
@@ -167,6 +169,7 @@ export default function RealPeptidesInventory() {
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
+            {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.ghost} title="New product or a new variant of an existing one"><Plus size={15} /> Add product</button>}
             {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
             {canEdit && (
               <button type="button" onClick={() => syncImages(noImage === 0)} disabled={imgBusy} className={ui.ghost}
@@ -295,6 +298,7 @@ export default function RealPeptidesInventory() {
       {item === "product" && !skusQ.isLoading && <TopSellers skus={skus} />}
 
       {showPos && <PurchaseOrders skus={skus} velocity={velocity} onClose={() => setShowPos(false)} onSay={say} />}
+      {showAdd && <AddProduct skus={rawSkus} onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); qc.invalidateQueries({ queryKey: ["coa-skus"] }); }} />}
       {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
       {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
       {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity}
