@@ -173,6 +173,7 @@ async function start() {
     startEmailReportWarmer();
     startRpInventorySyncLoop();
     startRpImageSyncLoop();
+    startTargetRefreshLoop();
     startRpRankingLoop();
   });
 }
