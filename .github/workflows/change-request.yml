@@ -109,8 +109,13 @@ jobs:
           Change request #$REQ_ID from $REQ_BY, built by Claude Code.
 
           Co-Authored-By: Claude <noreply@anthropic.com>"
-          git push -u origin "$BRANCH"
+          # Retries reuse the branch name: this job owns it, so a force push is correct.
+          git push -u --force origin "$BRANCH"
           SUMMARY="$(cat /tmp/summary.md 2>/dev/null || echo 'No summary written.')"
+          EXISTING=$(gh pr list --head "$BRANCH" --state open --json url -q '.[0].url')
+          if [ -n "$EXISTING" ]; then
+            URL="$EXISTING"
+          else
           URL=$(gh pr create --title "$REQ_TITLE" --body "Change request #$REQ_ID from $REQ_BY
 
           **Request**
@@ -120,6 +125,7 @@ jobs:
           $SUMMARY
 
           Typecheck and production build passed in CI. Approve or reject in ops → Settings → Requests." --base main --head "$BRANCH")
+          fi
           echo "changed=yes" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "number=${URL##*/}" >> "$GITHUB_OUTPUT"
