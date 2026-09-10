@@ -3227,3 +3227,16 @@ Paul: let Justin/Josh prompt changes in ops, with his approval; "build both toda
 - **Change requests:** `server/change-requests.ts` (table `ops_change_requests`, Slack post, `repository_dispatch`, CI callback `POST /api/ops/change-requests/:id/result` with bearer OPS_CI_TOKEN — exempted from the cookie gate in admin-auth.ts, decide approve=squash-merge via GITHUB_PAT_OPS / reject, retry) + `.github/workflows/change-request.yml` (Claude Code CLI with allowedTools Read/Edit/Write/Grep/Glob + build cmds, max 60 turns; gate = tsc + build; PR; callback). UI: `components/change-request.tsx` (RequestChangeButton on Inventory/COA/Settings, ChangeRequestsPanel = Settings → Requests with Approve & deploy / Reject / Retry). PageHero actions now wrap.
 - **Provisioning (Paul ran):** OPS_CI_TOKEN + GITHUB_PAT_OPS in prod/ops-secrets (task-def 269/270); GitHub secrets OPS_URL, OPS_CI_TOKEN, ANTHROPIC_API_KEY (from local ops .env — prod runs Dirt on Bedrock, no Anthropic key there); repo setting "Allow GitHub Actions to create and approve pull requests" ON (Paul via gh api). The old GITHUB_PAT_FITSCRIPT_FIX can read the repo but not dispatch (403).
 - **First live run:** request #2 "Show each product's supplier in the Inventory table" → run 1 failed at PR creation (repo setting) → Retry → PR #1 open in ~2 min, 2-line diff exactly as asked, summary written back to ops, status pr_open. Awaiting Paul's Approve & deploy in Settings → Requests (tests the merge path).
+
+## 2026-09-10 (close) — state save
+- PeptideU Command Center: Free → Premium tile (paying ÷ all members; sub shows the rate incl. comped) — `291da68`, live. PeptideU jumped today: 122→166 members, 40→57 paying, MRR est $475.
+- Request #2 (supplier under SKU in Inventory) approved by Paul in ops → PR #1 squash-merged → deployed. Pipeline proven end to end.
+- All three repos clean and pushed. real-peptides local checkout is behind origin (other terminal's pushes) — `git pull` before touching it.
+
+### Open / next
+1. Justin: click "Assign 86 unassigned by type" in the PO builder, move any Max / Brent-and-Alan products; PO #4 is editable/deletable now.
+2. Paul: send Josh + Justin the onboarding message (drafted in this session's last turn) — Dirt RP tools + Request a change.
+3. Photos: when the re-shot catalog is uploaded to the site, click "Refresh photos from site" (or Dirt: rp_sync_images force).
+4. Watch: first scheduled target refresh 2026-10-08; pawgen 4 unshipped orders (oldest Jul 30) + 39 unpaid checkouts; RP Search Console clicks −14% WoW as of 09-06.
+5. Tech debt: RP overview still uses local copies of the command-center kit; FitScript overview not yet a Command Center.
+6. Guardrail reality: I can't copy credentials, change repo Actions settings, or commit an agent-running workflow — Paul runs those via `! …` scripts (pbpaste pattern).
