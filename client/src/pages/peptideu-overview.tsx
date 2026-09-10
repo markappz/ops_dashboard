@@ -28,9 +28,10 @@ const pct = (n: number | undefined) => `${((n ?? 0) * 100).toFixed(1)}%`;
 function MembersRow({ d }: { d?: Cmd }) {
   const m = d?.members;
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Card label="Free → Premium" accent to="/peptideu/members" value={m ? pct(m.total ? m.paying / m.total : 0) : "…"} tone="good" sub={m ? `${num(m.paying)} of ${num(m.total)} members upgraded · ${pct(m.conversion)} incl. ${num(m.comped)} comped` : "paying premium ÷ all members"} />
       <Card label="MRR (est.)" accent to="/peptideu/members" value={m ? usd(m.mrrEstimate) : "…"} sub={m ? `${num(m.paying)} paying premium × plan · ARR ${usd(m.arrEstimate)}` : undefined} />
-      <Card label="Premium members" to="/peptideu/members" value={m ? num(m.premium) : "…"} sub={m ? `${num(m.comped)} comped · ${pct(m.conversion)} of ${num(m.total)} members` : undefined} />
+      <Card label="Premium members" to="/peptideu/members" value={m ? num(m.premium) : "…"} sub={m ? `${num(m.comped)} comped` : undefined} />
       <Card label="Total members" to="/peptideu/members" value={m ? num(m.total) : "…"} sub={m ? `${num(m.onboarded)} onboarded · ${num(m.activated)} completed a lesson` : undefined} />
       <Card label="Renewals due · 14d" to="/peptideu/members" value={m ? num(m.expiring14d) : "…"} tone={m?.expiring14d ? "warn" : undefined} sub="premium expiring soon" />
     </div>
