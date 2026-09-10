@@ -133,7 +133,7 @@ const SKU_FOLD: Record<string, string> = {
  * sync from then on. Names resolve through the tracker matcher (aliases via
  * skus.coa_name); weekly velocity comes from the 28-day window.
  */
-async function velocityBySku(windows: number[]) {
+export async function velocityBySku(windows: number[]) {
   const key = windows.join(",");
   if (statsCache && statsCache.key === key && Date.now() - statsCache.at < 10 * 60_000) return statsCache.data;
   const tracker = trackerCfg();

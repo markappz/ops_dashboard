@@ -115,6 +115,25 @@ export default function RealPeptidesInventory() {
   const t = ITEM_TEXT[item];
   const sync = statsQ.data?.lastSync;
   const noImage = useMemo(() => skus.filter((s) => !thumbUrl(s)).length, [skus]);
+  const targetsQ = useQuery({
+    queryKey: ["rp-target-refresh"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory/targets", { credentials: "include" })).json(),
+    staleTime: 5 * 60_000,
+  });
+  const [targetsBusy, setTargetsBusy] = useState(false);
+  async function refreshTargets() {
+    setTargetsBusy(true);
+    try {
+      const r = await fetch("/api/ops/realpeptides/inventory/targets/refresh", { method: "POST", credentials: "include" });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      qc.invalidateQueries({ queryKey: ["coa-skus"] });
+      qc.invalidateQueries({ queryKey: ["rp-target-refresh"] });
+      const top = (j.changes ?? []).slice(0, 3).map((c: any) => `${c.product_name.split(" - ")[0]} ${c.before ?? "—"}→${c.after}`).join(", ");
+      say(`Targets refreshed from the last 8 weeks of sales: ${j.changed} changed, ${j.unchanged} already right, ${j.skipped} left alone (no sales or no-reorder).${top ? ` e.g. ${top}.` : ""}`);
+    } catch (e: any) { say(`Target refresh failed: ${e.message}`); }
+    finally { setTargetsBusy(false); }
+  }
   const [imgBusy, setImgBusy] = useState(false);
   async function syncImages(force = false) {
     setImgBusy(true);
@@ -197,12 +216,27 @@ export default function RealPeptidesInventory() {
             </label>
           )}
         </div>
-        {sync && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-ops-text-muted" title="Website orders are applied to stock automatically every 10 minutes.">
-            <RefreshCw size={11} className={sync.error ? "text-red-400" : "text-fitscript-green"} />
-            {sync.error ? `order sync error: ${sync.error}` : `orders synced ${new Date(sync.at).toLocaleTimeString()}`}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {targetsQ.data?.configured && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-ops-text-muted" title={`Every ${targetsQ.data.everyDays / 7} weeks, each product's saved target is reset to its last-${targetsQ.data.windowDays / 7}-weeks weekly sales × (cover ${targetsQ.data.coverWeeks}w, or the product's own, + ${targetsQ.data.leadWeeks}w lead), rounded up to boxes of ten. Products with no sales keep their manual target.`}>
+              <TrendingUp size={11} className="text-fitscript-green" />
+              {targetsQ.data.last
+                ? `targets auto-set ${new Date(targetsQ.data.last.ran_at).toLocaleDateString()} (${targetsQ.data.last.changed} changed) · next ${new Date(targetsQ.data.nextRunAt).toLocaleDateString()}`
+                : "targets auto-set every 4 weeks from 8 weeks of sales · first run pending"}
+              {canEdit && (
+                <button type="button" onClick={refreshTargets} disabled={targetsBusy} className="ml-1 rounded border border-ops-border px-1.5 py-0.5 text-[10px] text-ops-text hover:border-ops-text-muted disabled:opacity-50">
+                  {targetsBusy ? "refreshing…" : "refresh now"}
+                </button>
+              )}
+            </span>
+          )}
+          {sync && (
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-ops-text-muted" title="Website orders are applied to stock automatically every 10 minutes.">
+              <RefreshCw size={11} className={sync.error ? "text-red-400" : "text-fitscript-green"} />
+              {sync.error ? `order sync error: ${sync.error}` : `orders synced ${new Date(sync.at).toLocaleTimeString()}`}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
