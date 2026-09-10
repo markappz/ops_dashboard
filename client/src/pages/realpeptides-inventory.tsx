@@ -406,6 +406,7 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
             <div className="min-w-0">
               <div className="truncate font-medium text-ops-text hover:underline">{sku.product_name}</div>
               <div className="text-[11px] text-ops-text-muted">{sku.sku_code}{sku.form ? ` · ${sku.form}` : ""}</div>
+              {sku.supplier && <div className="truncate text-[11px] text-ops-text-muted">{sku.supplier}</div>}
             </div>
           </button>
         </td>
@@ -548,6 +549,7 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold text-ops-text">{sku.product_name}</div>
             <div className="text-[11px] text-ops-text-muted">{sku.sku_code}{vel?.weeks != null ? ` · selling ${vel.weekly}/wk · ${vel.weeks}w left` : ""}</div>
+            {sku.supplier && <div className="truncate text-[11px] text-ops-text-muted">{sku.supplier}</div>}
           </div>
           <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={20} /></button>
         </div>
