@@ -3240,3 +3240,27 @@ Paul: let Justin/Josh prompt changes in ops, with his approval; "build both toda
 4. Watch: first scheduled target refresh 2026-10-08; pawgen 4 unshipped orders (oldest Jul 30) + 39 unpaid checkouts; RP Search Console clicks −14% WoW as of 09-06.
 5. Tech debt: RP overview still uses local copies of the command-center kit; FitScript overview not yet a Command Center.
 6. Guardrail reality: I can't copy credentials, change repo Actions settings, or commit an agent-running workflow — Paul runs those via `! …` scripts (pbpaste pattern).
+
+### 2026-09-11 — Add SKU: ops → site variant + tracker row in one form (branch `feat/add-sku`, worktree ~/Projects/ops-dashboard-worktrees/add-sku, commit 1c744fe — NOT pushed)
+Why: Justin added Pinealon 20mg in ops and it never reached the store. "Add product" only POSTed the tracker `/api/skus`; the site's stock sync
+(`stockSync.ts`) only updates variants that already exist, matched by SKU, and never creates — so the SKU sat in ops with nothing to sync to.
+Fix (Paul: "the real fix… parent/child would be main product and then variants"):
+- `server/realpeptides-catalog.ts` — `GET /api/ops/realpeptides/catalog/products` (site product list, 60s cache) and `POST …/catalog/sku`
+  (multipart, `image` file ≤8MB). Order: site `POST /api/ops-catalog/sku` FIRST (Bearer RP_SITE_OPS_TOKEN) → on 201, tracker `POST /api/skus`
+  with `product_url` = site product URL, then `runRpImageSync(false)` in the background. Site 4xx/409 is returned verbatim; nothing is written
+  to the tracker unless the site succeeded. Price must be > 0 (blank/0 rejected on both sides).
+- `client/src/pages/coa/AddProduct.tsx` rewritten as **Add SKU**: "New dose of an existing product" (searchable site product list; choosing one
+  matches the ops family by name and prefills SKU prefix / supplier / cover weeks / COA rule) or "Brand-new product" (site DRAFT + first
+  variant). Variant details: label, SKU, price, compare-at, weight, Build-a-Pack flag. Photo picker with preview (variant image; product image
+  for a new product; blank = inherits the product photo). Inventory: starting stock, supplier, target, cover weeks, alias, needs-COA.
+  Buttons on COA + Inventory tabs now read "Add SKU".
+Verified locally (site dev :3005 on local pg 5442 + scratch tracker pg :5499/:5101 + ops :5002): curl variant+image → site variant with CDN image,
+stock seeded 40, tracker row with URL/supplier; duplicate SKU 409; unknown parent 404; blank/zero price 400; new product → DRAFT + variant;
+browser (Chrome MCP) Pinealon 60mg with photo, 25 in stock → success banner, site row correct. `vite build` clean; tsc clean (pre-existing
+google-auth TS2742 only). Site side: `next build` clean, commit 3156454 on `feat/ops-add-sku`.
+Test leftovers: three ~180-byte test PNGs uploaded to the real media bucket under `cms/2026-09-11/` (harmless orphans; Media rows were local only).
+DEPLOY ORDER: site first (the products list + POST route), then ops — until the site ships, the Add SKU form shows "site catalog has no product
+list…" and refuses. Prod ops already has RP_SITE_API_URL / RP_SITE_OPS_TOKEN (image sync uses them). Pinealon 20mg itself still needs adding —
+once live, Justin (or Paul) adds it via Add SKU; the orphan tracker row for it will upsert on the same SKU code.
+Gotchas: `pkill -f "tsx server/index.ts"` kills the local tracker AND ops (same command line); Turbopack refuses a symlinked node_modules in a
+worktree — `cp -cR` (APFS clone) the repo-root pnpm store instead.
