@@ -100,7 +100,7 @@ export default function RealPeptidesCoa() {
             <button type="button" onClick={refresh} className={ui.ghost} title="Refresh"><RefreshCw size={15} /></button>
             {canEdit && <button type="button" onClick={() => setShowLabOrder(true)} className={ui.ghost}><FlaskConical size={15} /> Send to lab</button>}
             {canEdit && <button type="button" onClick={() => setShowBulk(true)} className={ui.ghost}><Layers size={15} /> Bulk upload</button>}
-            {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.primary}><Plus size={15} /> Add product</button>}
+            {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.primary}><Plus size={15} /> Add SKU</button>}
           </div>
         }
       />
