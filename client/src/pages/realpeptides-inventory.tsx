@@ -520,6 +520,7 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
   const [count, setCount] = useState("");
   const [target, setTarget] = useState("");
   const [cover, setCover] = useState("");
+  const [code, setCode] = useState(sku.sku_code);
   const labelRef = useRef<HTMLInputElement>(null);
   const { busy, run, adjust, setExact, setTarget: saveTarget, noun } = useAdjust(sku, item, onChanged, onSay);
 
@@ -589,6 +590,20 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
                     className={`${ui.input} py-2.5`} />
                   <button type="button" disabled={busy || target === ""} onClick={() => { saveTarget(Number(target)); setTarget(""); }}
                     className={`${ui.ghost} shrink-0 px-3`}>Set</button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ops-border px-3 py-2.5">
+                <div className="min-w-[180px] flex-1">
+                  <span className="block text-sm text-ops-text">SKU code</span>
+                  <span className="text-[11px] text-ops-text-muted">The product's internal code — shared with POs, imports and the COA tab.</span>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <input value={code} onChange={(e) => setCode(e.target.value)} aria-label="SKU code"
+                    className={`${ui.input} w-32 py-2`} />
+                  <button type="button" disabled={busy || !code.trim() || code.trim() === sku.sku_code}
+                    onClick={() => run(() => api(`/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify({ sku_code: code.trim() }) }), `SKU code updated to ${code.trim()}.`)}
+                    className={`${ui.ghost} px-3 py-1.5 text-xs`}>Save</button>
                 </div>
               </div>
 
