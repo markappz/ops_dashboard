@@ -661,7 +661,7 @@ function describeMove(l: MoveRow): { label: string; who: string } {
 
 /** Every stock change across the shelf, newest first — the audit trail Justin asked for. */
 function RecentMoves() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   const q = useQuery({
     queryKey: ["coa-stock-log-all"],
     queryFn: () => api<{ log: MoveRow[] }>("/stock-log?limit=40"),
