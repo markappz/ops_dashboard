@@ -1,0 +1,15 @@
+# ops.fitscript.me is an INTERNAL admin dashboard. Nothing here belongs in a
+# search index. Google had indexed https://ops.fitscript.me/ (crawled 2026-08-14)
+# because the SPA shell is served to anyone — the DATA is gated by opsGate, but
+# the HTML is not, and /robots.txt previously fell through to the SPA fallback
+# and returned index.html instead of a robots file.
+#
+# DELIBERATELY NOT "Disallow: /" YET.
+# Removal is driven by the X-Robots-Tag: noindex header in server/index.ts, and
+# Google can only act on that header if it is ALLOWED to crawl the page and read
+# it. Blocking the crawl here would strand the already-indexed URL in the index
+# forever. So: allow crawling, let the noindex header de-index it, and only then
+# switch this to a blanket Disallow.
+User-agent: *
+Allow: /
+Disallow: /api/

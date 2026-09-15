@@ -60,6 +60,13 @@ app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("X-XSS-Protection", "1; mode=block");
+  // This is an internal admin dashboard — it must never be indexed. Google had
+  // indexed https://ops.fitscript.me/ (crawled 2026-08-14): the SPA shell is
+  // served unauthenticated (opsGate only protects /api/ops/*), so the crawler
+  // got a 200. robots.txt alone would NOT fix that — a disallowed URL can stay
+  // indexed via inbound links, and Google must be able to CRAWL the page to see
+  // this header and drop it. Header first, robots.txt as the follow-up.
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   next();
 });
 
