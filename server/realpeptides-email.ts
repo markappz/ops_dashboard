@@ -6,8 +6,9 @@
  * ops caches and renders.
  */
 import type { Express } from "express";
+import { windowOf } from "./lib/window";
 
-const cache = new Map<number, { at: number; data: any }>();
+const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 10 * 60_000;
 
 function cfg() {
@@ -18,15 +19,16 @@ function cfg() {
 
 export function registerRealPeptidesEmail(app: Express) {
   app.get("/api/ops/realpeptides/email", async (req, res) => {
-    const days = Math.min(365, Math.max(1, parseInt(String(req.query.range || "30"), 10) || 30));
+    // Same window contract as the other RP reads: `from`/`to` from the shared date picker, or `range=N`.
+    const win = windowOf(req.query as Record<string, unknown>);
     const c = cfg();
     if (!c) {
       return res.json({ configured: false, hint: "Connect the new realpeptides.co backend first (RP_SITE_API_URL + RP_SITE_OPS_TOKEN)." });
     }
-    const hit = cache.get(days);
+    const hit = cache.get(win.key);
     if (hit && Date.now() - hit.at < CACHE_MS) return res.json(hit.data);
     try {
-      const r = await fetch(`${c.base}/api/ops-email-summary?days=${days}`, {
+      const r = await fetch(`${c.base}/api/ops-email-summary?${win.site}`, {
         headers: { Authorization: `Bearer ${c.token}` },
         signal: AbortSignal.timeout(30_000),
       });
@@ -36,7 +38,7 @@ export function registerRealPeptidesEmail(app: Express) {
       const text = await r.text();
       if (!r.ok) throw new Error(`ops-email-summary ${r.status}: ${text.slice(0, 160)}`);
       const data = { configured: true, ...JSON.parse(text) };
-      cache.set(days, { at: Date.now(), data });
+      cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
       console.error("[OPS][RP] email:", e.message);

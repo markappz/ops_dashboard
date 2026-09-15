@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { EmailCalendar } from "./email-calendar";
 import { ui } from "./coa/api";
 
@@ -18,7 +19,7 @@ interface Flow {
   attributedOrders: number; attributedRevenueCents: number; steps: Step[];
 }
 interface Campaign {
-  broadcastId: string; name: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
+  broadcastId: string; name: string; sentAt?: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
   attributedOrders: number; attributedRevenueCents: number;
   receivedOrders?: number; receivedRevenueCents?: number;
@@ -27,7 +28,9 @@ interface Payload {
   configured: boolean; hint?: string; days: number; perSendStatsSince: string | null; trackingSince?: string;
   totals: {
     marketableContacts: number; unsubscribed: number; suppressedBounced: number; suppressedComplained: number;
-    sends: number; openRate: number | null; clickRate: number | null;
+    sends: number; trackedSends?: number; openRate: number | null; clickRate: number | null;
+    flows?: { sends: number; openRate: number | null; clickRate: number | null };
+    broadcasts?: { count: number; sends: number; openRate: number | null; clickRate: number | null };
     attributedOrders: number; attributedRevenueCents: number;
     receivedOrders?: number; receivedRevenueCents?: number;
     lifetime: { sends: number; opens: number; clicks: number };
@@ -48,11 +51,15 @@ const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}
 const money = (cents: number) => "$" + (cents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 export default function RealPeptidesEmail() {
-  const [range, setRange] = useState(30);
+  // Same picker and same stored window as the Command Center, Orders and Leads - one range for the brand.
+  const [range, setRange] = useDateRange("realpeptides");
+  const rq = rangeQuery(range);
+  const days = rangeDays(range);
+  const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const q = useQuery({
-    queryKey: ["rp-email", range],
+    queryKey: ["rp-email", rq],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/email?range=${range}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/email?${rq}`, { credentials: "include" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },
@@ -66,16 +73,7 @@ export default function RealPeptidesEmail() {
         eyebrow="Real Peptides"
         title="Email"
         subtitle="Flows and campaigns from the site's own send instrumentation — open rates, clicks, unsubscribes, and the sales each flow and broadcast produced (coupon first, else the last email clicked within 7 days)."
-        actions={
-          <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
-            {[7, 30, 90].map((n) => (
-              <button key={n} type="button" onClick={() => setRange(n)}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium ${range === n ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
-                {n}d
-              </button>
-            ))}
-          </div>
-        }
+        actions={<DateRangePicker value={range} onChange={setRange} />}
       />
 
       <EmailCalendar company="realpeptides" />
@@ -95,8 +93,10 @@ export default function RealPeptidesEmail() {
             <Stat icon={<UserMinus size={16} />} label="Unsubscribed" value={t.unsubscribed.toLocaleString()} />
             <Stat icon={<ShieldAlert size={16} />} label="Suppressed" value={`${t.suppressedBounced + t.suppressedComplained}`}
               sub={`${t.suppressedBounced} bounced · ${t.suppressedComplained} spam`} tone={t.suppressedComplained ? "warn" : undefined} />
-            <Stat icon={<Mail size={16} />} label={`Open rate (${range}d)`} value={pct(t.openRate)} sub={`${t.sends.toLocaleString()} tracked sends`} />
-            <Stat icon={<MousePointerClick size={16} />} label={`Click rate (${range}d)`} value={pct(t.clickRate)} />
+            <Stat icon={<Mail size={16} />} label={`Sends · ${rlabel}`} value={t.sends.toLocaleString()}
+              sub={t.flows && t.broadcasts ? `${t.flows.sends.toLocaleString()} flow · ${t.broadcasts.sends.toLocaleString()} in ${t.broadcasts.count} campaign${t.broadcasts.count === 1 ? "" : "s"}` : "flows + campaigns"} />
+            <Stat icon={<MousePointerClick size={16} />} label={`Open · click rate · ${rlabel}`} value={<>{pct(t.openRate)} <span className="text-base font-semibold text-ops-text-muted">· {pct(t.clickRate)}</span></>}
+              sub={t.flows && t.broadcasts ? `flows ${pct(t.flows.openRate)} / ${pct(t.flows.clickRate)} · campaigns ${pct(t.broadcasts.openRate)} / ${pct(t.broadcasts.clickRate)}` : `${(t.trackedSends ?? t.sends).toLocaleString()} tracked sends`} />
             <Stat icon={<DollarSign size={16} />} label="Email-attributed revenue" value={money(t.attributedRevenueCents)} sub={`${t.attributedOrders} orders by coupon/click${t.receivedOrders ? ` · +${money(t.receivedRevenueCents ?? 0)} (${t.receivedOrders}) received a broadcast <48h` : ""}`} tone="good" />
           </div>
 
@@ -150,7 +150,7 @@ export default function RealPeptidesEmail() {
                   <tr key={c.broadcastId}>
                     <td className="max-w-[280px] px-4 py-3">
                       <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
-                      <div className="text-[11px] text-ops-text-muted">{new Date(c.lastSeen).toLocaleDateString()}</div>
+                      <div className="text-[11px] text-ops-text-muted">sent {new Date(c.sentAt ?? c.lastSeen).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">
                       {c.sends.toLocaleString()}
@@ -183,7 +183,7 @@ export default function RealPeptidesEmail() {
   );
 }
 
-function Stat({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: "good" | "warn" }) {
+function Stat({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; tone?: "good" | "warn" }) {
   const color = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
   return (
     <div className="rounded-2xl border border-ops-border bg-ops-surface p-3.5 shadow-card">

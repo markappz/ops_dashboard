@@ -98,19 +98,20 @@ function SalesCards({ ov, rlabel }: { ov: ReturnType<typeof useOverviewData>["ov
   );
 }
 
-function LeadCards({ contacts }: { contacts: ReturnType<typeof useOverviewData>["contacts"] }) {
+function LeadCards({ contacts, rlabel, days }: { contacts: ReturnType<typeof useOverviewData>["contacts"]; rlabel: string; days: number }) {
   const c = contacts.data;
   const off = c?.configured === false;
   const v = (n?: number) => (off ? "—" : contacts.isError ? "!" : contacts.isLoading ? "…" : num(n));
   const topSource = c?.bySource?.[0];
   const nc = c?.newCustomers;
+  const perDay = (n?: number) => (n && days > 1 ? `${Math.round(n / days)}/day` : undefined);
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Contacts" to="/realpeptides/leads" value={v(c?.totals?.total)} sub={off ? c?.hint : c ? `${num(c.totals.marketable)} mailable · ${num(c.totals.buyers)} buyers` : "Resend list"} />
-      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} tone={c?.new?.today ? "good" : undefined} sub="marketing captures · 24h" />
-      <Card label="New leads · 7 days" to="/realpeptides/leads" value={v(c?.new?.week)} sub={c?.new?.week ? `${Math.round(c.new.week / 7)}/day` : "last 7 days"} />
-      <Card label="New leads · 30 days" to="/realpeptides/leads" value={v(c?.new?.month)} sub={topSource ? `top source · ${topSource.source}` : "last 30 days"} />
-      <Card label="New customers" to="/realpeptides/orders" value={v(nc?.today)} accent sub={nc ? `today · ${num(nc.week)} this week · ${num(nc.month)} this month` : "first paid order"} />
+      <Card label={`New leads · ${rlabel}`} to="/realpeptides/leads" value={v(c?.new?.window)} tone={c?.new?.window ? "good" : undefined} sub={perDay(c?.new?.window) ?? "marketing captures"} />
+      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} sub="last 24 hours" />
+      <Card label={`Top source · ${rlabel}`} to="/realpeptides/leads" value={off || !c ? v(undefined) : topSource ? num(topSource.count) : "0"} sub={topSource ? topSource.source : "no captures in this window"} />
+      <Card label={`New customers · ${rlabel}`} to="/realpeptides/orders" value={v(nc?.window)} accent sub={nc ? `${num(nc.today)} today · first paid order` : "first paid order"} />
     </div>
   );
 }
@@ -198,7 +199,7 @@ function Health({ d }: { d: ReturnType<typeof useOverviewData> }) {
 
 export default function RealPeptidesOverview() {
   const qc = useQueryClient();
-  const [range, setRange] = useDateRange("rp-overview");
+  const [range, setRange] = useDateRange("realpeptides");
   const forceRef = useRef(false);
   const rlabel = range.key === "custom" ? `${rangeDays(range)}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const d = useOverviewData(range, forceRef);
@@ -237,8 +238,8 @@ export default function RealPeptidesOverview() {
           sub={d.pages.data?.gsc?.connected ? `${num(pg?.impressions)} impressions · Search Console` : d.pages.data?.gsc?.error ?? "Search Console"} />
       </div>
 
-      <Section title="Leads" hint={<>realpeptides.co CRM → Resend{d.contacts.data?.generatedAt ? ` · as of ${clock(d.contacts.data.generatedAt)}` : ""}</>}>
-        <LeadCards contacts={d.contacts} />
+      <Section title="Leads" hint={<>realpeptides.co CRM → Resend · same window as the tiles above{d.contacts.data?.generatedAt ? ` · as of ${clock(d.contacts.data.generatedAt)}` : ""}</>}>
+        <LeadCards contacts={d.contacts} rlabel={rlabel} days={rangeDays(range)} />
       </Section>
 
       <Section title="Certificates" hint="COA tracker · same counts as the COA tab">

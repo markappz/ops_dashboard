@@ -127,8 +127,22 @@ async function setupClient() {
   if (process.env.NODE_ENV === "production") {
     const publicDir = path.resolve(import.meta.dirname, "public");
     if (fs.existsSync(publicDir)) {
-      app.use(express.static(publicDir));
+      // Hashed Vite assets are immutable; index.html must never be cached, or a browser keeps
+      // an old shell that points at asset hashes the new task no longer has.
+      app.use(express.static(publicDir, {
+        index: false,
+        setHeaders: (res, filePath) => {
+          res.setHeader("Cache-Control", filePath.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=31536000, immutable" : "no-store");
+        },
+      }));
+      // A missing asset or an unknown API path is a 404, not the SPA shell. Serving index.html
+      // there made a stale tab execute HTML as JavaScript and made fetch().json() throw
+      // "Unexpected token <" during every deploy - the "page full of code" the team saw.
+      app.get(["/assets/*", "/api/*"], (_req, res) => {
+        res.status(404).json({ error: "Not found" });
+      });
       app.get("*", (_req, res) => {
+        res.setHeader("Cache-Control", "no-store");
         res.sendFile(path.join(publicDir, "index.html"));
       });
     }

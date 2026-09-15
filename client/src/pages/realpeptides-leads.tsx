@@ -58,20 +58,21 @@ function Panel({ title, subtitle, children }: { title: string; subtitle?: string
   );
 }
 
-function Totals({ c }: { c: Contacts }) {
+function Totals({ c, rlabel, days }: { c: Contacts; rlabel: string; days: number }) {
   const t = c.totals;
   const n = c.new;
   const nc = c.newCustomers;
+  const perDay = (v?: number) => (v && days > 1 ? `${Math.round(v / days)}/day` : undefined);
   return (
     <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
       <Stat label="Contacts" value={num(t?.total)} sub={`${num(t?.marketable)} mailable`} />
       <Stat label="Buyers" value={num(t?.buyers)} sub="at least one paid order" />
       <Stat label="Leads" value={num(t?.leads)} sub="mailable, never bought" />
       <Stat label="Unsubscribed" value={num(t?.unsubscribed)} sub={`${num(t?.suppressed)} bounced/complained`} tone="muted" />
-      <Stat label="New leads · today" value={num(n?.today)} sub="marketing captures" tone={n?.today ? "good" : undefined} />
-      <Stat label="New leads · 7 days" value={num(n?.week)} sub={n?.week ? `${Math.round(n.week / 7)}/day` : undefined} />
+      <Stat label={`New leads · ${rlabel}`} value={num(n?.window)} sub={perDay(n?.window) ?? "marketing captures"} tone={n?.window ? "good" : undefined} />
+      <Stat label="New leads · today" value={num(n?.today)} sub="last 24 hours" />
       <Stat label="New leads · 30 days" value={num(n?.month)} sub={n?.month ? `${Math.round(n.month / 30)}/day` : undefined} />
-      <Stat label="New customers" value={num(nc?.today)} sub={`today · ${num(nc?.week)} 7d · ${num(nc?.month)} 30d`} tone="accent" />
+      <Stat label={`New customers · ${rlabel}`} value={num(nc?.window)} sub={`${num(nc?.today)} today · ${num(nc?.month)} in 30d`} tone="accent" />
     </div>
   );
 }
@@ -197,9 +198,10 @@ function LegacyLists({ range }: { range: number }) {
 }
 
 export default function RealPeptidesLeads() {
-  const [range, setRange] = useDateRange("rp-leads");
+  const [range, setRange] = useDateRange("realpeptides");
   const rq = rangeQuery(range);
   const days = rangeDays(range);
+  const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
   const c = q.data;
   const asOf = c?.generatedAt ? new Date(c.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
@@ -221,7 +223,7 @@ export default function RealPeptidesLeads() {
 
       {c?.configured && (
         <div className="space-y-6">
-          <Totals c={c} />
+          <Totals c={c} rlabel={rlabel} days={days} />
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <Panel title={`New leads · ${range.key === "custom" ? `${range.from.toLocaleDateString()} – ${range.to.toLocaleDateString()}` : range.label.toLowerCase()}`} subtitle={`${num(c.new?.window)} marketing captures · ${num(c.newCustomers?.window)} new customers in the window`}>

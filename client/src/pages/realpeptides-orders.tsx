@@ -67,7 +67,7 @@ function Legend() {
 const money = (n: number) => "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 export default function RealPeptidesOrders() {
-  const [range, setRange] = useDateRange("rp-orders");
+  const [range, setRange] = useDateRange("realpeptides");
   const [channel, setChannel] = useState("all");
   const [query, setQuery] = useState("");
   const rq = rangeQuery(range);
