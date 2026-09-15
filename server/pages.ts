@@ -22,7 +22,7 @@ const SITE_ROOTS: Record<string, string | null> = {
   fitscript: "https://www.fitscript.me",
   pawgen: "https://pawgen.com",
   realpeptides: "https://www.realpeptides.co",
-  peptideu: null, // no public marketing site yet
+  peptideu: "https://peptideu.com",
 };
 
 const CACHE_HOURS = 1;

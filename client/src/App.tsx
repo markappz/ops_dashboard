@@ -61,6 +61,7 @@ import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
+const PU = { company: "peptideu", label: "PeptideU", domain: "peptideu.com" } as const;
 
 interface Me {
   email: string;
@@ -233,6 +234,9 @@ export default function App() {
           <Route path="/pawgen/content">{() => <CompanyContent company="pawgen" label="pawgen" />}</Route>
           <Route path="/pawgen/seo">{() => <CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
+          <Route path="/peptideu/traffic">{() => <CompanyTraffic {...PU} />}</Route>
+          <Route path="/peptideu/seo">{() => <CompanySeo {...PU} />}</Route>
+          <Route path="/peptideu/pages">{() => <CompanyPages company="peptideu" label="PeptideU" />}</Route>
           <Route path="/peptideu/content">{() => <CompanyContent company="peptideu" label="PeptideU" />}</Route>
           <Route path="/peptideu/integrations">{() => <CompanyIntegrations company="peptideu" label="PeptideU" />}</Route>
 
