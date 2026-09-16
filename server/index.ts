@@ -44,6 +44,7 @@ import { registerChangeRequests } from "./change-requests";
 import { registerTasksRoutes } from "./tasks";
 import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
+import { registerRpPaid } from "./rp-paid";
 import { registerPagesRoutes } from "./pages";
 import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
 import { registerRpContentLive } from "./rp-content-live";
@@ -123,6 +124,7 @@ registerChangeRequests(app);
   registerTasksRoutes(app);
   registerEmailPlannerRoutes(app);
 registerRealPeptidesWholesale(app);
+registerRpPaid(app);
 registerPagesRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.

@@ -49,6 +49,8 @@ import PawgenOrders from "./pages/pawgen-orders";
 import PawgenOverview from "./pages/pawgen-overview";
 import { CompanyTraffic, CompanySeo } from "./pages/company-google";
 import CompanyIntegrations from "./pages/company-integrations";
+import RealPeptidesPaid from "./pages/realpeptides-paid";
+import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
@@ -61,6 +63,27 @@ import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
+
+// Consolidated sidebar entries (2026-09-16): each merged tab keeps its members'
+// URLs and renders them behind a SubTabs bar, so deep links never break.
+const subTabs = (prefix: string) => ({
+  seo: [
+    { path: `/${prefix}/seo`, label: "SEO" },
+    { path: `/${prefix}/content`, label: "Content" },
+    { path: `/${prefix}/pages`, label: "Pages" },
+  ],
+  marketing: [
+    { path: `/${prefix}/marketing`, label: "Marketing" },
+    { path: `/${prefix}/traffic`, label: "Site Traffic" },
+  ],
+  email: [
+    { path: `/${prefix}/email`, label: "Email" },
+    { path: `/${prefix}/leads`, label: "Leads" },
+  ],
+});
+const RP_TABS = subTabs("realpeptides");
+const PAWGEN_TABS = subTabs("pawgen");
+const PU_SEO_TABS = subTabs("peptideu").seo;
 const PU = { company: "peptideu", label: "PeptideU", domain: "peptideu.com" } as const;
 
 interface Me {
@@ -225,19 +248,19 @@ export default function App() {
 
           {/* pawgen */}
           <Route path="/pawgen" component={PawgenOverview} />
-          <Route path="/pawgen/email" component={PawgenEmail} />
+          <Route path="/pawgen/email">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><PawgenEmail /></>}</Route>
           <Route path="/pawgen/orders" component={PawgenOrders} />
-          <Route path="/pawgen/leads" component={PawgenLeads} />
-          <Route path="/pawgen/marketing" component={PawgenMarketing} />
-          <Route path="/pawgen/traffic">{() => <CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
-          <Route path="/pawgen/pages">{() => <CompanyPages company="pawgen" label="pawgen" />}</Route>
-          <Route path="/pawgen/content">{() => <CompanyContent company="pawgen" label="pawgen" />}</Route>
-          <Route path="/pawgen/seo">{() => <CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" />}</Route>
+          <Route path="/pawgen/leads">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><PawgenLeads /></>}</Route>
+          <Route path="/pawgen/marketing">{() => <><SubTabs tabs={PAWGEN_TABS.marketing} /><PawgenMarketing /></>}</Route>
+          <Route path="/pawgen/traffic">{() => <><SubTabs tabs={PAWGEN_TABS.marketing} /><CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" /></>}</Route>
+          <Route path="/pawgen/pages">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanyPages company="pawgen" label="pawgen" /></>}</Route>
+          <Route path="/pawgen/content">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanyContent company="pawgen" label="pawgen" /></>}</Route>
+          <Route path="/pawgen/seo">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" /></>}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
           <Route path="/peptideu/traffic">{() => <CompanyTraffic {...PU} />}</Route>
-          <Route path="/peptideu/seo">{() => <CompanySeo {...PU} />}</Route>
-          <Route path="/peptideu/pages">{() => <CompanyPages company="peptideu" label="PeptideU" />}</Route>
-          <Route path="/peptideu/content">{() => <CompanyContent company="peptideu" label="PeptideU" />}</Route>
+          <Route path="/peptideu/seo">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanySeo {...PU} /></>}</Route>
+          <Route path="/peptideu/pages">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanyPages company="peptideu" label="PeptideU" /></>}</Route>
+          <Route path="/peptideu/content">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanyContent company="peptideu" label="PeptideU" /></>}</Route>
           <Route path="/peptideu/integrations">{() => <CompanyIntegrations company="peptideu" label="PeptideU" />}</Route>
 
           {/* Real Peptides — no Overview/Orders tab: WooCommerce isn't readable yet, and an
@@ -245,14 +268,15 @@ export default function App() {
           <Route path="/realpeptides" component={RealPeptidesOverview} />
           <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
           <Route path="/realpeptides/tasks" component={TasksBoard} />
-          <Route path="/realpeptides/email" component={RealPeptidesEmail} />
+          <Route path="/realpeptides/email">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesEmail /></>}</Route>
           <Route path="/realpeptides/wholesale" component={RealPeptidesWholesale} />
-          <Route path="/realpeptides/leads" component={RealPeptidesLeads} />
-          <Route path="/realpeptides/marketing" component={RealPeptidesMarketing} />
-          <Route path="/realpeptides/traffic">{() => <CompanyTraffic {...RP} />}</Route>
-          <Route path="/realpeptides/pages">{() => <CompanyPages company="realpeptides" label="Real Peptides" />}</Route>
-          <Route path="/realpeptides/content">{() => <CompanyContent company="realpeptides" label="Real Peptides" />}</Route>
-          <Route path="/realpeptides/seo">{() => <CompanySeo {...RP} />}</Route>
+          <Route path="/realpeptides/leads">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesLeads /></>}</Route>
+          <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>
+          <Route path="/realpeptides/traffic">{() => <><SubTabs tabs={RP_TABS.marketing} /><CompanyTraffic {...RP} /></>}</Route>
+          <Route path="/realpeptides/paid" component={RealPeptidesPaid} />
+          <Route path="/realpeptides/pages">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanyPages company="realpeptides" label="Real Peptides" /></>}</Route>
+          <Route path="/realpeptides/content">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanyContent company="realpeptides" label="Real Peptides" /></>}</Route>
+          <Route path="/realpeptides/seo">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanySeo {...RP} /></>}</Route>
           <Route path="/realpeptides/coa" component={RealPeptidesCoa} />
           <Route path="/realpeptides/inventory" component={RealPeptidesInventory} />
           <Route path="/realpeptides/integrations">{() => <CompanyIntegrations company="realpeptides" label="Real Peptides" />}</Route>

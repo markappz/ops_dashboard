@@ -10,6 +10,16 @@ type NavSection = { label: string; items: NavItem[] };
 
 const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen", "/realpeptides"]);
 
+// Consolidated nav (2026-09-16): these URLs still route, but live as sub-tabs
+// inside a merged sidebar entry — highlight that entry, not nothing.
+const NAV_ALIASES: Record<string, string> = { "/peptideu/content": "/peptideu/seo", "/peptideu/pages": "/peptideu/seo" };
+for (const b of ["realpeptides", "pawgen"]) {
+  NAV_ALIASES[`/${b}/traffic`] = `/${b}/marketing`;
+  NAV_ALIASES[`/${b}/content`] = `/${b}/seo`;
+  NAV_ALIASES[`/${b}/pages`] = `/${b}/seo`;
+  NAV_ALIASES[`/${b}/leads`] = `/${b}/email`;
+}
+
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   {
     label: "PeptideU",
@@ -28,8 +38,6 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
       { path: "/peptideu/traffic", label: "Site Traffic", icon: "chart" },
       { path: "/peptideu/seo", label: "SEO", icon: "file-text" },
-      { path: "/peptideu/content", label: "Content", icon: "file-text" },
-      { path: "/peptideu/pages", label: "Pages", icon: "chart" },
       { path: "/peptideu/integrations", label: "Integrations", icon: "link" },
     ],
   },
@@ -42,12 +50,8 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
       { path: "/pawgen", label: "Overview", icon: "grid" },
       { path: "/pawgen/email", label: "Email", icon: "mail" },
       { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
-      { path: "/pawgen/leads", label: "Leads", icon: "funnel" },
-      { path: "/pawgen/marketing", label: "Marketing", icon: "megaphone" },
-      { path: "/pawgen/traffic", label: "Site Traffic", icon: "chart" },
+      { path: "/pawgen/marketing", label: "Marketing", icon: "chart" },
       { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
-      { path: "/pawgen/content", label: "Content", icon: "file-text" },
-      { path: "/pawgen/pages", label: "Pages", icon: "chart" },
       { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
     ],
   },
@@ -62,12 +66,9 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
       { path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" },
       { path: "/realpeptides/email", label: "Email", icon: "mail" },
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
-      { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
-      { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
-      { path: "/realpeptides/traffic", label: "Site Traffic", icon: "chart" },
+      { path: "/realpeptides/paid", label: "Paid", icon: "megaphone" },
+      { path: "/realpeptides/marketing", label: "Marketing", icon: "chart" },
       { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
-      { path: "/realpeptides/content", label: "Content", icon: "file-text" },
-      { path: "/realpeptides/pages", label: "Pages", icon: "chart" },
       { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
       { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
@@ -270,7 +271,8 @@ export function OpsLayout({
                 // A company root must match exactly, or every child route lights it up
                 // too (/pawgen was already doing that — /pawgen/orders lit Overview).
                 const isHome = COMPANY_ROOTS.has(item.path);
-                const isActive = isHome ? location === item.path : location.startsWith(item.path);
+                const effective = NAV_ALIASES[location] ?? location;
+                const isActive = isHome ? effective === item.path : effective.startsWith(item.path);
                 return (
                   <Link key={item.path} href={item.path}>
                     <div
