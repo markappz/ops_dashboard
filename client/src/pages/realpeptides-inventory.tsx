@@ -33,10 +33,13 @@ const ITEM_TEXT: Record<InvItem, { unit: string; order: string; out: string }> =
   label: { unit: "labels", order: "Label print order", out: "Out of labels" },
 };
 
+interface SyncState { at: string; applied: number; error?: string; unmatched?: string[] }
 interface Stats {
   configured: boolean;
   bySku?: Velocity;
-  lastSync?: { at: string; applied: number; error?: string; unmatched?: string[] } | null;
+  lastSync?: SyncState | null;
+  wholesaleSync?: SyncState | null;
+  pawgenSync?: SyncState | null;
 }
 
 export default function RealPeptidesInventory() {
@@ -116,6 +119,11 @@ export default function RealPeptidesInventory() {
   const say = (m: string) => { setFlash(m); setTimeout(() => setFlash(null), 5000); };
   const t = ITEM_TEXT[item];
   const sync = statsQ.data?.lastSync;
+  const unmatchedAll = [
+    ...(statsQ.data?.lastSync?.unmatched ?? []),
+    ...(statsQ.data?.wholesaleSync?.unmatched ?? []).map((n) => `${n} (wholesale)`),
+    ...(statsQ.data?.pawgenSync?.unmatched ?? []).map((n) => `${n} (pawgen)`),
+  ];
   const noImage = useMemo(() => skus.filter((s) => !thumbUrl(s)).length, [skus]);
   const targetsQ = useQuery({
     queryKey: ["rp-target-refresh"],
@@ -188,10 +196,10 @@ export default function RealPeptidesInventory() {
       />
 
       {flash && <div className="mb-5 rounded-xl border border-fitscript-green/30 bg-fitscript-green/10 p-3 text-sm text-fitscript-green">{flash}</div>}
-      {(sync?.unmatched?.length ?? 0) > 0 && (
+      {unmatchedAll.length > 0 && (
         <div className="mb-5 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-400">
-          <strong>Sales are NOT deducting for {sync!.unmatched!.length} product name{sync!.unmatched!.length === 1 ? "" : "s"}:</strong>{" "}
-          {sync!.unmatched!.join(" · ")}. The website sells these under a name ops doesn't recognize — rename the product here to match the site
+          <strong>Sales are NOT deducting for {unmatchedAll.length} product name{unmatchedAll.length === 1 ? "" : "s"}:</strong>{" "}
+          {unmatchedAll.join(" · ")}. An order source sells these under a name ops doesn't recognize — rename the product here to match
           (or set its alias), or stock will drift like Bromantane did.
         </div>
       )}

@@ -12,6 +12,7 @@
  */
 import type { Express } from "express";
 import { pool } from "./db";
+import { lastWholesaleSync, lastPawgenSync } from "./stock-consume";
 
 const SYNC_SINCE = process.env.RP_ORDER_SYNC_SINCE || "2026-08-26T13:00:00Z";
 const SYNC_EVERY_MS = 10 * 60_000;
@@ -199,14 +200,14 @@ export function registerRpInventoryRoutes(app: Express) {
   /** Sales per SKU across trailing windows + last sync state, for the Inventory tab. */
   app.get("/api/ops/realpeptides/inventory-stats", async (req, res) => {
     try {
-      if (!siteCfg()) return res.json({ configured: false, lastSync });
+      if (!siteCfg()) return res.json({ configured: false, lastSync, wholesaleSync: lastWholesaleSync, pawgenSync: lastPawgenSync });
       const asked = String(req.query.windows || "28,56").split(",").map((n) => parseInt(n, 10));
       const windows = [...new Set(asked.filter((n) => WINDOW_CHOICES.includes(n)))];
       if (!windows.length) windows.push(28, 56);
       if (!windows.includes(28)) windows.push(28); // weekly velocity anchor
-      res.json({ configured: true, lastSync, ...(await velocityBySku(windows.sort((a, b) => a - b))) });
+      res.json({ configured: true, lastSync, wholesaleSync: lastWholesaleSync, pawgenSync: lastPawgenSync, ...(await velocityBySku(windows.sort((a, b) => a - b))) });
     } catch (e: any) {
-      res.json({ configured: true, lastSync, error: e.message, bySku: {} });
+      res.json({ configured: true, lastSync, wholesaleSync: lastWholesaleSync, pawgenSync: lastPawgenSync, error: e.message, bySku: {} });
     }
   });
 

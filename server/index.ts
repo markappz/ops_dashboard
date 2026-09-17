@@ -34,6 +34,7 @@ import { registerPeptideUCommand } from "./peptideu-command";
 import { registerRealPeptidesRoutes } from "./realpeptides";
 import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
+import { startStockConsumeLoops } from "./stock-consume";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
 import { registerBrandEmail } from "./brand-email";
 import { registerRealPeptidesContacts } from "./realpeptides-contacts";
@@ -199,6 +200,7 @@ async function start() {
     startDirtDailyReportLoop();
     startEmailReportWarmer();
     startRpInventorySyncLoop();
+    startStockConsumeLoops();
     startRpImageSyncLoop();
     startTargetRefreshLoop();
     startRpRankingLoop();
