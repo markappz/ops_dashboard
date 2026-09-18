@@ -141,8 +141,11 @@ export async function runPawgenConsume(): Promise<ConsumeResult | null> {
       const packSize = Math.max(1, parseInt(String(o.pack_id), 10) || 1);
       const vials = packSize * Math.max(1, Number(o.quantity ?? 1));
       const items: ConsumeOrder["items"] = [{ sku: WOLVE_10_SKU, name: "Wolverine Peptide Stack - BPC-157 10mg / TB-500 10mg", qty: vials }];
-      const bac = Math.max(0, Number(o.bac_addon_qty ?? 0));
-      if (bac) items.push({ sku: BAC_SKU, name: "Bacteriostatic Water - 10ml", qty: bac });
+      // Every order ships ONE free BAC vial plus paid add-ons — mirrors the
+      // ShippingEasy slip (pawgen shippingeasy.server.ts: quantity 1 + bacExtra).
+      // Paul 09-18: the free vial deducts too.
+      const bac = 1 + Math.max(0, Number(o.bac_addon_qty ?? 0));
+      items.push({ sku: BAC_SKU, name: "Bacteriostatic Water - 10ml", qty: bac });
       orders.push({
         id: `PG-${o.id}`,
         number: String(o.order_no ?? o.id),
