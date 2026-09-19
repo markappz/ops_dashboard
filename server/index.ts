@@ -46,6 +46,7 @@ import { registerChangeRequests } from "./change-requests";
 import { registerTasksRoutes } from "./tasks";
 import { registerEmailPlannerRoutes } from "./email-planner";
 import { registerRealPeptidesWholesale } from "./realpeptides-wholesale";
+import { registerRealPeptidesAffiliates } from "./realpeptides-affiliates";
 import { registerRpPaid } from "./rp-paid";
 import { registerPagesRoutes } from "./pages";
 import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
@@ -127,6 +128,7 @@ registerChangeRequests(app);
   registerTasksRoutes(app);
   registerEmailPlannerRoutes(app);
 registerRealPeptidesWholesale(app);
+registerRealPeptidesAffiliates(app);
 registerRpPaid(app);
 registerPagesRoutes(app);
 

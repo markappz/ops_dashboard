@@ -50,6 +50,7 @@ import PawgenOverview from "./pages/pawgen-overview";
 import { CompanyTraffic, CompanySeo } from "./pages/company-google";
 import CompanyIntegrations from "./pages/company-integrations";
 import RealPeptidesPaid from "./pages/realpeptides-paid";
+import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
@@ -274,6 +275,7 @@ export default function App() {
           <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>
           <Route path="/realpeptides/traffic">{() => <><SubTabs tabs={RP_TABS.marketing} /><CompanyTraffic {...RP} /></>}</Route>
           <Route path="/realpeptides/paid" component={RealPeptidesPaid} />
+          <Route path="/realpeptides/affiliates" component={RealPeptidesAffiliates} />
           <Route path="/realpeptides/pages">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanyPages company="realpeptides" label="Real Peptides" /></>}</Route>
           <Route path="/realpeptides/content">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanyContent company="realpeptides" label="Real Peptides" /></>}</Route>
           <Route path="/realpeptides/seo">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanySeo {...RP} /></>}</Route>
