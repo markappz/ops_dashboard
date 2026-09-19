@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search, Minus, Plus, FileDown, Tag, Upload, History, X, Loader2,
-  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp, ImageIcon,
+  PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp, ImageIcon, Ban,
 } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
@@ -32,6 +32,9 @@ const ITEM_TEXT: Record<InvItem, { unit: string; order: string; out: string }> =
   product: { unit: "units", order: "Order PDF", out: "Out of stock" },
   label: { unit: "labels", order: "Label print order", out: "Out of labels" },
 };
+
+interface Hold { sku_id: number; on_hold: boolean; note: string | null; changed_by: string | null; updated_at: string }
+type HoldMap = Map<number, Hold>;
 
 interface SyncState { at: string; applied: number; error?: string; unmatched?: string[] }
 interface Stats {
@@ -71,6 +74,14 @@ export default function RealPeptidesInventory() {
     staleTime: 5 * 60_000,
   });
   const velocity = statsQ.data?.bySku ?? {};
+
+  const holdsQ = useQuery({
+    queryKey: ["rp-inventory-holds"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory/holds", { credentials: "include" })).json() as Promise<{ holds: Hold[] }>,
+    staleTime: 60_000,
+  });
+  const holds: HoldMap = useMemo(() => new Map((holdsQ.data?.holds ?? []).map((h) => [h.sku_id, h])), [holdsQ.data]);
+  const refreshHolds = () => qc.invalidateQueries({ queryKey: ["rp-inventory-holds"] });
 
   const rawSkus = useMemo(
     () => (skusQ.data?.skus ?? []).filter((s) => s.requires_coa).sort((a, b) => a.product_name.localeCompare(b.product_name)),
@@ -272,7 +283,7 @@ export default function RealPeptidesInventory() {
         <>
           {/* Mobile: cards, tap to manage. Desktop: full table. */}
           <div className="space-y-2 md:hidden">
-            {shown.map((s) => <MobileCard key={`${item}-${s.id}`} sku={s} item={item} velocity={velocity} onOpen={() => setOpenSku(s.id)} />)}
+            {shown.map((s) => <MobileCard key={`${item}-${s.id}`} sku={s} item={item} velocity={velocity} onHold={holds.get(s.id)?.on_hold ?? false} onOpen={() => setOpenSku(s.id)} />)}
             {!shown.length && <div className="py-12 text-center text-sm text-ops-text-muted">No products match.</div>}
           </div>
           <div className="hidden overflow-x-auto rounded-2xl border border-ops-border bg-ops-surface shadow-card md:block">
@@ -287,17 +298,18 @@ export default function RealPeptidesInventory() {
                   <th className="px-4 py-3 text-right font-medium">{item === "label" ? "To print" : "To order"}</th>
                   {item === "product" && <th className="px-4 py-3 text-right font-medium">Sold 4w · 8w</th>}
                   {item === "product" && <th className="px-4 py-3 text-right font-medium">Selling</th>}
+                  {canEdit && <th className="px-4 py-3 text-center font-medium">Hold</th>}
                   {canEdit && <th className="px-4 py-3 text-center font-medium">Adjust</th>}
                   <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-ops-border/50">
                 {shown.map((s) => (
-                  <Row key={`${item}-${s.id}`} sku={s} item={item} canEdit={canEdit} velocity={velocity}
-                    onChanged={refresh} onSay={say} onOpen={() => setOpenSku(s.id)} />
+                  <Row key={`${item}-${s.id}`} sku={s} item={item} canEdit={canEdit} velocity={velocity} hold={holds.get(s.id) ?? null}
+                    onChanged={refresh} onHoldChanged={refreshHolds} onSay={say} onOpen={() => setOpenSku(s.id)} />
                 ))}
                 {!shown.length && (
-                  <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-ops-text-muted">No products match.</td></tr>
+                  <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-ops-text-muted">No products match.</td></tr>
                 )}
               </tbody>
             </table>
@@ -311,8 +323,8 @@ export default function RealPeptidesInventory() {
       {showAdd && <AddProduct skus={rawSkus} onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); qc.invalidateQueries({ queryKey: ["coa-skus"] }); }} />}
       {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
       {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
-      {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity}
-        onClose={() => setOpenSku(null)} onChanged={refresh} onSay={say} />}
+      {opened && <SkuSheet sku={opened} item={item} canEdit={canEdit} velocity={velocity} hold={holds.get(opened.id) ?? null}
+        onClose={() => setOpenSku(null)} onChanged={refresh} onHoldChanged={refreshHolds} onSay={say} />}
     </div>
   );
 }
@@ -362,7 +374,16 @@ function useAdjust(sku: Sku, item: InvItem, onChanged: () => void, onSay: (m: st
   const setTarget = (v: number | null) =>
     run(() => api(`/skus/${sku.id}`, { method: "PATCH", body: JSON.stringify({ [item === "label" ? "label_ideal" : "ideal_stock"]: v }) }),
       "Target saved.");
-  return { busy, run, adjust, setExact, setTarget, noun };
+  const toggleHold = (onHold: boolean, note: string | null, onHoldChanged: () => void) =>
+    run(async () => {
+      const r = await fetch(`/api/ops/realpeptides/inventory/holds/${sku.id}`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on_hold: onHold, note, sku_code: sku.sku_code, product_name: sku.product_name }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+      onHoldChanged();
+    }, onHold ? `${sku.product_name} on hold — hidden from the site regardless of stock.` : `${sku.product_name} released — available for sale again.`);
+  return { busy, run, adjust, setExact, setTarget, toggleHold, noun };
 }
 
 /** Weeks of stock left at the current sales rate. */
@@ -375,19 +396,20 @@ function weeksLeft(sku: Sku, velocity: Velocity): { weekly: number; weeks: numbe
 
 // ─── Desktop row ───────────────────────────────────────────────────
 
-function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
-  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity;
-  onChanged: () => void; onSay: (m: string) => void; onOpen: () => void;
+function Row({ sku, item, canEdit, velocity, hold, onChanged, onHoldChanged, onSay, onOpen }: {
+  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity; hold: Hold | null;
+  onChanged: () => void; onHoldChanged: () => void; onSay: (m: string) => void; onOpen: () => void;
 }) {
   const [qty, setQty] = useState("1");
   const [showLog, setShowLog] = useState(false);
   const labelRef = useRef<HTMLInputElement>(null);
-  const { busy, run, adjust } = useAdjust(sku, item, onChanged, onSay);
+  const { busy, run, adjust, toggleHold } = useAdjust(sku, item, onChanged, onSay);
 
   const cur = stockOf(sku, item);
   const ideal = idealOf(sku, item);
   const need = orderQty(sku, item);
   const onOrder = stockNum(sku.on_order) ?? 0;
+  const onHold = hold?.on_hold ?? false;
   const out = cur !== null && cur <= 0;
   const low = isLow(sku, item);
   const img = thumbUrl(sku);
@@ -431,7 +453,12 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
           ) : <span className="text-[11px] text-ops-text-muted">—</span>}
         </td>
         <td className="px-4 py-3 text-right">
-          <span className={`text-base font-bold tabular-nums ${out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</span>
+          <span className={`text-base font-bold tabular-nums ${onHold ? "text-orange-400" : out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</span>
+          {onHold && (
+            <span className="mt-0.5 block" title={hold?.note ? `On hold: ${hold.note}` : "On hold — unavailable for sale despite stock on hand"}>
+              <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-orange-400"><Ban size={10} /> On hold</span>
+            </span>
+          )}
           {item === "product" && (stockNum(sku.held) ?? 0) > 0 && (
             <span className="block text-[10px] text-brand-blue-400" title="Reserved by paid orders that haven't shipped yet">{stockNum(sku.held)} held</span>
           )}
@@ -465,6 +492,16 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
         )}
         {canEdit && (
           <td className="px-4 py-3">
+            <div className="flex justify-center">
+              <input type="checkbox" checked={onHold} disabled={busy} aria-label="On hold — unavailable for sale"
+                title={onHold ? "On hold — click to release for sale" : "Put on hold — hide from the site regardless of stock"}
+                onChange={(e) => toggleHold(e.target.checked, e.target.checked ? (hold?.note ?? null) : null, onHoldChanged)}
+                className="h-4 w-4 cursor-pointer accent-orange-500 disabled:opacity-40" />
+            </div>
+          </td>
+        )}
+        {canEdit && (
+          <td className="px-4 py-3">
             <div className="flex items-center justify-center gap-1">
               <button type="button" onClick={() => adjust(-Math.abs(Number(qty) || 1))} disabled={busy || (cur ?? 0) <= 0} title="Remove"
                 className="grid h-7 w-7 place-items-center rounded-md border border-ops-border text-ops-text-muted hover:border-red-400/60 hover:text-red-400 disabled:opacity-30"><Minus size={13} /></button>
@@ -482,15 +519,15 @@ function Row({ sku, item, canEdit, velocity, onChanged, onSay, onOpen }: {
             className={`p-1 ${showLog ? "text-fitscript-green" : "text-ops-text-muted hover:text-ops-text"}`}><History size={14} /></button>
         </td>
       </tr>
-      {showLog && <LogRow skuId={sku.id} colSpan={item === "product" ? (canEdit ? 10 : 9) : (canEdit ? 7 : 6)} />}
+      {showLog && <LogRow skuId={sku.id} colSpan={item === "product" ? (canEdit ? 11 : 9) : (canEdit ? 8 : 6)} />}
     </>
   );
 }
 
 // ─── Mobile card ───────────────────────────────────────────────────
 
-function MobileCard({ sku, item, velocity, onOpen }: {
-  sku: Sku; item: InvItem; velocity: Velocity; onOpen: () => void;
+function MobileCard({ sku, item, velocity, onHold, onOpen }: {
+  sku: Sku; item: InvItem; velocity: Velocity; onHold: boolean; onOpen: () => void;
 }) {
   const cur = stockOf(sku, item);
   const need = orderQty(sku, item);
@@ -500,7 +537,7 @@ function MobileCard({ sku, item, velocity, onOpen }: {
   const vel = item === "product" ? weeksLeft(sku, velocity) : null;
   return (
     <button type="button" onClick={onOpen}
-      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left shadow-card ${out ? "border-red-500/30" : low ? "border-yellow-500/30" : "border-ops-border"} bg-ops-surface active:bg-ops-bg`}>
+      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left shadow-card ${onHold ? "border-orange-500/40" : out ? "border-red-500/30" : low ? "border-yellow-500/30" : "border-ops-border"} bg-ops-surface active:bg-ops-bg`}>
       <div className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-ops-border bg-ops-bg">
         {img && <img src={img} alt="" className="h-full w-full object-cover" loading="lazy" />}
       </div>
@@ -509,9 +546,10 @@ function MobileCard({ sku, item, velocity, onOpen }: {
         <div className="text-[11px] text-ops-text-muted">
           {sku.sku_code}{vel?.weeks != null ? ` · ${vel.weekly}/wk · ${vel.weeks}w left` : ""}
         </div>
+        {onHold && <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-orange-400"><Ban size={10} /> On hold</span>}
       </div>
       <div className="shrink-0 text-right">
-        <div className={`text-lg font-bold tabular-nums ${out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</div>
+        <div className={`text-lg font-bold tabular-nums ${onHold ? "text-orange-400" : out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</div>
         {need && need > 0 ? <div className="text-[10px] font-semibold text-yellow-500">order {need}</div> : null}
       </div>
     </button>
@@ -520,17 +558,19 @@ function MobileCard({ sku, item, velocity, onOpen }: {
 
 // ─── Product sheet: the tap-to-manage surface (works everywhere, built for phones) ───
 
-function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
-  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity;
-  onClose: () => void; onChanged: () => void; onSay: (m: string) => void;
+function SkuSheet({ sku, item, canEdit, velocity, hold, onClose, onChanged, onHoldChanged, onSay }: {
+  sku: Sku; item: InvItem; canEdit: boolean; velocity: Velocity; hold: Hold | null;
+  onClose: () => void; onChanged: () => void; onHoldChanged: () => void; onSay: (m: string) => void;
 }) {
   const [qty, setQty] = useState("1");
   const [count, setCount] = useState("");
   const [target, setTarget] = useState("");
   const [cover, setCover] = useState("");
   const [code, setCode] = useState(sku.sku_code);
+  const [holdNote, setHoldNote] = useState(hold?.note ?? "");
   const labelRef = useRef<HTMLInputElement>(null);
-  const { busy, run, adjust, setExact, setTarget: saveTarget, noun } = useAdjust(sku, item, onChanged, onSay);
+  const { busy, run, adjust, setExact, setTarget: saveTarget, toggleHold, noun } = useAdjust(sku, item, onChanged, onSay);
+  const onHold = hold?.on_hold ?? false;
 
   const cur = stockOf(sku, item);
   const ideal = idealOf(sku, item);
@@ -628,6 +668,27 @@ function SkuSheet({ sku, item, canEdit, velocity, onClose, onChanged, onSay }: {
                   <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${sku.do_not_replenish ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
+
+              {item === "product" && (
+                <div className="rounded-xl border border-ops-border px-3 py-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0 pr-3">
+                      <span className="block text-sm text-ops-text">On hold (unavailable for sale)</span>
+                      <span className="text-[11px] text-ops-text-muted">Hide from realpeptides.co even with stock on hand — e.g. awaiting COA.</span>
+                    </div>
+                    <button type="button" disabled={busy} aria-pressed={onHold}
+                      onClick={() => toggleHold(!onHold, onHold ? null : (holdNote.trim() || null), onHoldChanged)}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition ${onHold ? "bg-orange-500" : "bg-ops-border"}`}>
+                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${onHold ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
+                  </div>
+                  <input value={holdNote} onChange={(e) => setHoldNote(e.target.value)} placeholder="Why (optional) — e.g. waiting on COA"
+                    className={`${ui.input} mt-2 py-2 text-xs`} />
+                  {onHold && hold?.changed_by && (
+                    <div className="mt-1.5 text-[11px] text-ops-text-muted">On hold by {hold.changed_by} · {new Date(hold.updated_at).toLocaleString()}</div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-ops-border px-3 py-2.5">
                 <div className="min-w-[180px] flex-1">
