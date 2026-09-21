@@ -4,7 +4,7 @@ import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
-import { api, ui, thumbUrl, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
+import { api, ui, thumbUrl, type Po, type PoItem, type PoBatch, type PoLineBatch, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
@@ -28,12 +28,19 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
   const [mode, setMode] = useState<"list" | "new" | "paste">("list");
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
   const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[]; counts: { supplier: string | null; products: number }[] }>("/suppliers") });
+  const batchesQ = useQuery({
+    queryKey: ["rp-po-batches"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory/po-batches", { credentials: "include" })).json() as Promise<{ poBatches: PoBatch[]; lineBatches: PoLineBatch[] }>,
+  });
   const pos = posQ.data?.pos ?? [];
+  const poBatches = useMemo(() => new Map((batchesQ.data?.poBatches ?? []).map((b) => [b.po_id, b.batch])), [batchesQ.data]);
+  const lineBatches = useMemo(() => new Map((batchesQ.data?.lineBatches ?? []).map((b) => [b.item_id, b.batch])), [batchesQ.data]);
 
   const bump = () => {
     qc.invalidateQueries({ queryKey: ["coa-pos"] });
     qc.invalidateQueries({ queryKey: ["coa-skus"] });
     qc.invalidateQueries({ queryKey: ["coa-suppliers"] });
+    qc.invalidateQueries({ queryKey: ["rp-po-batches"] });
   };
   async function run(key: number | "new" | "paste", fn: () => Promise<unknown>, done?: string) {
     setBusy(key);
@@ -101,7 +108,8 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
           {pos.map((po) => (
-            <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy} run={run} onSay={onSay} />
+            <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy} run={run} onSay={onSay}
+              poBatch={poBatches.get(po.id) ?? ""} lineBatches={lineBatches} />
           ))}
         </div>
       </div>
@@ -118,10 +126,10 @@ const CHIP: Record<string, string> = {
   cancelled: "bg-red-500/15 text-red-400",
 };
 
-function PoCard({ po, skus, suppliers, busy, run, onSay }: {
+function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lineBatches }: {
   po: Po; skus: Sku[]; suppliers: string[]; busy: number | "new" | "paste" | null;
   run: (key: number, fn: () => Promise<unknown>, done?: string) => Promise<void>;
-  onSay: (m: string) => void;
+  onSay: (m: string) => void; poBatch: string; lineBatches: Map<number, string>;
 }) {
   const open = po.status === "draft" || po.status === "ordered";
   const [checkin, setCheckin] = useState(false);
@@ -130,6 +138,8 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
   const [qtys, setQtys] = useState<Record<number, string>>({});
   const [editQtys, setEditQtys] = useState<Record<number, string>>({});
   const [addQ, setAddQ] = useState("");
+  const [batchDraft, setBatchDraft] = useState(poBatch);
+  const [lineBatchDrafts, setLineBatchDrafts] = useState<Record<number, string>>({});
 
   const units = po.items.reduce((a, i) => a + Number(i.qty), 0);
   const received = po.items.reduce((a, i) => a + Number(i.received_qty), 0);
@@ -154,6 +164,21 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
     run(po.id, () => api(`/pos/${po.id}`, { method: "PATCH", body: JSON.stringify({ supplier }) }));
   const remove = () => run(po.id, () => api(`/pos/${po.id}`, { method: "DELETE" }), `PO #${po.id} deleted — its ${units} units no longer count as on-order.`);
 
+  const postBatches = (body: { batch: string; lines?: { item_id: number; batch: string }[] }) =>
+    fetch(`/api/ops/realpeptides/inventory/po-batches/${po.id}`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    }).then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText); });
+  const savePoBatch = () => {
+    const v = batchDraft.trim();
+    if (v === (poBatch ?? "")) return;
+    run(po.id, () => postBatches({ batch: v }), v ? `Batch ${v} saved for PO #${po.id} — it auto-fills every line at check-in.` : `Batch cleared on PO #${po.id}.`);
+  };
+
+  useEffect(() => {
+    if (!checkin) return;
+    setLineBatchDrafts(Object.fromEntries(po.items.map((i) => [i.id, lineBatches.get(i.id) ?? batchDraft.trim()])));
+  }, [checkin]);
+
   const hits = useMemo(() => {
     const needle = addQ.trim().toLowerCase();
     if (!needle) return [];
@@ -172,6 +197,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
       const r = await api<{ checkedIn: number; remaining: number }>(`/pos/${po.id}/checkin`, {
         method: "POST", body: JSON.stringify({ lines: ls, close }),
       });
+      await postBatches({ batch: batchDraft.trim(), lines: ls.map((l) => ({ item_id: l.item_id, batch: (lineBatchDrafts[l.item_id] ?? "").trim() })) });
       setCheckin(false); setQtys({});
       onSay(close && r.remaining === 0 && r.checkedIn < remaining
         ? `PO #${po.id} closed — ${r.checkedIn} units stocked in, ${remaining - r.checkedIn} never received.`
@@ -232,20 +258,40 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
         </div>
       </div>
 
+      {open ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-ops-border px-4 py-2">
+          <span className="text-[11px] uppercase tracking-wider text-ops-text-muted">Batch / lot</span>
+          <input value={batchDraft} onChange={(e) => setBatchDraft(e.target.value)} onBlur={savePoBatch}
+            onKeyDown={(e) => { if (e.key === "Enter") savePoBatch(); }} disabled={busy !== null} placeholder="applies to every line"
+            className="h-7 w-44 rounded-md border border-ops-border bg-ops-bg px-2 text-xs tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
+          <span className="text-[11px] text-ops-text-muted">Auto-fills each line at check-in; override per line below.</span>
+        </div>
+      ) : poBatch ? (
+        <div className="border-b border-ops-border px-4 py-2 text-[11px] text-ops-text-muted">Batch / lot: <span className="font-semibold text-ops-text">{poBatch}</span></div>
+      ) : null}
+
       <ul className="max-h-64 divide-y divide-ops-border/50 overflow-y-auto px-4 py-1 text-xs">
         {po.items.map((i) => {
           const left = remainingOf(i);
           const got = Number(i.received_qty);
           return (
             <li key={i.id} className="flex items-center justify-between gap-2 py-1.5">
-              <span className="min-w-0 truncate text-ops-text">{i.product_name} <span className="text-ops-text-muted">({i.sku_code})</span></span>
+              <span className="min-w-0 truncate">
+                <span className="text-ops-text">{i.product_name} <span className="text-ops-text-muted">({i.sku_code})</span></span>
+                {(lineBatches.get(i.id) || poBatch) && <span className="block text-[10px] text-ops-text-muted">lot {lineBatches.get(i.id) || poBatch}</span>}
+              </span>
               <span className="flex shrink-0 items-center gap-2">
                 {po.status === "ordered" && got > 0 && <span className={`tabular-nums ${left ? "text-amber-500" : "text-fitscript-green"}`}>{got} in{left ? ` · ${left} open` : ""}</span>}
                 {po.status === "received" && got < Number(i.qty) && <span className="tabular-nums text-red-400">{Number(i.qty) - got} short</span>}
                 {checkin && po.status === "ordered" ? (
-                  <input value={qtys[i.id] ?? ""} inputMode="numeric" placeholder={left ? `${left} open` : "done"} disabled={!left}
-                    onChange={(e) => setQtys({ ...qtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
-                    className="h-7 w-20 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
+                  <>
+                    <input value={lineBatchDrafts[i.id] ?? ""} placeholder="batch" disabled={!left}
+                      onChange={(e) => setLineBatchDrafts({ ...lineBatchDrafts, [i.id]: e.target.value })}
+                      className="h-7 w-24 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
+                    <input value={qtys[i.id] ?? ""} inputMode="numeric" placeholder={left ? `${left} open` : "done"} disabled={!left}
+                      onChange={(e) => setQtys({ ...qtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
+                      className="h-7 w-20 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
+                  </>
                 ) : open && editing ? (
                   <>
                     <input value={editQtys[i.id] ?? String(Number(i.qty))} inputMode="numeric"

@@ -145,6 +145,10 @@ export interface PoItem {
   sku_code: string; product_name: string;
 }
 
+/** Batch/lot numbers, stored ops-side against the tracker's PO and PO-item ids. */
+export interface PoBatch { po_id: number; batch: string; changed_by: string | null; updated_at: string }
+export interface PoLineBatch { item_id: number; po_id: number; batch: string; changed_by: string | null; updated_at: string }
+
 /** One parsed line from the fulfilment paste (dry-run /pos/checkin-parse). */
 export interface ParsedCheckinLine {
   raw: string;
