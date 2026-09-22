@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
-import { X, Download, Upload, FileText, Image as ImageIcon, BadgeCheck, Eye, FlaskConical, Pencil, Trash2, Link as LinkIcon, History, ChevronDown } from "lucide-react";
+import { X, Download, Upload, FileText, Image as ImageIcon, BadgeCheck, Eye, FlaskConical, Pencil, Trash2, Link as LinkIcon, History, ChevronDown, CalendarClock } from "lucide-react";
 import { API, PILL, api, ui, type Family, type SkuDetail, type Doc, type Sku, type Lab } from "./api";
 import { variantLabel, sortCoasByDate } from "./families";
 
@@ -22,7 +22,12 @@ export function FamilyDetail({ family, onClose, onChanged }: { family: Family; o
     placeholderData: keepPreviousData,
   });
 
-  const bump = async () => { await refetch(); qc.invalidateQueries({ queryKey: ["coa-skus"] }); onChanged(); };
+  const bump = async () => {
+    await refetch();
+    qc.invalidateQueries({ queryKey: ["coa-skus"] });
+    qc.invalidateQueries({ queryKey: ["coa-fresh-until"] });
+    onChanged();
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -45,8 +50,8 @@ export function FamilyDetail({ family, onClose, onChanged }: { family: Family; o
         <div className="space-y-3 p-4">
           {!data ? <div className="py-10 text-center text-sm text-ops-text-muted">Loading…</div>
             : data.map((d) => {
-              const status = family.variants.find((v) => v.id === d.sku.id)?.status ?? "untested";
-              return <Variant key={d.sku.id} detail={d} familyName={family.label} status={status} onChanged={bump} onDeleted={() => { bump(); if (data.length === 1) onClose(); }} />;
+              const v = family.variants.find((v) => v.id === d.sku.id);
+              return <Variant key={d.sku.id} detail={d} familyName={family.label} status={v?.status ?? "untested"} freshUntil={v?.fresh_until ?? null} onChanged={bump} onDeleted={() => { bump(); if (data.length === 1) onClose(); }} />;
             })}
         </div>
       </div>
@@ -54,8 +59,8 @@ export function FamilyDetail({ family, onClose, onChanged }: { family: Family; o
   );
 }
 
-function Variant({ detail, status, familyName, onChanged, onDeleted }: {
-  detail: SkuDetail; status: string; familyName: string; onChanged: () => Promise<void>; onDeleted: () => void;
+function Variant({ detail, status, familyName, freshUntil, onChanged, onDeleted }: {
+  detail: SkuDetail; status: string; familyName: string; freshUntil: string | null; onChanged: () => Promise<void>; onDeleted: () => void;
 }) {
   const sku = detail.sku;
   const [panel, setPanel] = useState<"none" | "upload" | "edit" | "history" | "preview">("none");
@@ -110,6 +115,7 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
             <div className="text-[11px] text-ops-text-muted">
               {sku.sku_code}{newest ? ` · tested ${newest.test_date} · expires ${newest.expiry_date}` : " · no test on record"}
               {sku.product_url && <> · <a href={sku.product_url} target="_blank" rel="noreferrer" className="text-fitscript-green hover:underline">product page</a></>}
+              {freshUntil && <> · <span className="text-fitscript-green">fresh until {freshUntil}</span></>}
             </div>
           </div>
         </div>
@@ -131,6 +137,7 @@ function Variant({ detail, status, familyName, onChanged, onDeleted }: {
           <Act onClick={() => orynRef.current?.click()} icon={<Upload size={11} />} label={orynDocs.length ? `Oryn cert ✓ (${orynDocs.length})` : "Oryn cert"} disabled={busy} title="Oryn-branded copy of this cert — syncs to the Oryn Biologix portal" />
           <Act onClick={() => toggle("edit")} icon={<Pencil size={11} />} label="Edit" active={panel === "edit"} />
           <Act onClick={remove} icon={<Trash2 size={11} />} label="Delete" disabled={busy} danger />
+          <FreshUntil skuId={sku.id} value={freshUntil} onChanged={onChanged} />
         </span>
         {openTest ? (
           <span className="inline-flex items-center gap-2 text-[11px]">
@@ -187,6 +194,35 @@ function MarkSent({ busy, onSend }: { busy: boolean; onSend: (lab: string) => vo
           </select>
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Defer this SKU's COA renewal: same lot means the current cert stays valid, so
+ * pick a "fresh until" date to mute the alert until then, or clear it to revert.
+ */
+function FreshUntil({ skuId, value, onChanged }: { skuId: number; value: string | null; onChanged: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(fresh_until: string | null) {
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch(`/api/ops/realpeptides/coa/fresh-until/${skuId}`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fresh_until }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+      await onChanged();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-ops-text-muted" title="Same lot — defer COA renewal until this date">
+      <CalendarClock size={11} /> Fresh until
+      <input type="date" value={value ?? ""} min={today()} disabled={busy} onChange={(e) => save(e.target.value || null)}
+        className="rounded border border-ops-border bg-ops-bg px-1.5 py-0.5 text-ops-text" />
+      {value && <button type="button" disabled={busy} onClick={() => save(null)} className="underline hover:text-ops-text disabled:opacity-40">Clear</button>}
+      {err && <span className="text-red-400">{err}</span>}
     </span>
   );
 }

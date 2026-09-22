@@ -184,6 +184,8 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
     { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|pos|labs)\/\d+\/?$/ },
     // Mark a SKU on hold / available for sale.
     { method: "POST", pattern: /^\/api\/ops\/realpeptides\/inventory\/holds\/\d+\/?$/ },
+    // Defer a SKU's COA renewal with a "fresh until" date (or clear it).
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/coa\/fresh-until\/\d+\/?$/ },
     { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/pos\/\d+\/items\/\d+\/?$/ },
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/pos\/\d+\/items\/\d+\/?$/ },
     // Remove a product (soft), or a wrong certificate / vault file (permanent).

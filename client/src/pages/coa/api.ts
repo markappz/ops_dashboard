@@ -39,6 +39,7 @@ export interface Sku {
   test_status: string | null;
   test_sent_date: string | null;
   test_lab_name: string | null;
+  fresh_until: string | null;
   doc_count: number;
   status: "fresh" | "expiring" | "expired" | "untested" | "n/a";
   daysLeft: number | null;
@@ -60,6 +61,23 @@ export function thumbUrl(s: Pick<Sku, "id" | "image_doc_id">): string | null {
 export const atLab = (s: Pick<Sku, "test_status">) => s.test_status === "in_testing" || s.test_status === "sent";
 export const needsSend = (s: Pick<Sku, "test_status" | "status">) =>
   (s.status === "expired" || s.status === "untested") && !atLab(s);
+
+/** A "fresh until" date still defers renewal while it's today or later. */
+export const freshUntilActive = (until: string | null | undefined): until is string =>
+  !!until && until >= new Date().toISOString().slice(0, 10);
+
+/**
+ * Fold ops' "fresh until" overlay into the tracker's SKUs. While the date is
+ * still active a SKU that would prompt renewal is treated as current, so alerts,
+ * counts and filters all skip it; once it passes, normal COA logic resumes.
+ */
+export function applyFreshUntil(skus: Sku[], map: Record<number, string>): Sku[] {
+  return skus.map((s) => {
+    const until = map[s.id] ?? null;
+    const deferred = freshUntilActive(until) && (s.status === "untested" || s.status === "expired");
+    return { ...s, fresh_until: until, status: deferred ? "fresh" : s.status };
+  });
+}
 
 export type Status = Sku["status"];
 
