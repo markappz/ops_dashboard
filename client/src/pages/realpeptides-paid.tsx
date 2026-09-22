@@ -47,8 +47,25 @@ interface Paid {
     error?: string;
     segments?: SegmentRow[];
     byCampaign?: CampaignConv[];
+    lifetime?: Lifetime;
   };
   error?: string;
+}
+interface ChannelLtv {
+  channel: "paid" | "organic-social" | "tagged-other" | "untagged";
+  subscribers: number;
+  buyers: number;
+  orders: number;
+  revenueCents: number;
+  preCapture: number;
+  byOffer: Record<string, { subscribers: number; buyers: number; revenueCents: number }>;
+}
+interface Lifetime {
+  asOf: string;
+  captureLiveSince: string;
+  channels: ChannelLtv[];
+  paidCohorts: { month: string; subscribers: number; buyers: number; revenueCents: number }[];
+  paidByAd: { campaign: string; adset: string; ad: string; offer: string; subscribers: number; buyers: number; revenueCents: number }[];
 }
 
 const OFFER_LABEL: Record<string, string> = {
@@ -73,6 +90,16 @@ const UTM_TEMPLATES = [
   ...t,
   value: `utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_term={{adset.name}}&utm_content={{ad.name}}&offer=${t.offer}`,
 }));
+// Michael's socials get their own medium so organic social never blends into
+// paid or SEO — swap offer= per guide; anything untagged reads as SEO/direct.
+const ORGANIC_TEMPLATE = "utm_source=michael&utm_medium=organic_social&utm_campaign={{post-name}}&offer=hair";
+
+const CHANNEL_LABEL: Record<string, { name: string; sub: string }> = {
+  paid: { name: "Paid ads (Meta)", sub: "Acquired by an ad — every sale they ever make counts here" },
+  "organic-social": { name: "Organic social (Michael)", sub: "Links tagged utm_medium=organic_social" },
+  "tagged-other": { name: "Other tagged", sub: "Carried UTMs that are neither paid nor organic-social" },
+  untagged: { name: "SEO / direct / untagged", sub: "No UTMs at opt-in" },
+};
 
 const num = (n: number | undefined | null) => (n ?? 0).toLocaleString();
 const usd = (n: number | undefined | null) =>
@@ -262,6 +289,105 @@ export default function RealPeptidesPaid() {
         </div>
       )}
 
+      {/* ── Lifetime value by acquisition channel ──────────────────────── */}
+      {seg?.lifetime && (
+        <>
+          <h2 className="mb-1 mt-8 text-sm font-semibold uppercase tracking-[0.08em] text-ops-text-muted">Lifetime value by acquisition channel</h2>
+          <p className="mb-3 text-xs text-ops-text-muted">
+            Channel is stamped once, at opt-in, from the link that captured the subscriber — so a paid-acquired customer's every future order counts to ads,
+            even when an email flow or coupon closes the sale. Buckets never overlap; don't add these to the Email tab's flow numbers, they're a different lens
+            on the same orders. Untagged includes everyone captured before {seg.lifetime.captureLiveSince}.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {seg.lifetime.channels.map((c) => {
+              const L = CHANNEL_LABEL[c.channel] ?? { name: c.channel, sub: "" };
+              const perSub = c.subscribers > 0 ? c.revenueCents / c.subscribers / 100 : 0;
+              const perBuyer = c.buyers > 0 ? c.revenueCents / c.buyers / 100 : 0;
+              return (
+                <div key={c.channel} className={`rounded-xl border p-5 shadow-card ${c.channel === "paid" ? "border-fitscript-green/40 bg-fitscript-green/5" : "border-ops-border bg-ops-surface"}`}>
+                  <div className="text-sm font-semibold">{L.name}</div>
+                  <div className="mb-2 text-[11px] text-ops-text-muted">{L.sub}</div>
+                  <div className="text-2xl font-bold tabular-nums">{cents(c.revenueCents)}</div>
+                  <dl className="mt-2 space-y-1 text-sm">
+                    <div className="flex justify-between"><dt className="text-ops-text-muted">Subscribers</dt><dd className="tabular-nums">{num(c.subscribers)}{c.preCapture > 0 ? <span className="text-xs text-ops-text-muted"> ({num(c.preCapture)} pre-capture)</span> : null}</dd></div>
+                    <div className="flex justify-between"><dt className="text-ops-text-muted">Became buyers</dt><dd className="tabular-nums">{num(c.buyers)} ({pct(c.buyers, c.subscribers)})</dd></div>
+                    <div className="flex justify-between"><dt className="text-ops-text-muted">LTV / subscriber</dt><dd className="tabular-nums font-medium">{usd(perSub)}</dd></div>
+                    <div className="flex justify-between"><dt className="text-ops-text-muted">LTV / buyer</dt><dd className="tabular-nums">{usd(perBuyer)}</dd></div>
+                  </dl>
+                </div>
+              );
+            })}
+          </div>
+
+          {seg.lifetime.paidCohorts.length > 0 && (
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-ops-border bg-ops-surface shadow-card">
+                <div className="border-b border-ops-border px-4 py-3">
+                  <div className="text-sm font-semibold">Paid cohorts by month</div>
+                  <div className="text-xs text-ops-text-muted">Subscribers acquired by ads that month, and everything they've spent since. LTV/sub vs your cost per lead in Meta = ad profitability.</div>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[10.5px] uppercase tracking-[0.08em] text-ops-text-muted">
+                      <th className="px-4 py-2 font-medium">Month</th>
+                      <th className="px-4 py-2 text-right font-medium">Subscribers</th>
+                      <th className="px-4 py-2 text-right font-medium">Buyers</th>
+                      <th className="px-4 py-2 text-right font-medium">Revenue to date</th>
+                      <th className="px-4 py-2 text-right font-medium">LTV / sub</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {seg.lifetime.paidCohorts.map((c) => (
+                      <tr key={c.month} className="border-t border-ops-border/60">
+                        <td className="px-4 py-2">{c.month}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{num(c.subscribers)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{num(c.buyers)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums font-medium">{cents(c.revenueCents)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{usd(c.subscribers > 0 ? c.revenueCents / c.subscribers / 100 : 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-xl border border-ops-border bg-ops-surface shadow-card">
+                <div className="border-b border-ops-border px-4 py-3">
+                  <div className="text-sm font-semibold">Paid lifetime by ad</div>
+                  <div className="text-xs text-ops-text-muted">Everything each ad's subscribers have spent to date — not just inside the range.</div>
+                </div>
+                <div className="max-h-[420px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-[10.5px] uppercase tracking-[0.08em] text-ops-text-muted">
+                        <th className="px-4 py-2 font-medium">Campaign / ad set / ad</th>
+                        <th className="px-4 py-2 font-medium">Offer</th>
+                        <th className="px-4 py-2 text-right font-medium">Subs</th>
+                        <th className="px-4 py-2 text-right font-medium">Buyers</th>
+                        <th className="px-4 py-2 text-right font-medium">Lifetime rev.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {seg.lifetime.paidByAd.map((r, i) => (
+                        <tr key={i} className="border-t border-ops-border/60">
+                          <td className="max-w-[260px] px-4 py-2">
+                            <div className="truncate" title={r.campaign}>{r.campaign}</div>
+                            <div className="truncate text-xs text-ops-text-muted" title={`${r.adset} · ${r.ad}`}>{r.adset} · {r.ad}</div>
+                          </td>
+                          <td className="px-4 py-2 text-xs text-ops-text-muted">{OFFER_LABEL[r.offer] ?? r.offer}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{num(r.subscribers)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{num(r.buyers)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium">{cents(r.revenueCents)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* ── Paid traffic from the pixel ────────────────────────────────── */}
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-[0.08em] text-ops-text-muted">Meta traffic (our pixel)</h2>
       {traffic?.error && <Banner>Pixel query error: {traffic.error}</Banner>}
@@ -339,6 +465,7 @@ export default function RealPeptidesPaid() {
       <h2 className="mb-3 mt-8 text-sm font-semibold uppercase tracking-[0.08em] text-ops-text-muted">UTM templates (Meta URL parameters)</h2>
       <div className="space-y-2">
         {UTM_TEMPLATES.map((t) => <CopyRow key={t.offer} label={t.label} value={t.value} />)}
+        <CopyRow label="Michael's socials (swap offer=)" value={ORGANIC_TEMPLATE} />
       </div>
       <p className="mt-3 text-xs text-ops-text-muted">
         Paste into the ad's “URL parameters” field — Meta fills the {"{{…}}"} placeholders per campaign/ad set/ad.
