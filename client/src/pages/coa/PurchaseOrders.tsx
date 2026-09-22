@@ -26,9 +26,14 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
   const qc = useQueryClient();
   const [busy, setBusy] = useState<number | "new" | "paste" | null>(null);
   const [mode, setMode] = useState<"list" | "new" | "paste">("list");
+  const [supplierFilter, setSupplierFilter] = useState<string>(ALL);
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
   const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[]; counts: { supplier: string | null; products: number }[] }>("/suppliers") });
   const pos = posQ.data?.pos ?? [];
+
+  const poSuppliers = useMemo(() => [...new Set(pos.map((p) => p.supplier).filter((s): s is string => !!s))].sort(), [pos]);
+  const hasUnassignedPo = pos.some((p) => !p.supplier);
+  const filteredPos = pos.filter((p) => supplierFilter === ALL || (supplierFilter === UNASSIGNED ? !p.supplier : p.supplier === supplierFilter));
 
   const bump = () => {
     qc.invalidateQueries({ queryKey: ["coa-pos"] });
@@ -100,7 +105,22 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {posQ.isLoading && <div className="py-8 text-center text-sm text-ops-text-muted">Loading POs…</div>}
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
-          {pos.map((po) => (
+          {mode === "list" && pos.length > 0 && (poSuppliers.length > 0 || hasUnassignedPo) && (
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><Truck size={13} /> Supplier</span>
+              <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}
+                className="h-8 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
+                <option value={ALL}>All suppliers</option>
+                {poSuppliers.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+                {hasUnassignedPo && <option value={UNASSIGNED}>No supplier</option>}
+              </select>
+              <span className="text-xs text-ops-text-muted">{filteredPos.length} of {pos.length}</span>
+            </div>
+          )}
+
+          {mode === "list" && pos.length > 0 && !filteredPos.length && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders for this supplier.</div>}
+
+          {filteredPos.map((po) => (
             <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy} run={run} onSay={onSay} />
           ))}
         </div>
@@ -297,6 +317,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
 // ─── New PO builder: supplier → prefilled review list → save ────────
 
 const ALL = "__all__";
+const UNASSIGNED = "__unassigned__";
 
 function weeksOf(s: Sku, velocity: Velocity): string {
   const v = velocity[s.sku_code];
