@@ -135,6 +135,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
   const received = po.items.reduce((a, i) => a + Number(i.received_qty), 0);
   const remaining = poRemaining(po);
   const partly = po.status === "ordered" && received > 0;
+  const deletableReceived = po.status === "received" && received === 0;
 
   const saveQty = (item: PoItem) => {
     const v = Number(editQtys[item.id]);
@@ -167,7 +168,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
 
   const doCheckin = (close: boolean) => {
     const ls = lines();
-    if (!ls.length && !close) return onSay("Enter what arrived first.");
+    if (!ls.length) return onSay(close ? "Nothing checked in — enter what arrived, or delete the PO instead." : "Enter what arrived first.");
     run(po.id, async () => {
       const r = await api<{ checkedIn: number; remaining: number }>(`/pos/${po.id}/checkin`, {
         method: "POST", body: JSON.stringify({ lines: ls, close }),
@@ -211,7 +212,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
               {busy === po.id ? <Loader2 size={13} className="animate-spin" /> : <PackageCheck size={13} />} Check in {checkin ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
           )}
-          {open && editing && (
+          {((open && editing) || deletableReceived) && (
             confirm ? (
               <span className="flex items-center gap-1.5 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-400">
                 {confirm === "delete" ? `Delete PO #${po.id}?` : `Cancel PO #${po.id}? ${remaining} open units stop counting as on-order.`}
@@ -220,12 +221,19 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
               </span>
             ) : (
               <>
-                {po.status === "ordered" && received === 0 && (
+                {open && editing && po.status === "ordered" && received === 0 && (
                   <button type="button" disabled={busy !== null} onClick={() => setStatus("draft", `PO #${po.id} is a draft again — nothing counts as on-order until it's re-ordered.`)} className={`${ui.ghost} ${small}`} title="Move back to draft (nothing received yet)"><Undo2 size={13} /> Un-order</button>
                 )}
-                <button type="button" disabled={busy !== null} onClick={() => setConfirm(received > 0 ? "cancel" : "delete")}
-                  title={received > 0 ? "Units were already checked in, so this cancels the remainder instead of deleting" : "Delete this PO"}
-                  className={`${small} inline-flex items-center gap-1 rounded-lg text-ops-text-muted hover:text-red-400`}><Trash2 size={13} /> {received > 0 ? "Cancel PO" : "Delete"}</button>
+                {open && editing && (
+                  <button type="button" disabled={busy !== null} onClick={() => setConfirm(received > 0 ? "cancel" : "delete")}
+                    title={received > 0 ? "Units were already checked in, so this cancels the remainder instead of deleting" : "Delete this PO"}
+                    className={`${small} inline-flex items-center gap-1 rounded-lg text-ops-text-muted hover:text-red-400`}><Trash2 size={13} /> {received > 0 ? "Cancel PO" : "Delete"}</button>
+                )}
+                {deletableReceived && (
+                  <button type="button" disabled={busy !== null} onClick={() => setConfirm("delete")}
+                    title="No units were received — this PO can be deleted"
+                    className={`${small} inline-flex items-center gap-1 rounded-lg text-ops-text-muted hover:text-red-400`}><Trash2 size={13} /> Delete</button>
+                )}
               </>
             )
           )}
