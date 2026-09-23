@@ -155,6 +155,28 @@ export interface PoItem {
   sku_code: string; product_name: string;
 }
 
+/**
+ * Lot/batch numbers per PO line live in ops' own DB (the tracker owns the PO),
+ * so they use ops routes directly rather than the tracker proxy. The map is
+ * keyed `${po_id}:${item_id}`.
+ */
+const PO_LOTS = "/api/ops/realpeptides/inventory/po-lots";
+export const lotKey = (poId: number, itemId: number) => `${poId}:${itemId}`;
+
+export async function fetchPoLots(): Promise<Record<string, string>> {
+  const r = await fetch(PO_LOTS, { credentials: "include" });
+  if (!r.ok) return {};
+  return (await r.json()).lots ?? {};
+}
+
+export async function savePoLot(poId: number, itemId: number, lotNumber: string): Promise<void> {
+  const r = await fetch(PO_LOTS, {
+    method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ po_id: poId, item_id: itemId, lot_number: lotNumber }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+}
+
 /** One parsed line from the fulfilment paste (dry-run /pos/checkin-parse). */
 export interface ParsedCheckinLine {
   raw: string;

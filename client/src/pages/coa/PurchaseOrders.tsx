@@ -4,7 +4,7 @@ import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
-import { api, ui, thumbUrl, mergeSuppliers, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
+import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
@@ -28,12 +28,15 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
   const [mode, setMode] = useState<"list" | "new" | "paste">("list");
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
   const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[]; counts: { supplier: string | null; products: number }[] }>("/suppliers") });
+  const lotsQ = useQuery({ queryKey: ["coa-po-lots"], queryFn: fetchPoLots });
   const pos = posQ.data?.pos ?? [];
+  const lots = lotsQ.data ?? {};
 
   const bump = () => {
     qc.invalidateQueries({ queryKey: ["coa-pos"] });
     qc.invalidateQueries({ queryKey: ["coa-skus"] });
     qc.invalidateQueries({ queryKey: ["coa-suppliers"] });
+    qc.invalidateQueries({ queryKey: ["coa-po-lots"] });
   };
   async function run(key: number | "new" | "paste", fn: () => Promise<unknown>, done?: string) {
     setBusy(key);
@@ -101,7 +104,10 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
           {pos.map((po) => (
-            <PoCard key={po.id} po={po} skus={skus} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy} run={run} onSay={onSay} />
+            <PoCard key={po.id} po={po} skus={skus} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy} run={run} onSay={onSay}
+              lots={lots}
+              saveLot={(item, lot) => run(po.id, () => savePoLot(po.id, item.id, lot),
+                lot ? `Lot ${lot} saved for ${item.product_name}.` : `Lot cleared for ${item.product_name}.`)} />
           ))}
         </div>
       </div>
@@ -118,10 +124,12 @@ const CHIP: Record<string, string> = {
   cancelled: "bg-red-500/15 text-red-400",
 };
 
-function PoCard({ po, skus, suppliers, busy, run, onSay }: {
+function PoCard({ po, skus, suppliers, busy, run, onSay, lots, saveLot }: {
   po: Po; skus: Sku[]; suppliers: string[]; busy: number | "new" | "paste" | null;
   run: (key: number, fn: () => Promise<unknown>, done?: string) => Promise<void>;
   onSay: (m: string) => void;
+  lots: Record<string, string>;
+  saveLot: (item: PoItem, lot: string) => void;
 }) {
   const open = po.status === "draft" || po.status === "ordered";
   const [checkin, setCheckin] = useState(false);
@@ -238,7 +246,11 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
           const got = Number(i.received_qty);
           return (
             <li key={i.id} className="flex items-center justify-between gap-2 py-1.5">
-              <span className="min-w-0 truncate text-ops-text">{i.product_name} <span className="text-ops-text-muted">({i.sku_code})</span></span>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-ops-text">{i.product_name} <span className="text-ops-text-muted">({i.sku_code})</span></span>
+                <LotField item={i} lot={lots[lotKey(po.id, i.id)] ?? ""} busy={busy !== null}
+                  editable={(open && editing) || (checkin && po.status === "ordered")} onSave={saveLot} />
+              </div>
               <span className="flex shrink-0 items-center gap-2">
                 {po.status === "ordered" && got > 0 && <span className={`tabular-nums ${left ? "text-amber-500" : "text-fitscript-green"}`}>{got} in{left ? ` · ${left} open` : ""}</span>}
                 {po.status === "received" && got < Number(i.qty) && <span className="tabular-nums text-red-400">{Number(i.qty) - got} short</span>}
@@ -291,6 +303,23 @@ function PoCard({ po, skus, suppliers, busy, run, onSay }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Per-line lot / batch number (ops-owned sidecar) ────────────────
+
+function LotField({ item, lot, editable, busy, onSave }: {
+  item: PoItem; lot: string; editable: boolean; busy: boolean;
+  onSave: (item: PoItem, lot: string) => void;
+}) {
+  const [val, setVal] = useState(lot);
+  useEffect(() => setVal(lot), [lot]);
+  const commit = () => { if (val.trim() !== lot) onSave(item, val.trim()); };
+  if (!editable) return lot ? <span className="mt-0.5 block truncate text-[10px] text-ops-text-muted">Lot {lot}</span> : null;
+  return (
+    <input value={val} inputMode="text" placeholder="Lot / batch #" disabled={busy}
+      onChange={(e) => setVal(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); }}
+      className="mt-1 h-6 w-36 rounded-md border border-ops-border bg-ops-bg px-1.5 text-[11px] text-ops-text placeholder:text-ops-text-muted focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
   );
 }
 
