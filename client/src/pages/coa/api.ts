@@ -11,6 +11,16 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
   return res.json();
 }
 
+/**
+ * Real Peptides supplier roster. The tracker only reports suppliers that already
+ * have products assigned, so names live here to stay selectable before their
+ * first product. mergeSuppliers keeps the tracker's list and adds any missing.
+ */
+export const SUPPLIER_ROSTER = ["Mike", "Caleb", "Ming", "Max", "Brent and Alan", "Tracy"];
+
+export const mergeSuppliers = (fromApi?: string[] | null): string[] =>
+  Array.from(new Set([...(fromApi ?? []), ...SUPPLIER_ROSTER]));
+
 export interface Sku {
   id: number;
   sku_code: string;

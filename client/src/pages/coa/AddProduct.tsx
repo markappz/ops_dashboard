@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ImagePlus, X } from "lucide-react";
-import { api, ui, type Sku } from "./api";
+import { api, ui, mergeSuppliers, type Sku } from "./api";
 import { groupFamilies } from "./families";
 
 /**
@@ -12,7 +12,6 @@ import { groupFamilies } from "./families";
  * variant image, or the product image for a new product. Used from the COA
  * tab and the Inventory tab.
  */
-const SUPPLIER_FALLBACK = ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"];
 const CATALOG = "/api/ops/realpeptides/catalog";
 
 interface SiteProduct { id: string; name: string; slug: string; status: string; image: string | null; variantCount: number }
@@ -37,7 +36,7 @@ export function AddProduct({ skus, onClose, onDone }: { skus: Sku[]; onClose: ()
   const families = useMemo(() => groupFamilies(skus), [skus]);
   const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[] }>("/suppliers"), staleTime: 60_000 });
   const prodQ = useQuery({ queryKey: ["rp-site-products"], queryFn: async () => (await (await fetch(`${CATALOG}/products`, { credentials: "include" })).json()) as { products?: SiteProduct[]; error?: string }, staleTime: 60_000 });
-  const suppliers = supQ.data?.suppliers ?? SUPPLIER_FALLBACK;
+  const suppliers = mergeSuppliers(supQ.data?.suppliers);
   const products = prodQ.data?.products ?? [];
 
   const [mode, setMode] = useState<"variant" | "new">("variant");

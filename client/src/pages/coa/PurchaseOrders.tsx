@@ -4,7 +4,7 @@ import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
-import { api, ui, thumbUrl, fetchPoLots, savePoLot, lotKey, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
+import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
@@ -79,7 +79,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           </div>
 
           {mode === "new" && (
-            <PoBuilder skus={skus} velocity={velocity} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy !== null} onSay={onSay} bump={bump}
+            <PoBuilder skus={skus} velocity={velocity} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy !== null} onSay={onSay} bump={bump}
               onCreate={async (items, supplier, note) => {
                 let created: Po | null = null;
                 await run("new", async () => { created = await api<Po>("/pos", { method: "POST", body: JSON.stringify({ supplier, note, items }) }); },
@@ -130,7 +130,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {mode === "list" && pos.length > 0 && !filteredPos.length && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders for this supplier.</div>}
 
           {filteredPos.map((po) => (
-            <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy} run={run} onSay={onSay}
+            <PoCard key={po.id} po={po} skus={skus} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy} run={run} onSay={onSay}
               poBatch={poBatches.get(po.id) ?? ""} lots={lots}
               saveLot={(item, lot) => run(po.id, () => savePoLot(po.id, item.id, lot),
                 lot ? `Lot ${lot} saved for ${item.product_name}.` : `Lot cleared for ${item.product_name}.`)} />
