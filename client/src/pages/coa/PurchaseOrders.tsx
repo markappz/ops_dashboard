@@ -4,7 +4,7 @@ import {
   X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
-import { api, ui, thumbUrl, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
+import { api, ui, thumbUrl, mergeSuppliers, type Po, type PoItem, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
@@ -65,7 +65,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           </div>
 
           {mode === "new" && (
-            <PoBuilder skus={skus} velocity={velocity} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy !== null} onSay={onSay} bump={bump}
+            <PoBuilder skus={skus} velocity={velocity} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy !== null} onSay={onSay} bump={bump}
               onCreate={async (items, supplier, note) => {
                 let created: Po | null = null;
                 await run("new", async () => { created = await api<Po>("/pos", { method: "POST", body: JSON.stringify({ supplier, note, items }) }); },
@@ -101,7 +101,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
           {pos.map((po) => (
-            <PoCard key={po.id} po={po} skus={skus} suppliers={supQ.data?.suppliers ?? ["Mike", "Caleb", "Ming", "Max", "Brent and Alan"]} busy={busy} run={run} onSay={onSay} />
+            <PoCard key={po.id} po={po} skus={skus} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy} run={run} onSay={onSay} />
           ))}
         </div>
       </div>
