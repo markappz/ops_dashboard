@@ -196,7 +196,53 @@ export async function velocityBySku(windows: number[]) {
   return data;
 }
 
+async function ensurePoLotTable() {
+  await pool.query(`CREATE TABLE IF NOT EXISTS rp_po_lots (
+    po_id integer NOT NULL,
+    item_id integer NOT NULL,
+    lot_number text NOT NULL,
+    updated_by text,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (po_id, item_id)
+  )`);
+}
+
 export function registerRpInventoryRoutes(app: Express) {
+  /**
+   * Lot/batch numbers per PO line, in an ops-owned sidecar table. The PO itself
+   * lives on the tracker; this keys extra data to it by (po_id, item_id) without
+   * reaching the tracker's DB. Read as a `${po_id}:${item_id}` → lot map.
+   */
+  app.get("/api/ops/realpeptides/inventory/po-lots", async (_req, res) => {
+    try {
+      await ensurePoLotTable();
+      const r = await pool.query("SELECT po_id, item_id, lot_number FROM rp_po_lots");
+      const lots: Record<string, string> = {};
+      for (const row of r.rows) lots[`${row.po_id}:${row.item_id}`] = row.lot_number;
+      res.json({ lots });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** Set or clear one line's lot number (empty string deletes it). */
+  app.put("/api/ops/realpeptides/inventory/po-lots", async (req, res) => {
+    const poId = Number(req.body?.po_id), itemId = Number(req.body?.item_id);
+    const lot = String(req.body?.lot_number ?? "").trim();
+    if (!Number.isInteger(poId) || !Number.isInteger(itemId)) return res.status(400).json({ error: "po_id and item_id required" });
+    try {
+      await ensurePoLotTable();
+      if (!lot) await pool.query("DELETE FROM rp_po_lots WHERE po_id = $1 AND item_id = $2", [poId, itemId]);
+      else await pool.query(
+        `INSERT INTO rp_po_lots (po_id, item_id, lot_number, updated_by) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (po_id, item_id) DO UPDATE SET lot_number = EXCLUDED.lot_number, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+        [poId, itemId, lot, (req as any).adminEmail ?? null]);
+      res.json({ ok: true, lot_number: lot });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   /** Sales per SKU across trailing windows + last sync state, for the Inventory tab. */
   app.get("/api/ops/realpeptides/inventory-stats", async (req, res) => {
     try {
