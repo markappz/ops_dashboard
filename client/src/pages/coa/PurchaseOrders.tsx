@@ -245,6 +245,9 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={() => downloadPoPdf(po)} title="Download PDF" className={`${ui.ghost} ${small}`}><FileDown size={13} /> PDF</button>
+          {po.status === "received" && received === 0 && (
+            <button type="button" disabled={busy !== null} onClick={() => setStatus("draft", `PO #${po.id} reverted to draft — nothing was received, so you can now edit or delete it.`)} className={`${ui.ghost} ${small}`} title="Nothing was checked in — move it back to draft so it can be edited or deleted"><Undo2 size={13} /> Revert to draft</button>
+          )}
           {open && (
             <button type="button" disabled={busy !== null} onClick={() => { setEditing(!editing); setCheckin(false); setConfirm(null); }} className={`${editing ? ui.primary : ui.ghost} ${small}`} title="Change quantities, add or remove lines">
               <Pencil size={13} /> {editing ? "Done" : "Edit"}
