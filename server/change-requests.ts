@@ -13,7 +13,7 @@ import { pool } from "./db";
 const REPO = process.env.OPS_GITHUB_REPO || "markappz/ops_dashboard";
 const GH = "https://api.github.com";
 
-export type RequestStatus = "queued" | "building" | "pr_open" | "failed" | "approved" | "merged" | "rejected";
+export type RequestStatus = "queued" | "building" | "pr_open" | "failed" | "approved" | "resolving" | "merged" | "rejected";
 
 function ghToken(): string | null {
   return process.env.GITHUB_PAT_OPS || process.env.GITHUB_PAT_FITSCRIPT_FIX || null;
@@ -82,6 +82,63 @@ export async function createChangeRequest(input: { title: string; body: string; 
   return (await pool.query("SELECT * FROM ops_change_requests WHERE id = $1", [row.id])).rows[0];
 }
 
+async function tryMerge(row: any): Promise<{ ok: boolean; conflict: boolean; msg: string }> {
+  // Already merged outside the dashboard (batched into main by hand, or a
+  // previous attempt landed): the approval is done, just record it.
+  const pr = await gh(`/repos/${REPO}/pulls/${row.pr_number}`);
+  if (pr.body?.merged === true) return { ok: true, conflict: false, msg: "" };
+  if (pr.body?.state === "closed") return { ok: false, conflict: false, msg: `PR #${row.pr_number} was closed without merging — retry the request instead` };
+  const m = await gh(`/repos/${REPO}/pulls/${row.pr_number}/merge`, {
+    method: "PUT",
+    body: JSON.stringify({ merge_method: "squash", commit_title: `${row.title} (#${row.pr_number})` }),
+  });
+  if (m.status === 200) return { ok: true, conflict: false, msg: "" };
+  return { ok: false, conflict: m.status === 405 || m.status === 409, msg: `GitHub merge ${m.status}: ${m.body?.message || ""}` };
+}
+
+/** Behind main but no real conflicts: GitHub merges main into the branch, then we merge the PR. */
+async function updateBranchThenMerge(row: any): Promise<boolean> {
+  const u = await gh(`/repos/${REPO}/pulls/${row.pr_number}/update-branch`, { method: "PUT", body: "{}" });
+  if (u.status !== 202) return false;
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    const pr = await gh(`/repos/${REPO}/pulls/${row.pr_number}`);
+    if (pr.body?.mergeable === false) return false;
+    if (pr.body?.mergeable === true) return (await tryMerge(row)).ok;
+  }
+  return false;
+}
+
+/** Real conflicts: hand the branch to the Claude Code rebase job; it calls back /resolved. */
+async function dispatchResolve(row: any): Promise<void> {
+  const r = await gh(`/repos/${REPO}/dispatches`, {
+    method: "POST",
+    body: JSON.stringify({ event_type: "resolve_request", client_payload: { id: row.id, title: row.title, body: row.body, branch: row.branch, pr_number: row.pr_number } }),
+  });
+  if (r.status !== 204) throw new Error(`GitHub dispatch ${r.status}: ${JSON.stringify(r.body).slice(0, 160)}`);
+}
+
+async function finishMerge(row: any, note: string): Promise<void> {
+  await setStatus(row.id, { status: "merged", error: null });
+  if (row.branch) await gh(`/repos/${REPO}/git/refs/heads/${row.branch}`, { method: "DELETE" });
+  await postSlack(`🚀 Change request #${row.id} *${row.title}* ${note} — merged, deploying.`);
+}
+
+async function onResolveResult(row: any, body: { ok?: boolean; error?: string }): Promise<void> {
+  if (!body.ok) {
+    await setStatus(row.id, { status: "pr_open", error: `Conflict resolution failed: ${String(body.error || "unknown").slice(0, 1500)}` });
+    await postSlack(`⚠️ Change request #${row.id} *${row.title}*: Claude Code couldn't resolve the merge conflicts — needs a human. ${row.pr_url || ""}`);
+    return;
+  }
+  const m = await tryMerge(row);
+  if (!m.ok) {
+    await setStatus(row.id, { status: "pr_open", error: `Rebased, but merge still failed — ${m.msg}` });
+    await postSlack(`⚠️ Change request #${row.id} *${row.title}*: rebased clean but the merge still failed (${m.msg}).`);
+    return;
+  }
+  await finishMerge(row, "(conflicts auto-resolved)");
+}
+
 function ciTokenOk(req: Request): boolean {
   const expected = process.env.OPS_CI_TOKEN;
   if (!expected) return false;
@@ -134,6 +191,20 @@ export function registerChangeRequests(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Callback from the resolve-request workflow: the branch was rebased onto main
+  // (ok: true) or the rebase could not be completed (ok: false). On success the
+  // request was already approved by an admin, so the merge finishes here.
+  app.post("/api/ops/change-requests/:id/resolved", async (req, res) => {
+    if (!ciTokenOk(req)) return res.status(401).json({ error: "unauthorized" });
+    const id = parseInt(String(req.params.id), 10);
+    try {
+      const row = (await pool.query("SELECT * FROM ops_change_requests WHERE id = $1", [id])).rows[0];
+      if (!row) return res.status(404).json({ error: "not found" });
+      await onResolveResult(row, req.body || {});
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   /** Admin decision: approve = squash-merge the PR (CI deploys); reject = close PR + delete branch. */
   app.post("/api/ops/change-requests/:id/decide", async (req: Request & { adminEmail?: string; role?: string }, res) => {
     if (req.role === "viewer") return res.status(403).json({ error: "admins only" });
@@ -144,11 +215,18 @@ export function registerChangeRequests(app: Express) {
       if (!row) return res.status(404).json({ error: "not found" });
       if (decision === "approve") {
         if (!row.pr_number) return res.status(400).json({ error: "No pull request to merge yet" });
-        const m = await gh(`/repos/${REPO}/pulls/${row.pr_number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "squash", commit_title: `${row.title} (#${row.pr_number})` }) });
-        if (m.status !== 200) return res.status(502).json({ error: `GitHub merge ${m.status}: ${m.body?.message || ""}` });
-        await setStatus(id, { status: "merged", decided_by: req.adminEmail, decided_at: new Date() });
-        if (row.branch) await gh(`/repos/${REPO}/git/refs/heads/${row.branch}`, { method: "DELETE" });
-        await postSlack(`🚀 Change request #${id} *${row.title}* approved by ${req.adminEmail} — merged, deploying.`);
+        await setStatus(id, { decided_by: req.adminEmail, decided_at: new Date() });
+        let m = await tryMerge(row);
+        if (!m.ok && m.conflict && (await updateBranchThenMerge(row))) m = { ok: true, conflict: false, msg: "" };
+        if (!m.ok && m.conflict) {
+          await dispatchResolve(row);
+          await setStatus(id, { status: "resolving", error: null });
+          await postSlack(`🔧 Change request #${id} *${row.title}* approved by ${req.adminEmail} — PR conflicts with main, Claude Code is rebasing it and it will merge itself.`);
+        } else if (!m.ok) {
+          return res.status(502).json({ error: m.msg });
+        } else {
+          await finishMerge(row, `approved by ${req.adminEmail}`);
+        }
       } else if (decision === "reject") {
         // Closing the PR / deleting the branch is best-effort: the decision stands even if GitHub is unreachable.
         try {

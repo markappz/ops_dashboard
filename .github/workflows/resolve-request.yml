@@ -1,0 +1,111 @@
+name: Resolve request conflicts (Claude Code)
+
+# Fired by ops (repository_dispatch) when an admin-approved change-request PR
+# conflicts with main. Main is merged into the request branch; Claude Code
+# resolves any conflict markers, the same typecheck + build gate as deploys
+# must pass, the branch is pushed, and ops is told the branch is clean —
+# ops then finishes the already-approved merge itself.
+
+on:
+  repository_dispatch:
+    types: [resolve_request]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: resolve-request-${{ github.event.client_payload.id }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REQ_ID: ${{ github.event.client_payload.id }}
+      REQ_TITLE: ${{ github.event.client_payload.title }}
+      REQ_BODY: ${{ github.event.client_payload.body }}
+      BRANCH: ${{ github.event.client_payload.branch }}
+      OPS_URL: ${{ secrets.OPS_URL }}
+      OPS_CI_TOKEN: ${{ secrets.OPS_CI_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Merge main into the request branch
+        id: merge
+        run: |
+          git config user.name "ops-change-requests"
+          git config user.email "ops@fitscript.me"
+          git checkout "$BRANCH"
+          set +e
+          git merge --no-edit origin/main
+          if [ $? -ne 0 ]; then
+            git diff --name-only --diff-filter=U > /tmp/conflicts.txt
+            echo "conflicts=yes" >> "$GITHUB_OUTPUT"
+            cat /tmp/conflicts.txt
+          else
+            echo "conflicts=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install
+        run: npm ci
+
+      - name: Claude Code resolves the conflicts
+        if: steps.merge.outputs.conflicts == 'yes'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          npm i -g @anthropic-ai/claude-code
+          cat > /tmp/prompt.md <<EOF
+          You are in the FitScript ops dashboard repo. Merging origin/main into this
+          branch left Git conflict markers. This branch implements one change request:
+
+          Title: $REQ_TITLE
+
+          $REQ_BODY
+
+          Conflicted files:
+          $(cat /tmp/conflicts.txt)
+
+          Resolve every conflict so the file keeps BOTH main's newer behavior AND this
+          branch's change. If main already ships an overlapping feature, integrate
+          rather than duplicate. Remove all conflict markers. Edit only the conflicted
+          files. Do not run git commands.
+          EOF
+          claude -p "$(cat /tmp/prompt.md)" \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Edit,Write,Grep,Glob,Bash(npm run build),Bash(npx tsc *),Bash(ls *),Bash(cat *)" \
+            --max-turns 40 \
+            --output-format text > /tmp/claude.log 2>&1 || true
+          tail -c 2000 /tmp/claude.log
+          if grep -rn "^<<<<<<< \|^>>>>>>> " $(cat /tmp/conflicts.txt); then
+            echo "conflict markers remain"; exit 1
+          fi
+          git add -- $(cat /tmp/conflicts.txt)
+          git commit -q -m "Merge main into $BRANCH (conflicts resolved by Claude Code)"
+
+      - name: Gate (typecheck + build)
+        run: |
+          npx tsc --noEmit
+          npm run build
+
+      - name: Push
+        run: git push origin "$BRANCH"
+
+      - name: Report back to ops
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            PAYLOAD='{"ok":true}'
+          else
+            PAYLOAD=$(jq -n --arg e "resolve job ${{ job.status }} — see the resolve-request run in GitHub Actions" '{ok:false, error:$e}')
+          fi
+          curl -s -X POST "$OPS_URL/api/ops/change-requests/$REQ_ID/resolved" -H "Authorization: Bearer $OPS_CI_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD" -o /dev/null -w "ops callback %{http_code}\n"

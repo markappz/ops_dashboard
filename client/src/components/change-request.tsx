@@ -11,7 +11,7 @@ import { Wand2, X, ExternalLink, Check, Ban, RotateCcw } from "lucide-react";
 
 export interface ChangeRequest {
   id: number; company: string | null; area: string | null; title: string; body: string; requested_by: string;
-  status: "queued" | "building" | "pr_open" | "failed" | "approved" | "merged" | "rejected";
+  status: "queued" | "building" | "pr_open" | "failed" | "approved" | "resolving" | "merged" | "rejected";
   branch: string | null; pr_number: number | null; pr_url: string | null; summary: string | null; error: string | null;
   decided_by: string | null; decided_at: string | null; created_at: string; updated_at: string;
 }
@@ -22,6 +22,7 @@ const STATUS: Record<ChangeRequest["status"], { label: string; cls: string }> = 
   pr_open: { label: "ready to review", cls: "bg-brand-blue-500/15 text-brand-blue-500" },
   failed: { label: "failed", cls: "bg-red-500/15 text-red-400" },
   approved: { label: "approved", cls: "bg-fitscript-green/15 text-fitscript-green" },
+  resolving: { label: "resolving conflicts", cls: "bg-amber-500/15 text-amber-500" },
   merged: { label: "live", cls: "bg-fitscript-green/15 text-fitscript-green" },
   rejected: { label: "rejected", cls: "bg-ops-border text-ops-text-muted" },
 };
@@ -107,11 +108,29 @@ export function ChangeRequestsPanel() {
   });
   const rows = q.data?.requests ?? [];
   const p = q.data?.pipeline;
+  const ready = rows.filter((r) => r.status === "pr_open").sort((a, b) => a.id - b.id);
+  const [draining, setDraining] = useState(false);
+  const approveAll = async () => {
+    setDraining(true);
+    try {
+      for (const r of ready) {
+        try { await act.mutateAsync({ id: r.id, path: "decide", body: { decision: "approve" } }); }
+        catch { /* the row keeps its error; the rest of the queue still drains */ }
+      }
+    } finally { setDraining(false); }
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ops-text-muted">Plain-English requests from the team. Claude Code builds each one into a pull request on <span className="text-ops-text">{p?.repo}</span>; approving merges it and CI deploys.</p>
-        <RequestChangeButton area="settings" />
+        <p className="text-sm text-ops-text-muted">Plain-English requests from the team. Claude Code builds each one into a pull request on <span className="text-ops-text">{p?.repo}</span>; approving merges it and CI deploys. Merge conflicts resolve themselves after approval.</p>
+        <div className="flex items-center gap-2">
+          {isAdmin && ready.length > 1 && (
+            <button type="button" disabled={draining} onClick={approveAll} className="inline-flex items-center gap-1.5 rounded-lg bg-fitscript-green px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {draining ? <RotateCcw size={15} className="animate-spin" /> : <Check size={15} />} Approve all ({ready.length}) & deploy
+            </button>
+          )}
+          <RequestChangeButton area="settings" />
+        </div>
       </div>
       {p && (!p.github || !p.ci) && (
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-500">
@@ -133,10 +152,10 @@ export function ChangeRequestsPanel() {
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {r.pr_url && <a href={r.pr_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1.5 text-xs text-ops-text hover:border-ops-text-muted"><ExternalLink size={12} /> PR #{r.pr_number}</a>}
-                {isAdmin && r.status === "pr_open" && (
+                {isAdmin && (r.status === "pr_open" || r.status === "resolving") && (
                   <>
-                    <button type="button" disabled={act.isPending} onClick={() => act.mutate({ id: r.id, path: "decide", body: { decision: "approve" } })} className="inline-flex items-center gap-1 rounded-lg bg-fitscript-green px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"><Check size={12} /> Approve & deploy</button>
-                    <button type="button" disabled={act.isPending} onClick={() => act.mutate({ id: r.id, path: "decide", body: { decision: "reject" } })} className="inline-flex items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1.5 text-xs text-ops-text-muted hover:text-red-400 disabled:opacity-50"><Ban size={12} /> Reject</button>
+                    <button type="button" disabled={act.isPending || draining} onClick={() => act.mutate({ id: r.id, path: "decide", body: { decision: "approve" } })} className="inline-flex items-center gap-1 rounded-lg bg-fitscript-green px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"><Check size={12} /> {r.status === "resolving" ? "Retry merge" : "Approve & deploy"}</button>
+                    <button type="button" disabled={act.isPending || draining} onClick={() => act.mutate({ id: r.id, path: "decide", body: { decision: "reject" } })} className="inline-flex items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1.5 text-xs text-ops-text-muted hover:text-red-400 disabled:opacity-50"><Ban size={12} /> Reject</button>
                   </>
                 )}
                 {isAdmin && (r.status === "failed" || r.status === "queued") && (
