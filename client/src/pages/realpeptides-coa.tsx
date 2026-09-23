@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ClipboardList, Upload, RefreshCw, Bell, Plus, Search, X, Download, Layers, FlaskConical } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { api, ui, atLab, needsSend, type Sku, type Family } from "./coa/api";
+import { api, ui, atLab, needsSend, applyFreshUntil, type Sku, type Family } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
 import { AddProduct } from "./coa/AddProduct";
 import { RequestChangeButton } from "../components/change-request";
@@ -50,7 +50,17 @@ export default function RealPeptidesCoa() {
     retry: false,
   });
 
-  const families = useMemo(() => groupFamilies(skus.data?.skus ?? []), [skus.data]);
+  const freshUntil = useQuery({
+    queryKey: ["coa-fresh-until"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/coa/fresh-until", { credentials: "include" }).then((r) => r.json())) as { freshUntil: Record<number, string> },
+    staleTime: 60_000,
+  });
+
+  const merged = useMemo(
+    () => applyFreshUntil(skus.data?.skus ?? [], freshUntil.data?.freshUntil ?? {}),
+    [skus.data, freshUntil.data],
+  );
+  const families = useMemo(() => groupFamilies(merged), [merged]);
   const counts = useMemo(() => familyCounts(families), [families]);
   const shown = useMemo(() => {
     let list = families;
@@ -94,7 +104,7 @@ export default function RealPeptidesCoa() {
             <input ref={csvRef} type="file" accept=".csv" hidden onChange={onCsv} />
             <RequestChangeButton area="coa" company="realpeptides" className={ui.ghost} />
             <button type="button" onClick={() => setShowSummary(true)} className={ui.ghost}><ClipboardList size={15} /> Action Summary</button>
-            <button type="button" onClick={() => exportSummaryCsv(skus.data?.skus ?? [])} disabled={!skus.data?.skus?.length} className={ui.ghost} title="Download every SKU's status as a spreadsheet"><Download size={15} /> Export</button>
+            <button type="button" onClick={() => exportSummaryCsv(merged)} disabled={!merged.length} className={ui.ghost} title="Download every SKU's status as a spreadsheet"><Download size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => csvRef.current?.click()} className={ui.ghost}><Upload size={15} /> Import CSV</button>}
             <button type="button" onClick={() => setShowAlerts(true)} className={ui.ghost} title="Alerts"><Bell size={15} /></button>
             <button type="button" onClick={refresh} className={ui.ghost} title="Refresh"><RefreshCw size={15} /></button>
@@ -127,7 +137,7 @@ export default function RealPeptidesCoa() {
       {showSummary && <ActionSummary families={families} onClose={() => setShowSummary(false)} />}
       {showAlerts && <AlertSettings onClose={() => setShowAlerts(false)} />}
       {showBulk && <BulkUpload skus={skus.data?.skus ?? []} onClose={() => setShowBulk(false)} onDone={(m) => { setShowBulk(false); say(m); refresh(); }} />}
-      {showLabOrder && <LabOrder skus={skus.data?.skus ?? []} onClose={() => setShowLabOrder(false)} onSay={say} onChanged={refresh} />}
+      {showLabOrder && <LabOrder skus={merged} onClose={() => setShowLabOrder(false)} onSay={say} onChanged={refresh} />}
       {showAdd && <AddProduct skus={skus.data?.skus ?? []} onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); refresh(); }} />}
     </div>
   );

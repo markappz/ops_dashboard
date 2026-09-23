@@ -1,7 +1,7 @@
 import { atLab, needsSend, type Sku } from "./api";
 
 const HEADERS = [
-  "Product", "SKU", "Form", "Status", "Days left", "Action needed",
+  "Product", "SKU", "Form", "Status", "Fresh until", "Days left", "Action needed",
   "Last test date", "Expires", "Lab", "Lot", "At lab since", "Sent to",
   "COA files", "Stock",
 ];
@@ -25,6 +25,7 @@ function row(s: Sku): (string | number | null)[] {
     s.sku_code,
     s.form,
     s.status,
+    s.fresh_until ?? "—",
     s.daysLeft,
     atLab(s) ? "At lab — awaiting results" : ACTION[s.status] ?? "",
     s.coa_test_date,
