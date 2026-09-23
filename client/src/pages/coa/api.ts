@@ -145,6 +145,10 @@ export interface PoItem {
   sku_code: string; product_name: string;
 }
 
+/** PO-level batch number, stored ops-side against the tracker's PO id. Lines
+ * without their own lot inherit it; per-line lots below are the override. */
+export interface PoBatch { po_id: number; batch: string; changed_by: string | null; updated_at: string }
+
 /**
  * Lot/batch numbers per PO line live in ops' own DB (the tracker owns the PO),
  * so they use ops routes directly rather than the tracker proxy. The map is
