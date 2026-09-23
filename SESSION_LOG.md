@@ -4,6 +4,39 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-23 — Change-request queue unstuck + self-merging approvals ("Approve all")
+
+Paul couldn't approve Justin's queued requests: "GitHub merge 405: Pull Request has merge conflicts."
+Root cause: every request PR branches off the same main and edits the same files (PurchaseOrders.tsx),
+so each merge stales the rest; the old approve did one merge attempt and gave up.
+
+- **Queue cleared, one deploy.** Resolved the three conflicting PR branches (batch numbers #6,
+  supplier filter #9, Tracy #10), then merged all six open request branches into one `combined`
+  branch, resolved cross-PR conflicts once, gated (tsc + prod build), pushed to main → single CI
+  deploy. GitHub auto-closed all six PRs as merged. Verified live in the PO modal: supplier filter,
+  PO-level Batch/lot with per-line inheritance note, Revert to draft + Delete on the zero-stock
+  received PO (#11 — Justin's original complaint).
+- **Feature collision resolved by integration:** main had shipped per-line lot numbers (PR #5) while
+  request #7 built PO-level batch + line overrides as a separate store. Kept both: PO-level batch
+  (po-batches, ops DB) is the default every line inherits; the existing per-line lot field
+  (po-lots) is the override. Dropped request #7's duplicate per-line inputs.
+- **Self-merging approvals shipped** (`server/change-requests.ts`, `.github/workflows/resolve-request.yml`,
+  `client/src/components/change-request.tsx`): approve now (1) records already-merged PRs instead of
+  erroring (made the six stale rows self-heal on click), (2) uses GitHub update-branch + retry when
+  the PR is merely behind, (3) on real conflicts flips the row to new status `resolving` and fires
+  `repository_dispatch: resolve_request` — CI merges main into the branch, Claude Code resolves
+  markers under the same tsc+build gate, pushes, and calls the new `POST /:id/resolved` (bearer
+  OPS_CI_TOKEN), where ops finishes the already-approved merge. Slack pings at every step; failures
+  drop the row back to `pr_open` with the error. Rows in `resolving` show a Retry merge button.
+- **"Approve all (N) & deploy"** button on Settings → Requests drains every `pr_open` row
+  sequentially (admin-only, shows when ≥2 are ready).
+- **Gotchas hit:** `.gitignore` had `node_modules/` (directories only) so a node_modules *symlink*
+  got committed and pushed on a request branch — removed, and .gitignore now says `node_modules`.
+  Local ops/fitscript `.env` DATABASE_URL is the dead Neon; prod rows were unreachable from the
+  laptop (RDS is VPC-private) — the already-merged check made direct DB reconciliation unnecessary.
+- **Pending:** per-request `resolve_request` E2E is untested (no conflicting PR existed after the
+  batch merge) — first real conflicted approval will exercise it; watch the Slack channel.
+
 ## 2026-09-06 (later) — RP Content tab live data + Content → sales attribution fixed
 
 Paul flagged two stale RP views. Both were data-source problems, not display bugs.
