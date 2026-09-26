@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, Loader2, FlaskConical, Copy, Send, MapPin, Check } from "lucide-react";
-import { api, ui, atLab, type Sku, type Lab } from "./api";
+import { api, ui, atLab, inStock, type Sku, type Lab } from "./api";
 
 /**
  * Lab shipment builder: every product that needs testing — expired, untested,
@@ -39,10 +39,10 @@ export function LabOrder({ skus, onClose, onSay, onChanged }: {
   const candidates = useMemo(
     () => skus
       .filter((s) => s.requires_coa && statuses.has(s.status) && !atLab(s))
-      .sort((a, b) => a.status.localeCompare(b.status) || a.product_name.localeCompare(b.product_name)),
+      .sort((a, b) => Number(inStock(b)) - Number(inStock(a)) || a.status.localeCompare(b.status) || a.product_name.localeCompare(b.product_name)),
     [skus, statuses],
   );
-  const picked = candidates.filter((s) => !excluded.has(s.id));
+  const picked = candidates.filter((s) => !excluded.has(s.id) && inStock(s));
 
   const messagePreview = useMemo(() => {
     const lines = picked.map((s) => `• ${s.product_name} (${s.sku_code})`);
@@ -166,14 +166,15 @@ export function LabOrder({ skus, onClose, onSay, onChanged }: {
             {candidates.length ? (
               <ul className="divide-y divide-ops-border/50 text-sm">
                 {candidates.map((s) => {
-                  const on = !excluded.has(s.id);
+                  const stocked = inStock(s);
+                  const on = stocked && !excluded.has(s.id);
                   return (
                     <li key={s.id}>
-                      <label className="flex cursor-pointer items-center gap-3 px-4 py-2 hover:bg-ops-bg/40">
-                        <input type="checkbox" checked={on} onChange={() => toggleSku(s.id)} className="accent-fitscript-green" />
+                      <label className={`flex items-center gap-3 px-4 py-2 ${stocked ? "cursor-pointer hover:bg-ops-bg/40" : "cursor-not-allowed opacity-60"}`}>
+                        <input type="checkbox" checked={on} disabled={!stocked} onChange={() => toggleSku(s.id)} className="accent-fitscript-green" />
                         <span className="min-w-0 flex-1 truncate text-ops-text">{s.product_name} <span className="text-[11px] text-ops-text-muted">({s.sku_code})</span></span>
-                        <span className={`shrink-0 text-[11px] font-semibold uppercase ${STATUS_TONE[s.status] ?? "text-ops-text-muted"}`}>
-                          {s.status === "untested" ? "no coa" : s.status}
+                        <span className={`shrink-0 text-[11px] font-semibold uppercase ${stocked ? STATUS_TONE[s.status] ?? "text-ops-text-muted" : "text-ops-text-muted"}`}>
+                          {stocked ? (s.status === "untested" ? "no coa" : s.status) : "0 stock — cannot send"}
                         </span>
                       </label>
                     </li>
