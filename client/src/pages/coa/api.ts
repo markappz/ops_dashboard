@@ -69,8 +69,12 @@ export function thumbUrl(s: Pick<Sku, "id" | "image_doc_id">): string | null {
 }
 
 export const atLab = (s: Pick<Sku, "test_status">) => s.test_status === "in_testing" || s.test_status === "sent";
-export const needsSend = (s: Pick<Sku, "test_status" | "status">) =>
-  (s.status === "expired" || s.status === "untested") && !atLab(s);
+
+/** Stock on hand > 0. A zero-inventory SKU can't physically ship to the lab. */
+export const inStock = (s: Pick<Sku, "current_stock">) => Number(s.current_stock ?? 0) > 0;
+
+export const needsSend = (s: Pick<Sku, "test_status" | "status" | "current_stock">) =>
+  (s.status === "expired" || s.status === "untested") && !atLab(s) && inStock(s);
 
 /** A "fresh until" date still defers renewal while it's today or later. */
 export const freshUntilActive = (until: string | null | undefined): until is string =>
