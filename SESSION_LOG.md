@@ -3342,3 +3342,20 @@ Paul: "I would like an affiliates tab in ops dashboard." Built for Real Peptides
 ### 2026-09-22 — Paid tab lifetime attribution (ops `feat/paid-ltv-ui` b858548, site `feat/paid-ltv` f5d8deb — NOT pushed)
 Paul: track ad-acquired guide subscribers' sales lifetime, cleanly separated from Michael's organic socials and SEO. Site adds a `lifetime` block to /api/ops-paid (channel stamped once at opt-in from first-touch capture; mutually exclusive buckets; paid monthly cohorts + lifetime-by-ad; no new queries). Ops Paid tab renders: 4 channel LTV cards (paid highlighted, LTV/sub + LTV/buyer), paid cohorts-by-month table (the LTV-vs-CPA profitability view), paid lifetime-by-ad table, and a UTM template row for Michael's socials (utm_medium=organic_social) so organic is taggable — untagged = SEO/direct + pre-09-17 contacts (counted separately as preCapture). Attribution rule in the UI copy: paid cohort keeps every post-opt-in sale for life regardless of what closed it; don't sum with Email tab. tsc same-as-main, both builds green. Deploy order: site first.
 **Deployed 2026-09-22 (Paul via `!`): site f5d8deb 22:21Z, ops 9846333 22:29Z, site offer-fix a1a4d44 23:08Z (rebased over the zenturystudio homepage redesign; their concurrent deploy raced ours, both green). Bundle index-DVGXGdba.js carries all four LTV sections. paul-bd approved twice (initial + offer-dedupe). Ops session cookie expired mid-verify — data-level check pending Paul's next sign-in (password login on the ops login page is legit: 740ee56, docs were stale). fbclid capture gap queued in paul-bd's lane.**
+
+### 2026-09-28 — RP wholesale tab speaks the real lifecycle; holds start at payment claim (Paul)
+
+Paul's inventory manager read the wholesale tab as "all these requests are holding inventory."
+They never were (consume only held PAID/SHIPPED) — but the tab was built for the dead
+NEW→CONTACTED→APPROVED vocabulary and rendered QUOTED/PAYMENT_SUBMITTED/PAID/SHIPPED as
+undifferentiated inquiries. Rebuilt: all 8 statuses with badges, "HOLDING stock"/"stock deducted"
+chips on the ones that touch inventory, subtitle spells out the rule, and NO paid/shipped buttons
+here — confirming payment must go through the rep dashboard/admin (markWholesalePaid = paid stamp
++ Slack card; the raw PATCH would skip both). PAYMENT_SUBMITTED gets "Reject claim (releases
+hold)" → QUOTED.
+
+stock-consume: wholesale now holds at PAYMENT_SUBMITTED as well as PAID (Paul: "when they claim
+they paid it gets held, then we confirm"), and sends releaseMissingPrefix "WS-" + windowDays so
+the tracker releases any held WS row absent from the batch (declined / claim rejected) — the
+counterpart change is in realpeptides-coa orders-sync (pushed together). Pawgen consume unchanged.
+Build clean. Awaiting Paul's push go (deploy.yml deploys on push).

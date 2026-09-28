@@ -5,11 +5,16 @@
  * flows that were bypassing the tracker entirely (550 vials shipped undeducted
  * between 09-03 and 09-17):
  *
- *  - Real Peptides WHOLESALE (/api/ops-wholesale): PAID = queued for
- *    ShippingEasy → hold; SHIPPED → deduct. Sheet items carry DP-* codes and
- *    display names, not tracker codes — WS_SKU_MAP pins the names the tracker's
- *    fuzzy matcher provably fails on (blends, ambiguous doses); everything else
- *    matches by name and lands in the same unmatched banner Justin watches.
+ *  - Real Peptides WHOLESALE (/api/ops-wholesale): PAYMENT_SUBMITTED (buyer
+ *    claims they paid) and PAID (we confirmed) → hold; SHIPPED → deduct
+ *    (Paul, 09-28: "when they claim they paid it gets held, then we confirm").
+ *    Requests (NEW/CONTACTED/QUOTED/APPROVED) never touch inventory. An order
+ *    that leaves those states (declined, claim rejected) drops out of the batch
+ *    and the tracker releases its hold via releaseMissingPrefix below. Sheet
+ *    items carry DP-* codes and display names, not tracker codes — WS_SKU_MAP
+ *    pins the names the tracker's fuzzy matcher provably fails on (blends,
+ *    ambiguous doses); everything else matches by name and lands in the same
+ *    unmatched banner Justin watches.
  *
  *  - pawgen K9-REPAIR (orders in pawgen's own DB): the product IS the WOLVE
  *    10/10 stack (Paul, 09-17) — packs of 1/2/4 vials × quantity — plus BAC
@@ -18,8 +23,10 @@
  * Both replay into the tracker's idempotent /api/orders/consume under WS-* /
  * PG-* order ids, deliberately WITHOUT windowStart: that release heuristic
  * assumes the batch covers every order in its window, which is only true for
- * the retail feed. A cancelled hold therefore stays held until the tracker's
- * 30-day stale-hold surfacing catches it — rare, visible, never silent.
+ * the retail feed. Wholesale instead sends releaseMissingPrefix "WS-": its
+ * batch IS every holdable order in the 60-day window, so a held WS row absent
+ * from it was declined/rejected and the tracker releases it. Pawgen keeps the
+ * old behaviour (stale-hold surfacing only).
  */
 import { pawgenPool } from "./db";
 
@@ -66,15 +73,16 @@ const BAC_SKU = "RP-BAC10V";
 interface ConsumeOrder { id: string; number: string; createdAt: string; status: string; items: { sku?: string; name: string; qty: number }[] }
 export interface ConsumeResult { at: string; applied: number; alreadyApplied: number; unmatched: string[]; error?: string }
 
-async function postConsume(orders: ConsumeOrder[]): Promise<ConsumeResult> {
+async function postConsume(orders: ConsumeOrder[], release?: { releaseMissingPrefix: string; windowDays: number }): Promise<ConsumeResult> {
   const tracker = trackerCfg();
   if (!tracker) return { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [], error: "tracker not configured" };
-  if (!orders.length) return { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [] };
-  // No windowStart on purpose — see the header comment.
+  if (!orders.length && !release) return { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [] };
+  // No windowStart on purpose — see the header comment. Wholesale sends the
+  // prefix-release instead (its batch is complete for its window); pawgen sends neither.
   const r = await fetch(`${tracker.base}/api/orders/consume`, {
     method: "POST",
     headers: { Authorization: `Bearer ${tracker.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ orders }),
+    body: JSON.stringify({ orders, ...(release ?? {}) }),
     signal: AbortSignal.timeout(60_000),
   });
   const raw = await r.text();
@@ -105,7 +113,8 @@ export async function runWholesaleConsume(): Promise<ConsumeResult | null> {
     const orders: ConsumeOrder[] = [];
     for (const o of list) {
       const status = String(o.status ?? "");
-      if (status !== "PAID" && status !== "SHIPPED") continue;
+      // Claim-paid holds too (Paul, 09-28); requests never reach this line's continue survivors.
+      if (status !== "PAYMENT_SUBMITTED" && status !== "PAID" && status !== "SHIPPED") continue;
       const created = String(o.createdAt ?? o.created_at ?? "");
       if (!o.ref || !created || created < WS_SINCE) continue;
       const items = (o.items ?? [])
@@ -118,7 +127,7 @@ export async function runWholesaleConsume(): Promise<ConsumeResult | null> {
       if (!items.length) continue;
       orders.push({ id: `WS-${o.ref}`, number: String(o.ref), createdAt: created, status: status === "SHIPPED" ? "fulfilled" : "paid", items });
     }
-    lastWholesaleSync = await postConsume(orders);
+    lastWholesaleSync = await postConsume(orders, { releaseMissingPrefix: "WS-", windowDays: WS_DAYS });
     if (lastWholesaleSync.applied) console.log(`[OPS][RP] wholesale stock consume: ${lastWholesaleSync.applied} applied${lastWholesaleSync.unmatched.length ? `, unmatched: ${lastWholesaleSync.unmatched.join(" | ")}` : ""}`);
   } catch (e: any) {
     console.error("[OPS][RP] wholesale stock consume:", e.message);

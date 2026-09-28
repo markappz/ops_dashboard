@@ -22,13 +22,28 @@ interface Inquiry {
 }
 interface Payload { configured: boolean; hint?: string; inquiries: Inquiry[] }
 
-const STATUS: Record<string, { label: string; cls: string; next?: { to: string; label: string }[] }> = {
-  NEW: { label: "New", cls: "bg-fitscript-green/15 text-fitscript-green", next: [{ to: "CONTACTED", label: "Mark contacted" }, { to: "DECLINED", label: "Decline" }] },
+/**
+ * The site's full wholesale lifecycle (it moved past NEW→CONTACTED→APPROVED long ago; this tab
+ * showing everything as an undifferentiated "inquiry" was confusing the inventory manager —
+ * Paul, 09-28). `inv` says what each status means for stock, right on the card. Paid and
+ * Shipped are display-only here: confirming payment MUST go through the rep dashboard or site
+ * admin (markWholesalePaid), which stamps who confirmed it and posts the Slack card — a raw
+ * status write from this tab would skip both.
+ */
+const STATUS: Record<string, { label: string; cls: string; inv?: string; next?: { to: string; label: string }[] }> = {
+  NEW: { label: "New request", cls: "bg-fitscript-green/15 text-fitscript-green", next: [{ to: "CONTACTED", label: "Mark contacted" }, { to: "DECLINED", label: "Decline" }] },
   CONTACTED: { label: "Contacted", cls: "bg-amber-500/15 text-amber-500", next: [{ to: "APPROVED", label: "Approve" }, { to: "DECLINED", label: "Decline" }] },
+  QUOTED: { label: "Quoted", cls: "bg-sky-500/15 text-sky-400", next: [{ to: "DECLINED", label: "Decline" }] },
   APPROVED: { label: "Approved", cls: "bg-sky-500/15 text-sky-400" },
+  PAYMENT_SUBMITTED: {
+    label: "Payment claimed", cls: "bg-violet-500/15 text-violet-400", inv: "HOLDING stock",
+    next: [{ to: "QUOTED", label: "Reject claim (releases hold)" }],
+  },
+  PAID: { label: "Paid", cls: "bg-emerald-500/15 text-emerald-400", inv: "HOLDING stock" },
+  SHIPPED: { label: "Shipped", cls: "bg-emerald-500/25 text-emerald-300", inv: "stock deducted" },
   DECLINED: { label: "Declined", cls: "bg-ops-border text-ops-text-muted" },
 };
-const ORDER = ["NEW", "CONTACTED", "APPROVED", "DECLINED"];
+const ORDER = ["NEW", "CONTACTED", "QUOTED", "PAYMENT_SUBMITTED", "APPROVED", "PAID", "SHIPPED", "DECLINED"];
 const money = (c: number | null | undefined) => (c == null ? "—" : "$" + (c / 100).toLocaleString(undefined, { maximumFractionDigits: 0 }));
 
 export default function RealPeptidesWholesale() {
@@ -78,7 +93,7 @@ export default function RealPeptidesWholesale() {
       <PageHero
         eyebrow="Real Peptides"
         title="Wholesale"
-        subtitle={`${counts.all ?? 0} inquiries in the last ${range} days — the queue that used to be an inbox. Work them right here.`}
+        subtitle={`${counts.all ?? 0} orders in the last ${range} days. Requests never touch inventory — a payment claim places the hold, confirming Paid keeps it, Shipped deducts.`}
         actions={
           <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
             {[30, 90, 365].map((n) => (
@@ -146,6 +161,7 @@ function InquiryCard({ i, busy, onStatus }: { i: Inquiry; busy: boolean; onStatu
             <Building2 size={14} className="shrink-0 text-ops-text-muted" />
             <span className="truncate font-semibold text-ops-text">{i.businessName}</span>
             <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${st.cls}`}>{st.label}</span>
+            {st.inv && <span className="shrink-0 rounded-full border border-ops-border px-2 py-0.5 text-[10px] font-semibold uppercase text-ops-text-muted">{st.inv}</span>}
           </div>
           <div className="mt-0.5 text-[11px] text-ops-text-muted">
             {i.ref} · {i.businessType}{i.state ? ` · ${i.state}` : ""} · {new Date(i.createdAt).toLocaleDateString()}{i.repName ? ` · rep: ${i.repName}` : ""}
@@ -171,7 +187,10 @@ function InquiryCard({ i, busy, onStatus }: { i: Inquiry; busy: boolean; onStatu
               Label preference: <span className="text-ops-text">{i.labelPref}</span> · Timeline: <span className="text-ops-text">{i.timeline}</span>
               {i.notes && <span className="mt-1 block">Notes: <span className="text-ops-text">{i.notes}</span></span>}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {i.status === "PAYMENT_SUBMITTED" && (
+                <span className="text-[11px] text-ops-text-muted">Money landed? Confirm Paid in the rep dashboard or site admin — that posts the Slack card.</span>
+              )}
               {(st.next ?? []).map((n) => (
                 <button key={n.to} type="button" disabled={busy} onClick={() => onStatus(n.to)}
                   className={n.to === "DECLINED" ? `${ui.ghost} px-3 py-1.5 text-xs hover:text-red-400` : `${ui.primary} px-3 py-1.5 text-xs`}>
