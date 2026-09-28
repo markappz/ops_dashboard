@@ -190,6 +190,8 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/pos\/\d+\/items\/\d+\/?$/ },
     // Remove a product (soft), or a wrong certificate / vault file (permanent).
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|documents|coas|pos)\/\d+\/?$/ },
+    // Delete/discard a closed-short PO (nothing received) via the inventory helper.
+    { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/inventory\/pos\/\d+\/?$/ },
   ],
 };
 
