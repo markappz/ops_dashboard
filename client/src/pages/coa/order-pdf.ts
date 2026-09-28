@@ -105,7 +105,7 @@ export function downloadOrderPdf(skus: Sku[], item: InvItem = "product"): number
 }
 
 /** A specific purchase order as a sendable PDF. */
-export function downloadPoPdf(po: { id: number; supplier: string | null; created_at: string; items: { sku_code: string; product_name: string; qty: number }[] }): void {
+export function downloadPoPdf(po: { id: number; supplier: string | null; created_at: string; items: { sku_code: string; product_name: string; qty: number; received_qty: number }[] }): void {
   const doc = new jsPDF();
   const W = doc.internal.pageSize.getWidth();
   doc.setFillColor(17, 24, 39);
@@ -121,16 +121,26 @@ export function downloadPoPdf(po: { id: number; supplier: string | null; created
   doc.setFontSize(9);
   doc.text(`Date: ${String(po.created_at).slice(0, 10)}`, W - 14, 15, { align: "right" });
   doc.text(`Lines: ${po.items.length}`, W - 14, 21, { align: "right" });
-  const totalUnits = po.items.reduce((a, i) => a + Number(i.qty), 0);
+  const totalOrdered = po.items.reduce((a, i) => a + Number(i.qty), 0);
+  const totalReceived = po.items.reduce((a, i) => a + Number(i.received_qty), 0);
+  const totalOutstanding = po.items.reduce((a, i) => a + Math.max(0, Number(i.qty) - Number(i.received_qty)), 0);
   autoTable(doc, {
     startY: 40,
-    head: [["#", "Product", "SKU", "QTY"]],
-    body: po.items.map((i, n) => [String(n + 1), i.product_name, i.sku_code, Number(i.qty).toLocaleString()]),
-    foot: [["", "", `${po.items.length} lines`, totalUnits.toLocaleString()]],
+    head: [["#", "Product", "SKU", "Ordered", "Received", "Outstanding"]],
+    body: po.items.map((i, n) => {
+      const outstanding = Math.max(0, Number(i.qty) - Number(i.received_qty));
+      return [String(n + 1), i.product_name, i.sku_code, Number(i.qty).toLocaleString(), Number(i.received_qty).toLocaleString(), outstanding.toLocaleString()];
+    }),
+    foot: [["", "", `${po.items.length} lines`, totalOrdered.toLocaleString(), totalReceived.toLocaleString(), totalOutstanding.toLocaleString()]],
     styles: { fontSize: 9, cellPadding: 2.5 },
     headStyles: { fillColor: [17, 24, 39], textColor: [212, 175, 55], fontStyle: "bold" },
     footStyles: { fillColor: [246, 247, 249], textColor: [17, 24, 39], fontStyle: "bold", halign: "right" },
-    columnStyles: { 0: { cellWidth: 8 }, 3: { halign: "right", fontStyle: "bold", cellWidth: 22 } },
+    columnStyles: {
+      0: { cellWidth: 8 },
+      3: { halign: "right", cellWidth: 22 },
+      4: { halign: "right", cellWidth: 22 },
+      5: { halign: "right", fontStyle: "bold", cellWidth: 26 },
+    },
     alternateRowStyles: { fillColor: [246, 247, 249] },
   });
   doc.save(`real-peptides-po-${po.id}.pdf`);
