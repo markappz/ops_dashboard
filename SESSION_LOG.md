@@ -4,6 +4,26 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-28 — Members page (and Dirt member tools) down: FitScript dropped Stripe columns
+
+Paul: Members tab errored ("a lot of pages are getting errors"). ECS logs (CloudWatch via a
+scratchpad @aws-sdk script — no aws CLI on this machine): `column u.stripe_customer_id does not
+exist`. FitScript's 9baf039f (09-21) dropped nine dead Stripe-era columns from the shared RDS
+(FitScript billing = Wizlo/Gr4vy since 09-02; Stripe account deleted). Its verification grepped
+only the fitscript repo — ops hits the same DB with raw SQL and was missed.
+
+- Members list SELECT trimmed to live columns (stripeCustomerId now null in the response; client
+  shape kept). Detail route survived on `SELECT *`.
+- Dirt `resolveMember` + `list_members`/`get_member` fixed; source/campaign never existed on
+  users — they now come from the attribution join (WHERE qualified `u.` — attribution has its own
+  subscription_tier/status).
+- Stripe-era action endpoints/tools (cancel/pause/refund) were already dead; their guards now say
+  "billing moved to Wizlo" instead of the false "user has no subscription". A real Wizlo/Gr4vy
+  action layer for ops is unbuilt — flagged to Paul.
+- Verified live post-deploy: Members renders (45 members, sources/LTV populated), supplements OK.
+- Requests #13/#14 flowed through the new pipeline and self-merged clean; resolve_request job
+  still unexercised.
+
 ## 2026-09-23 — Change-request queue unstuck + self-merging approvals ("Approve all")
 
 Paul couldn't approve Justin's queued requests: "GitHub merge 405: Pull Request has merge conflicts."
