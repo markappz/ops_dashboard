@@ -36,12 +36,12 @@ const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SEC
 async function resolveMember(idOrEmail: string) {
   const isEmail = idOrEmail.includes("@");
   const r = await pool.query(
+    // stripe_* columns were dropped from users 2026-09-21 (FitScript billing is
+    // Wizlo now); Stripe-era handlers downstream null-check and refuse cleanly.
     isEmail
-      ? `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
-                stripe_customer_id, stripe_subscription_id
+      ? `SELECT id, email, first_name, last_name, subscription_tier, subscription_status
          FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1`
-      : `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
-                stripe_customer_id, stripe_subscription_id
+      : `SELECT id, email, first_name, last_name, subscription_tier, subscription_status
          FROM users WHERE id = $1 LIMIT 1`,
     [idOrEmail],
   );
@@ -151,16 +151,17 @@ const READ_TOOLS: ToolDef[] = [
       const params: any[] = [];
       if (args.search) {
         params.push(`%${args.search}%`);
-        where.push(`(LOWER(email) LIKE LOWER($${params.length}) OR LOWER(COALESCE(first_name,'')||' '||COALESCE(last_name,'')) LIKE LOWER($${params.length}))`);
+        where.push(`(LOWER(u.email) LIKE LOWER($${params.length}) OR LOWER(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,'')) LIKE LOWER($${params.length}))`);
       }
-      if (args.tier) { params.push(args.tier); where.push(`subscription_tier = $${params.length}`); }
-      if (args.status) { params.push(args.status); where.push(`subscription_status = $${params.length}`); }
+      if (args.tier) { params.push(args.tier); where.push(`u.subscription_tier = $${params.length}`); }
+      if (args.status) { params.push(args.status); where.push(`u.subscription_status = $${params.length}`); }
       params.push(limit);
       const r = await pool.query(
-        `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
-                created_at, last_active_date, source, stripe_customer_id
-         FROM users ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-         ORDER BY created_at DESC LIMIT $${params.length}`,
+        `SELECT u.id, u.email, u.first_name, u.last_name, u.subscription_tier, u.subscription_status,
+                u.created_at, u.last_active_date, a.first_touch_source AS source
+         FROM users u LEFT JOIN attribution a ON a.user_id = u.id
+         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY u.created_at DESC LIMIT $${params.length}`,
         params,
       );
       return { count: r.rows.length, members: r.rows };
@@ -172,9 +173,9 @@ const READ_TOOLS: ToolDef[] = [
     input_schema: { type: "object", properties: { userId: { type: "string" } }, required: ["userId"] },
     handler: async (args: any) => {
       const r = await pool.query(
-        `SELECT id, email, first_name, last_name, subscription_tier, subscription_status,
-                stripe_customer_id, created_at, last_active_date, source, campaign
-         FROM users WHERE id = $1`,
+        `SELECT u.id, u.email, u.first_name, u.last_name, u.subscription_tier, u.subscription_status,
+                u.created_at, u.last_active_date, a.first_touch_source AS source, a.first_touch_campaign AS campaign
+         FROM users u LEFT JOIN attribution a ON a.user_id = u.id WHERE u.id = $1`,
         [args.userId],
       );
       if (!r.rows[0]) return { error: "User not found" };
@@ -1390,7 +1391,7 @@ const STRIPE_TOOLS: ToolDef[] = [
       if (args.confirmation !== "CONFIRM") return { ok: false, error: "Confirmation required: pass confirmation=\"CONFIRM\"" };
       const member = await resolveMember(args.userIdOrEmail);
       if (!member) return { ok: false, error: "Member not found" };
-      if (!member.stripe_subscription_id) return { ok: false, error: "User has no active subscription" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here; manage it in Wizlo/Gr4vy" };
       const immediate = !!args.immediate;
       try {
         if (immediate) {
@@ -1446,7 +1447,7 @@ const STRIPE_TOOLS: ToolDef[] = [
       if (!stripe) return { ok: false, error: "Stripe not configured" };
       const member = await resolveMember(args.userIdOrEmail);
       if (!member) return { ok: false, error: "Member not found" };
-      if (!member.stripe_subscription_id) return { ok: false, error: "User has no active subscription" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here; manage it in Wizlo/Gr4vy" };
       try {
         await stripe.subscriptions.update(member.stripe_subscription_id, { pause_collection: { behavior: "void" } });
         await pool.query("UPDATE users SET subscription_status = 'paused' WHERE id = $1", [member.id]);
@@ -1479,7 +1480,7 @@ const STRIPE_TOOLS: ToolDef[] = [
       if (!stripe) return { ok: false, error: "Stripe not configured" };
       const member = await resolveMember(args.userIdOrEmail);
       if (!member) return { ok: false, error: "Member not found" };
-      if (!member.stripe_subscription_id) return { ok: false, error: "User has no subscription" };
+      if (!member.stripe_subscription_id) return { ok: false, error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here; manage it in Wizlo/Gr4vy" };
       try {
         await stripe.subscriptions.update(member.stripe_subscription_id, { pause_collection: "" } as any);
         await pool.query("UPDATE users SET subscription_status = 'active' WHERE id = $1", [member.id]);
@@ -1554,7 +1555,7 @@ const STRIPE_TOOLS: ToolDef[] = [
       if (!stripe) return { ok: false, error: "Stripe not configured" };
       const member = await resolveMember(args.userIdOrEmail);
       if (!member) return { ok: false, error: "Member not found" };
-      if (!member.stripe_customer_id) return { ok: false, error: "User has no Stripe customer record" };
+      if (!member.stripe_customer_id) return { ok: false, error: "FitScript billing moved to Wizlo — Stripe refunds are retired here; refund in Wizlo/Gr4vy" };
       let chargeId = args.chargeId as string | undefined;
       let resolvedAmount: number | undefined;
       try {

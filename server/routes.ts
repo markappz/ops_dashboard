@@ -143,7 +143,7 @@ export function registerRoutes(app: Express) {
 
       const membersResult = await pool.query(`
         SELECT u.id, u.email, u.first_name, u.last_name, u.subscription_tier, u.subscription_status,
-               u.stripe_customer_id, u.created_at, u.last_active_date
+               u.created_at, u.last_active_date
                ${hasAttr ? ", a.first_touch_source, a.ltv_lifetime, a.total_revenue, a.first_touch_campaign" : ""}
         FROM users u
         ${hasAttr ? "LEFT JOIN attribution a ON a.user_id = u.id" : ""}
@@ -167,7 +167,7 @@ export function registerRoutes(app: Express) {
           lastName: r.last_name,
           subscriptionTier: r.subscription_tier,
           subscriptionStatus: r.subscription_status,
-          stripeCustomerId: r.stripe_customer_id,
+          stripeCustomerId: null,
           createdAt: r.created_at,
           lastActiveDate: r.last_active_date,
           source: r.first_touch_source || null,
@@ -226,8 +226,8 @@ export function registerRoutes(app: Express) {
           lastName: member.last_name,
           subscriptionTier: member.subscription_tier,
           subscriptionStatus: member.subscription_status,
-          stripeCustomerId: member.stripe_customer_id,
-          stripeSubscriptionId: member.stripe_subscription_id,
+          stripeCustomerId: member.stripe_customer_id ?? null,
+          stripeSubscriptionId: member.stripe_subscription_id ?? null,
           createdAt: member.created_at,
           lastActiveDate: member.last_active_date,
           sex: member.sex,
@@ -265,7 +265,7 @@ export function registerRoutes(app: Express) {
 
       const member = await getMember(req.params.id);
       if (!member) return res.status(404).json({ error: "Member not found" });
-      if (!member.stripe_subscription_id) return res.status(400).json({ error: "No active subscription" });
+      if (!member.stripe_subscription_id) return res.status(400).json({ error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here" });
 
       const immediate = req.body.immediate === true;
 
@@ -298,7 +298,7 @@ export function registerRoutes(app: Express) {
       if (!stripe) return res.status(400).json({ error: "Stripe not connected" });
 
       const member = await getMember(req.params.id);
-      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "No active subscription" });
+      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here" });
 
       await stripe.subscriptions.update(member.stripe_subscription_id, {
         pause_collection: { behavior: "void" },
@@ -320,7 +320,7 @@ export function registerRoutes(app: Express) {
       if (!stripe) return res.status(400).json({ error: "Stripe not connected" });
 
       const member = await getMember(req.params.id);
-      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "No active subscription" });
+      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here" });
 
       await stripe.subscriptions.update(member.stripe_subscription_id, {
         pause_collection: "",
@@ -408,7 +408,7 @@ export function registerRoutes(app: Express) {
       if (!months || months < 1) return res.status(400).json({ error: "months required (1+)" });
 
       const member = await getMember(req.params.id);
-      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "No active subscription" });
+      if (!member?.stripeSubscriptionId) return res.status(400).json({ error: "FitScript billing moved to Wizlo — Stripe subscription actions are retired here" });
 
       // Get current subscription. Stripe moved current_period_end from
       // Subscription to SubscriptionItem in the 2025 API version.
