@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, Info } from "lucide-react";
+import { Link } from "wouter";
 import { PageHero } from "../components/page-hero";
 import { EmailCalendar } from "./email-calendar";
 
@@ -57,6 +58,8 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
         title="Email"
         subtitle={subtitle}
         actions={
+          <div className="flex items-center gap-2">
+          <Link href="/email/blended" className="rounded-xl border border-ops-border bg-ops-surface px-3 py-2 text-xs font-medium text-ops-text-muted hover:text-ops-text">All brands →</Link>
           <div className="flex items-center gap-1 rounded-xl border border-ops-border bg-ops-surface p-1">
             {[7, 30, 90].map((n) => (
               <button key={n} type="button" onClick={() => setRange(n)}
@@ -64,6 +67,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
                 {n}d
               </button>
             ))}
+          </div>
           </div>
         }
       />

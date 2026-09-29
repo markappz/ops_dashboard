@@ -54,6 +54,7 @@ import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
+import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
@@ -235,6 +236,7 @@ export default function App() {
 
           {/* PeptideU */}
           <Route path="/peptideu" component={PeptideuOverview} />
+          <Route path="/email/blended" component={EmailBlended} />
           <Route path="/peptideu/email" component={PeptideuEmail} />
           <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/requests" component={PeptideuRequests} />
