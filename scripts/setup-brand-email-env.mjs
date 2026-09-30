@@ -1,0 +1,22 @@
+  import fs from 'node:fs';
+  import { createRequire } from 'node:module';
+  const requireOps = createRequire('/Users/paul/Projects/ops-dashboard/noop.js');
+  for (const line of fs.readFileSync(new URL('../.env', import.meta.url), 'utf8').split('\n')) { const i = line.indexOf('='); if (i > 0 && !line.startsWith('#')) process.env[line.slice(0, i).trim()] ??= line.slice(i + 1).trim(); }
+  const pu = Object.fromEntries(fs.readFileSync('/Users/paul/Projects/peptideu/content-pipeline/.env', 'utf8').split('\n').filter((l) => l.includes('=') && !l.trim().startsWith('#')).map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
+  const pg = fs.readFileSync('/Users/paul/Projects/pawgen/.env.local', 'utf8').match(/^OPS_EMAIL_TOKEN=(.*)$/m)[1].trim();
+  const { SecretsManagerClient, GetSecretValueCommand, PutSecretValueCommand } = requireOps('@aws-sdk/client-secrets-manager');
+  const { ECSClient, DescribeTaskDefinitionCommand, RegisterTaskDefinitionCommand, UpdateServiceCommand } = requireOps('@aws-sdk/client-ecs');
+  const sm = new SecretsManagerClient({ region: 'us-east-1' });
+  const cur = await sm.send(new GetSecretValueCommand({ SecretId: 'prod/ops-secrets' }));
+  const j = JSON.parse(cur.SecretString);
+  Object.assign(j, { PEPTIDEU_EMAIL_API_URL: 'https://twmzwpiweutehtajbclu.functions.supabase.co/ops-email-summary', PEPTIDEU_EMAIL_TOKEN: pu.CAMPAIGN_KEY, PAWGEN_EMAIL_API_URL: 'https://pawgen.com/api/ops-email-summary', PAWGEN_EMAIL_TOKEN: pg });
+  await sm.send(new PutSecretValueCommand({ SecretId: 'prod/ops-secrets', SecretString: JSON.stringify(j) }));
+  console.log('1/3 secret updated');
+  const ecs = new ECSClient({ region: 'us-east-1' });
+  const td = (await ecs.send(new DescribeTaskDefinitionCommand({ taskDefinition: 'fitscript-ops-task' }))).taskDefinition;
+  const cd = td.containerDefinitions[0];
+  for (const k of ['PEPTIDEU_EMAIL_API_URL','PEPTIDEU_EMAIL_TOKEN','PAWGEN_EMAIL_API_URL','PAWGEN_EMAIL_TOKEN']) if (!cd.secrets.some((s) => s.name === k)) cd.secrets.push({ name: k, valueFrom: cur.ARN + ':' + k + '::' });
+  const reg = await ecs.send(new RegisterTaskDefinitionCommand({ family: td.family, taskRoleArn: td.taskRoleArn, executionRoleArn: td.executionRoleArn, networkMode: td.networkMode, containerDefinitions: td.containerDefinitions, requiresCompatibilities: td.requiresCompatibilities, cpu: td.cpu, memory: td.memory, runtimePlatform: td.runtimePlatform }));
+console.log('2/3 task-def revision', reg.taskDefinition.revision);
+await ecs.send(new UpdateServiceCommand({ cluster: 'fitscript-cluster', service: 'fitscript-ops-task-service-vnvy470x', taskDefinition: 'fitscript-ops-task:' + reg.taskDefinition.revision }));
+console.log('3/3 service rolling — brand email tabs light up when it settles');
