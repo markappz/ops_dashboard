@@ -72,6 +72,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
       { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
       { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
+      { path: "/realpeptides/purchase-orders", label: "Purchase Orders", icon: "clipboard" },
       { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
     ],
   },
