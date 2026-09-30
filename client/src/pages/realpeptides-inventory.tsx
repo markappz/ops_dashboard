@@ -4,10 +4,10 @@ import {
   Search, Minus, Plus, FileDown, Tag, Upload, History, X, Loader2,
   PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, ClipboardList, RefreshCw, FileUp, TrendingUp, ImageIcon, Ban,
 } from "lucide-react";
+import { Link } from "wouter";
 import { PageHero } from "../components/page-hero";
 import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
 import { downloadOrderPdf, isLow, orderQty, stockOf, idealOf, stockNum, type InvItem } from "./coa/order-pdf";
-import { PurchaseOrders } from "./coa/PurchaseOrders";
 import { Forecast } from "./coa/Forecast";
 import { TopSellers } from "./coa/TopSellers";
 import { InventoryImport, exportInventoryCsv } from "./coa/InventoryImport";
@@ -51,7 +51,6 @@ export default function RealPeptidesInventory() {
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
-  const [showPos, setShowPos] = useState(false);
   const [showForecast, setShowForecast] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [openSku, setOpenSku] = useState<number | null>(null);
@@ -191,7 +190,7 @@ export default function RealPeptidesInventory() {
             <button type="button" onClick={() => { exportInventoryCsv(skus); say("Inventory CSV downloaded — it round-trips through Import."); }} disabled={!skus.length} className={ui.ghost} title="Download all inventory as a spreadsheet"><FileDown size={15} /> Export</button>
             {canEdit && <button type="button" onClick={() => setShowImport(true)} className={ui.ghost} title="Upload a spreadsheet to update counts and targets"><FileUp size={15} /> Import</button>}
             {canEdit && <button type="button" onClick={() => setShowAdd(true)} className={ui.ghost} title="New dose of a product, or a brand-new product — goes on the site and into inventory"><Plus size={15} /> Add SKU</button>}
-            {canEdit && <button type="button" onClick={() => setShowPos(true)} className={ui.ghost}><ClipboardList size={15} /> POs</button>}
+            <Link href="/realpeptides/purchase-orders" className={ui.ghost}><ClipboardList size={15} /> Purchase Orders</Link>
             {canEdit && (
               <button type="button" onClick={() => syncImages(noImage === 0)} disabled={imgBusy} className={ui.ghost}
                 title={noImage > 0 ? "Copy each missing product photo from realpeptides.co (also runs on its own every 6 hours)" : "Re-pull every product photo from realpeptides.co — use after re-shooting the catalog"}>
@@ -319,7 +318,6 @@ export default function RealPeptidesInventory() {
 
       {item === "product" && !skusQ.isLoading && <TopSellers skus={skus} />}
 
-      {showPos && <PurchaseOrders skus={skus} velocity={velocity} onClose={() => setShowPos(false)} onSay={say} />}
       {showAdd && <AddProduct skus={rawSkus} onClose={() => setShowAdd(false)} onDone={(m) => { setShowAdd(false); say(m); qc.invalidateQueries({ queryKey: ["coa-skus"] }); }} />}
       {showForecast && <Forecast skus={skus} canEdit={canEdit} onClose={() => setShowForecast(false)} onSay={say} onCreated={refresh} />}
       {showImport && <InventoryImport skus={skus} onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); say(m); refresh(); }} />}
