@@ -25,8 +25,9 @@ function useData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
 function SalesRow({ d, range }: { d: any; range: DateRange }) {
   const s = d?.sales; const t = d?.traffic; const rl = rangeShort(range);
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <Card label={`Revenue · ${rl}`} accent to="/pawgen/orders" value={s ? <>{usd(s.current.revenue)}<Delta cur={s.current.revenue} prev={s.previous.revenue} /></> : "…"} sub={s ? `${num(s.current.orders)} paid orders · all time ${usd(s.allTime.revenue)}` : undefined} />
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Card label={`Revenue · ${rl}`} accent to="/pawgen/orders" value={s ? <>{usd(s.current.revenue)}<Delta cur={s.current.revenue} prev={s.previous.revenue} /></> : "…"} sub={s ? `all time ${usd(s.allTime.revenue)}` : undefined} />
+      <Card label={`Orders · ${rl}`} to="/pawgen/orders" value={s ? <>{num(s.current.orders)}<Delta cur={s.current.orders} prev={s.previous.orders} /></> : "…"} sub="paid orders" />
       <Card label="Average order" to="/pawgen/orders" value={s ? <>{usd(s.current.aov)}<Delta cur={s.current.aov} prev={s.previous.aov} /></> : "…"} sub={s ? `${num(s.current.customers)} customers · ${num(s.allTime.repeatCustomers)} repeat buyers all time` : undefined} />
       <Card label={`Sessions · ${rl}`} to="/pawgen/marketing" value={t?.pixelInstalled ? <>{num(t.current.sessions)}<Delta cur={t.current.sessions} prev={t.previous.sessions} /></> : "—"} sub={t?.pixelInstalled ? `${num(t.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
       <Card label="New customers" to="/pawgen/orders" value={d?.newCustomers ? <>{num(d.newCustomers.window)}<Delta cur={d.newCustomers.window} prev={d.newCustomers.previous} /></> : "…"} sub={d?.newCustomers ? `${num(d.newCustomers.today)} today · ${num(d.newCustomers.week)} 7d · ${num(d.newCustomers.month)} 30d` : "first paid order"} />

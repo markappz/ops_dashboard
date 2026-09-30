@@ -75,18 +75,20 @@ function useOverviewData(range: DateRange, forceRef: React.MutableRefObject<bool
   return { ov, contacts, skus, pages, clomark };
 }
 
-function SalesCards({ ov, rlabel }: { ov: ReturnType<typeof useOverviewData>["ov"]; rlabel: string }) {
+function SalesCards({ ov, rlabel, days }: { ov: ReturnType<typeof useOverviewData>["ov"]; rlabel: string; days: number }) {
   const sales = ov.data?.sales;
   if (sales?.configured) {
+    const perDay = days > 1 ? `${(sales.current.orders / days).toFixed(1)}/day · ` : "";
     return (
       <>
-        <Card label={`Revenue · ${rlabel}`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} orders · net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
-        <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+        <Card label={`Revenue · ${rlabel}`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
+        <Card label={`Orders · ${rlabel}`} to="/realpeptides/orders" value={<>{num(sales.current.orders)}<Delta cur={sales.current.orders} prev={sales.previous.orders} /></>} sub={`${perDay}paid${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+        <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items`} />
       </>
     );
   }
   return (
-    <div className="col-span-2 rounded-xl border border-dashed border-ops-border bg-ops-surface p-5">
+    <div className="col-span-2 rounded-xl border border-dashed border-ops-border bg-ops-surface p-5 lg:col-span-3">
       <div className="mb-1 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">Sales</div>
       <div className="text-sm font-semibold text-ops-text">{ov.isLoading ? "Loading realpeptides.co sales…" : ov.isError ? "Sales feed failed" : "Not connected yet"}</div>
       {!ov.isLoading && (
@@ -228,8 +230,8 @@ export default function RealPeptidesOverview() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <SalesCards ov={d.ov} rlabel={rlabel} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <SalesCards ov={d.ov} rlabel={rlabel} days={rangeDays(range)} />
         <Card label={`Sessions · ${rlabel}`} to="/realpeptides/traffic"
           value={traffic?.pixelInstalled ? <>{num(traffic.current.sessions)}<Delta cur={traffic.current.sessions} prev={traffic.previous.sessions} /></> : "—"}
           sub={traffic?.pixelInstalled ? `${num(traffic.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
