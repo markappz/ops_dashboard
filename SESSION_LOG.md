@@ -3379,3 +3379,13 @@ they paid it gets held, then we confirm"), and sends releaseMissingPrefix "WS-" 
 the tracker releases any held WS row absent from the batch (declined / claim rejected) — the
 counterpart change is in realpeptides-coa orders-sync (pushed together). Pawgen consume unchanged.
 Build clean. Awaiting Paul's push go (deploy.yml deploys on push).
+
+### 2026-09-29 — Campaign Links page on the RP marketing tab (Paul)
+
+New /realpeptides/campaign-links (RealPeptidesCampaignLinks) under RP ▸ Marketing (Campaign Links
+subtab, RP-only). Static builder: platform (utm_source) + type (utm_medium: social / paid_social /
+email) + who (utm_content) switchers, one copy-button link per guide funnel (fatlossbible.co,
+hairgrowthprotocol.com, peptide101guide.com, sexualhealthguide.com), a live "shows up as <channel>"
+readout, and the convention explainer. Pairs with the site classifier fix (realpeptides 501cdcc)
+that routes utm_medium=social → Social. Desktop reference doc also written for Paul. Build clean.
+Awaiting push go.

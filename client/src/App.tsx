@@ -57,6 +57,7 @@ import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
+import RealPeptidesCampaignLinks from "./pages/realpeptides-campaign-links";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
@@ -77,6 +78,7 @@ const subTabs = (prefix: string) => ({
   marketing: [
     { path: `/${prefix}/marketing`, label: "Marketing" },
     { path: `/${prefix}/traffic`, label: "Site Traffic" },
+    ...(prefix === "realpeptides" ? [{ path: `/${prefix}/campaign-links`, label: "Campaign Links" }] : []),
   ],
   email: [
     { path: `/${prefix}/email`, label: "Email" },
@@ -276,6 +278,7 @@ export default function App() {
           <Route path="/realpeptides/leads">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesLeads /></>}</Route>
           <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>
           <Route path="/realpeptides/traffic">{() => <><SubTabs tabs={RP_TABS.marketing} /><CompanyTraffic {...RP} /></>}</Route>
+          <Route path="/realpeptides/campaign-links">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesCampaignLinks /></>}</Route>
           <Route path="/realpeptides/paid" component={RealPeptidesPaid} />
           <Route path="/realpeptides/affiliates" component={RealPeptidesAffiliates} />
           <Route path="/realpeptides/pages">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanyPages company="realpeptides" label="Real Peptides" /></>}</Route>
