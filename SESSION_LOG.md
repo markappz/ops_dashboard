@@ -4,6 +4,19 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-30 — Orders tile on the RP + pawgen command centers
+
+Paul: "add a box to command center that says orders" for the selected period. Both overview
+endpoints already returned current/previous `orders`; the count was buried in the Revenue tile's
+subtitle. Top rows went 4 → 5 tiles (`lg:grid-cols-5`): Orders gets its own card with a
+period-over-period Delta, a per-day rate on RP for multi-day windows, the pending count, and a
+link to the Orders tab. Revenue subtitle now carries net-vs-gross (RP) / all-time (pawgen).
+Deployed (2f5575d) and verified live — RP read 91 orders today at the time. Flagged to Paul in
+passing: 88 pending orders looked high (site's paid-but-unshipped figure, untouched by this).
+Note: ops session cookie expired mid-verify; Google OAuth re-login hit "invalid oauth state" once
+(login page served by the pre-deploy task, callback by the new one) — a second attempt went
+straight through.
+
 ## 2026-09-28 — Members page (and Dirt member tools) down: FitScript dropped Stripe columns
 
 Paul: Members tab errored ("a lot of pages are getting errors"). ECS logs (CloudWatch via a
