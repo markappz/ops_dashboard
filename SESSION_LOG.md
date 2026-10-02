@@ -3534,3 +3534,10 @@ round-trip → deleted. Caught pre-ship: list omitted step html → edit+save wo
 (html_b64 added). Post-QA: delete button added to builder (inline confirm). Drafts never send —
 engine-level. Backlog: branch nodes, canvas drag-reorder, per-step stats on custom flows,
 subject personalization.
+
+## 2026-10-02 (afternoon) — Split node on the builder canvas (24703fb)
+
+Violet split node with YES/NO handles feeding two arm columns (green/red edges), condition
+picker (opened/clicked), one wait-before-checking on the split (arm-first steps show a note,
+not a delay input — both arms evaluate at that one moment), per-arm add/reorder, guards, and
+branch/splitOn round-tripping. Full prod E2E green incl. the new in-builder delete confirm.
