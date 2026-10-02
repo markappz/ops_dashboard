@@ -23,7 +23,11 @@ export default function RealPeptidesBroadcasts() {
   const qc = useQueryClient();
   const plans = useQuery({
     queryKey: ["rp-plans"],
-    queryFn: async () => (await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" })).json() as Promise<Plan[]>,
+    // The planner answers { plans, resendConnected, defaultFrom } - unwrap to the rows.
+    queryFn: async () => {
+      const j = (await (await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" })).json()) as { plans?: Plan[] };
+      return j.plans ?? [];
+    },
   });
   const segments = useQuery({
     queryKey: ["rp-marketing-segments-full"],
