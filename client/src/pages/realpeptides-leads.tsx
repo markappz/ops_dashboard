@@ -24,7 +24,7 @@ interface Contacts {
   bySource?: { source: string; count: number }[];
   listBuilding?: { source: string; today: number; week: number; month: number; total: number }[];
   daily?: { date: string; count: number }[];
-  recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean }[];
+  recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean; utm?: { source: string | null; medium: string | null; campaign: string | null; offer: string | null; landing: string | null } | null }[];
 }
 
 interface Legacy {
@@ -174,6 +174,12 @@ function Recent({ rows }: { rows: NonNullable<Contacts["recent"]> }) {
           <span className="flex shrink-0 items-center gap-2 text-xs text-ops-text-muted">
             {c.buyer && <span className="rounded-full bg-fitscript-green/15 px-2 py-0.5 text-[10px] font-semibold text-fitscript-green">buyer</span>}
             {c.unsubscribed && <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">unsub</span>}
+            {(c.utm?.source || c.utm?.campaign) && (
+              <span className="truncate rounded-full border border-brand-blue-500/30 bg-brand-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-blue-400"
+                title={`utm_source=${c.utm?.source ?? "—"} · utm_medium=${c.utm?.medium ?? "—"} · utm_campaign=${c.utm?.campaign ?? "—"}${c.utm?.offer ? ` · offer=${c.utm.offer}` : ""}${c.utm?.landing ? ` · landing=${c.utm.landing}` : ""}`}>
+                {c.utm?.source ?? "utm"}{c.utm?.campaign ? ` / ${c.utm.campaign}` : ""}
+              </span>
+            )}
             <span className="truncate" title={c.source}>{label(c.source)}</span>
             <span>{new Date(c.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           </span>

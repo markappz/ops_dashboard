@@ -26,6 +26,17 @@ export default function RealPeptidesFlows() {
     staleTime: 5 * 60_000,
   });
   const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
+  // 90-day ledger stats joined onto each step - review and performance in one place.
+  const stats = useQuery({
+    queryKey: ["rp-email-90"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/email?range=90", { credentials: "include" })).json() as
+      Promise<{ flows?: { flowKey: string; attributedRevenueCents: number; steps: { stepIndex: number; sends: number; openRate: number | null; clickRate: number | null }[] }[] }>,
+    staleTime: 10 * 60_000,
+  });
+  const stepStats = (flowKey: string, stepIndex: number) =>
+    stats.data?.flows?.find((f) => f.flowKey === flowKey)?.steps.find((st) => st.stepIndex === stepIndex);
+  const flowRevenue = (flowKey: string) => stats.data?.flows?.find((f) => f.flowKey === flowKey)?.attributedRevenueCents ?? 0;
+  const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
   return (
     <div className="space-y-6">
@@ -57,6 +68,11 @@ export default function RealPeptidesFlows() {
                 <ShieldCheck size={11} /> exits on purchase
               </span>
             )}
+            {flowRevenue(f.key) > 0 && (
+              <span className="ml-auto rounded-full border border-ops-border px-2 py-0.5 text-[10px] font-semibold text-ops-text">
+                ${(flowRevenue(f.key) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })} attributed · 90d
+              </span>
+            )}
           </div>
           <table className="w-full text-left text-xs">
             <thead>
@@ -65,6 +81,8 @@ export default function RealPeptidesFlows() {
                 <th className="pb-1 pr-2 font-medium">Delay</th>
                 <th className="pb-1 pr-2 font-medium">Subject</th>
                 <th className="pb-1 pr-2 font-medium">Copy source</th>
+                <th className="pb-1 pr-2 font-medium">Sends · 90d</th>
+                <th className="pb-1 pr-2 font-medium">Open · click</th>
                 <th className="pb-1 font-medium" />
               </tr>
             </thead>
@@ -81,6 +99,8 @@ export default function RealPeptidesFlows() {
                       <span className="rounded-full border border-ops-border px-2 py-0.5 text-[10px] text-ops-text-muted">engine render</span>
                     )}
                   </td>
+                  <td className="py-2 pr-2 text-ops-text-muted">{stepStats(f.key, s.stepIndex)?.sends?.toLocaleString() ?? "—"}</td>
+                  <td className="py-2 pr-2 text-ops-text-muted">{pct(stepStats(f.key, s.stepIndex)?.openRate)} · {pct(stepStats(f.key, s.stepIndex)?.clickRate)}</td>
                   <td className="py-2 text-right">
                     <button type="button" onClick={() => setOpen({ flowKey: f.key, stepIndex: s.stepIndex, subject: s.subject })}
                       className="inline-flex items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">

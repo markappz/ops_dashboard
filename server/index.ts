@@ -37,6 +37,7 @@ import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpepti
 import { startStockConsumeLoops } from "./stock-consume";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
 import { registerRealPeptidesMarketing } from "./realpeptides-marketing";
+import { registerRpEmailMcp } from "./rp-email-mcp";
 import { registerBrandEmail } from "./brand-email";
 import { registerRealPeptidesContacts } from "./realpeptides-contacts";
 import { registerRpImageSync, startRpImageSyncLoop } from "./realpeptides-images";
@@ -122,6 +123,7 @@ registerRpContentLive(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesMarketing(app);
+registerRpEmailMcp(app);
 registerBrandEmail(app);
 registerRealPeptidesContacts(app);
 registerRpImageSync(app);
