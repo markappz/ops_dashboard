@@ -51,11 +51,14 @@ export default function RealPeptidesBroadcasts() {
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
   const set = (k: keyof typeof f, v: string) => { setF({ ...f, [k]: v }); setConfirmInfo(null); };
 
-  function loadPlan(p: Plan) {
+  async function loadPlan(p: Plan) {
     setPlanId(p.id);
-    setF({ title: p.title ?? "", subject: p.subject ?? "", preheader: p.preheader ?? "", segment: p.audience_id ?? "", html: p.html ?? "" });
     setMsg(null); setConfirmInfo(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+    // The list omits the heavy html column - fetch the full plan for the editor.
+    const r = await fetch(`/api/ops/email-plans/${p.id}`, { credentials: "include" });
+    const full = r.ok ? await r.json() : p;
+    setF({ title: full.title ?? "", subject: full.subject ?? "", preheader: full.preheader ?? "", segment: full.audience_id ?? "", html: full.html ?? "" });
   }
   function newDraft() {
     setPlanId(null);
@@ -194,7 +197,7 @@ export default function RealPeptidesBroadcasts() {
             <div key={p.id} className="flex items-center justify-between gap-2 border-t border-ops-border/60 py-2 text-xs first:border-t-0">
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ops-text">{p.title}</span>
-                <span className="text-[11px] text-ops-text-muted">{p.status}{p.audience_id ? ` · ${p.audience_id}` : " · everyone"}{p.send_date ? ` · ${String(p.send_date).slice(0, 10)}` : ""} · by {p.id}</span>
+                <span className="text-[11px] text-ops-text-muted">{p.status}{p.audience_id ? ` · ${p.audience_id}` : " · everyone"}{p.send_date ? ` · ${String(p.send_date).slice(0, 10)}` : ""}{(p as any).created_by ? ` · by ${(p as any).created_by}` : ""}</span>
               </span>
               <button type="button" onClick={() => loadPlan(p)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg"><Eye size={11} /> Open</button>
             </div>
