@@ -298,3 +298,7 @@ body {
     inset: -5px;
   }
 }
+
+/* Scrollable tab rows: the content IS the scroll affordance; the bar is noise. */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

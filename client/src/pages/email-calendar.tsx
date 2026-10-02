@@ -90,7 +90,7 @@ export function EmailCalendar({ company }: { company: string }) {
             Plan the month, paste the design, {q.data?.resendConnected ? "push straight to Resend." : "and push to Resend once it's connected for this brand."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
           <div className="flex items-center rounded-lg border border-ops-border p-0.5">
             <button type="button" onClick={() => setView("month")} aria-label="Month view"
               className={`rounded-md p-1.5 transition ${view === "month" ? "bg-ops-bg text-ops-text" : "text-ops-text-muted hover:text-ops-text"}`}><LayoutGrid size={14} /></button>
@@ -101,7 +101,7 @@ export function EmailCalendar({ company }: { company: string }) {
             className="min-h-[36px] rounded-lg border border-ops-border px-2.5 text-xs font-semibold text-ops-text-muted hover:text-ops-text">Today</button>
           <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month"
             className="min-h-[36px] min-w-[36px] rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronLeft size={15} className="mx-auto" /></button>
-          <span className="w-36 text-center text-sm font-semibold text-ops-text">{monthLabel}</span>
+          <span className="min-w-0 flex-1 text-center text-sm font-semibold text-ops-text sm:w-36 sm:flex-none">{monthLabel}</span>
           <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month"
             className="min-h-[36px] min-w-[36px] rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronRight size={15} className="mx-auto" /></button>
           <button type="button" onClick={() => { setNewDate(todayKey); setOpenId("new"); }}
