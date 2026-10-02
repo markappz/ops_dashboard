@@ -122,6 +122,35 @@ export function registerRealPeptidesMarketing(app: Express) {
     catch (e: any) { res.status(502).json({ error: e.message }); }
   });
 
+  // The in-dashboard copy editor: override CRUD + sample-value draft preview.
+  app.get("/api/ops/realpeptides/marketing/overrides", async (_req, res) => {
+    try { res.json(await bridge("/api/ops-marketing?what=overrides")); }
+    catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.get("/api/ops/realpeptides/marketing/override", async (req, res) => {
+    try { res.json(await bridge(`/api/ops-marketing?what=override&alias=${encodeURIComponent(String(req.query.alias || ""))}`)); }
+    catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.post("/api/ops/realpeptides/marketing/set-override", async (req: any, res) => {
+    try {
+      const { alias, html_b64, subject, enabled } = req.body ?? {};
+      const out = await bridge("/api/ops-marketing", { method: "PUT", body: { action: "set-override", alias, html_b64, subject, enabled, updatedBy: req.adminEmail ?? null } });
+      console.log(`[OPS][RP-EDITOR] override ${alias} saved (enabled=${out.enabled}) by ${req.adminEmail}`);
+      res.json(out);
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.post("/api/ops/realpeptides/marketing/delete-override", async (req: any, res) => {
+    try {
+      const out = await bridge("/api/ops-marketing", { method: "PUT", body: { action: "delete-override", alias: req.body?.alias } });
+      console.log(`[OPS][RP-EDITOR] override ${req.body?.alias} deleted by ${req.adminEmail}`);
+      res.json(out);
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.post("/api/ops/realpeptides/marketing/render-draft", async (req, res) => {
+    try { res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render-draft", html_b64: req.body?.html_b64 ?? "" } })); }
+    catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
   // Per-contact engagement timeline for the Activity view.
   app.get("/api/ops/realpeptides/marketing/activity", async (req, res) => {
     try {

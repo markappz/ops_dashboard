@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Loader2, ShieldCheck, Upload, X } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 
@@ -17,6 +17,8 @@ interface FlowStep { stepIndex: number; subject: string; delayHours: number; han
 interface Flow { key: string; banner: string; exitOnPurchase: boolean; steps: FlowStep[] }
 interface InstantSend { key: string; name: string }
 
+const b64 = (x: string) => btoa(String.fromCharCode(...new TextEncoder().encode(x)));
+
 const fmtDelay = (h: number) => (h === 0 ? "immediately" : h % 24 === 0 ? `+${h / 24}d` : `+${h}h`);
 
 export default function RealPeptidesFlows() {
@@ -26,6 +28,13 @@ export default function RealPeptidesFlows() {
     staleTime: 5 * 60_000,
   });
   const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
+  const overrides = useQuery({
+    queryKey: ["rp-overrides"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/overrides", { credentials: "include" })).json() as
+      Promise<{ overrides: { alias: string; enabled: boolean }[] }>,
+    staleTime: 60_000,
+  });
+  const overrideState = (alias: string) => overrides.data?.overrides.find((o) => o.alias === alias);
   // 90-day ledger stats joined onto each step - review and performance in one place.
   const stats = useQuery({
     queryKey: ["rp-email-90"],
@@ -93,11 +102,13 @@ export default function RealPeptidesFlows() {
                   <td className="py-2 pr-2 text-ops-text-muted">{fmtDelay(s.delayHours)}</td>
                   <td className="py-2 pr-2 font-medium text-ops-text">{s.subject}</td>
                   <td className="py-2 pr-2">
-                    {s.handAuthored ? (
+                    {(() => { const o = overrideState(`flow-${f.key}-${s.stepIndex + 1}`); return o ? (
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${o.enabled ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-ops-border text-ops-text-muted"}`}>{o.enabled ? "✏️ edited (live)" : "✏️ edit saved (off)"}</span>
+                    ) : s.handAuthored ? (
                       <span className="rounded-full border border-brand-blue-500/30 bg-brand-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-blue-400">Josh's copy (salvaged)</span>
                     ) : (
                       <span className="rounded-full border border-ops-border px-2 py-0.5 text-[10px] text-ops-text-muted">engine render</span>
-                    )}
+                    ); })()}
                   </td>
                   <td className="py-2 pr-2 text-ops-text-muted">{stepStats(f.key, s.stepIndex)?.sends?.toLocaleString() ?? "—"}</td>
                   <td className="py-2 pr-2 text-ops-text-muted">{pct(stepStats(f.key, s.stepIndex)?.openRate)} · {pct(stepStats(f.key, s.stepIndex)?.clickRate)}</td>
@@ -120,6 +131,73 @@ export default function RealPeptidesFlows() {
 }
 
 function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowKey?: string; stepIndex?: number; instant?: string; subject: string; onClose: () => void }) {
+  const qc2 = useQueryClient();
+  const alias = instant ?? `flow-${flowKey}-${(stepIndex ?? 0) + 1}`;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [draftSubject, setDraftSubject] = useState("");
+  const [enabled, setEnabled] = useState(false);
+  const [hasOverride, setHasOverride] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [draftDoc, setDraftDoc] = useState("");
+  const draftTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  async function startEdit(currentHtml: string) {
+    // Prefill with the saved override when one exists, else fork the current render.
+    const r = await fetch(`/api/ops/realpeptides/marketing/override?alias=${encodeURIComponent(alias)}`, { credentials: "include" });
+    const j = await r.json().catch(() => ({}));
+    const o = j.override;
+    setDraft(o?.html ?? currentHtml);
+    setDraftSubject(o?.subject ?? "");
+    setEnabled(o?.enabled ?? false);
+    setHasOverride(!!o);
+    setSaveMsg(null);
+    setEditing(true);
+  }
+
+  useEffect(() => {
+    if (!editing) return;
+    clearTimeout(draftTimer.current);
+    if (!draft.trim()) { setDraftDoc(""); return; }
+    draftTimer.current = setTimeout(async () => {
+      const r = await fetch("/api/ops/realpeptides/marketing/render-draft", {
+        method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ html_b64: b64(draft) }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) setDraftDoc(j.html);
+    }, 700);
+    return () => clearTimeout(draftTimer.current);
+  }, [editing, draft]);
+
+  async function saveOverride(enable: boolean) {
+    setSaving(true); setSaveMsg(null);
+    const r = await fetch("/api/ops/realpeptides/marketing/set-override", {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ alias, html_b64: b64(draft), subject: draftSubject || undefined, enabled: enable }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setSaving(false);
+    if (!r.ok) return setSaveMsg(j.error || `HTTP ${r.status}`);
+    setEnabled(j.enabled); setHasOverride(true);
+    setSaveMsg(j.enabled ? "Saved — this copy is LIVE for customers (within a minute)." : "Saved as a draft — customers still get the default.");
+    qc2.invalidateQueries({ queryKey: ["rp-overrides"] });
+    qc2.invalidateQueries({ queryKey: ["rp-flow-render", flowKey, stepIndex, instant] });
+  }
+
+  async function removeOverride() {
+    if (!confirm("Remove this edit and return to the default copy?")) return;
+    setSaving(true);
+    await fetch("/api/ops/realpeptides/marketing/delete-override", {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ alias }),
+    });
+    setSaving(false); setEditing(false); setHasOverride(false);
+    qc2.invalidateQueries({ queryKey: ["rp-overrides"] });
+    qc2.invalidateQueries({ queryKey: ["rp-flow-render", flowKey, stepIndex, instant] });
+  }
+
   const q = useQuery({
     queryKey: ["rp-flow-render", flowKey, stepIndex, instant],
     queryFn: async () => {
@@ -139,11 +217,57 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
         <div className="flex items-center justify-between gap-3 border-b border-ops-border p-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-ops-text">{q.data?.subject ?? subject}</div>
-            <div className="text-[11px] text-ops-text-muted">{instant ? "instant send" : `${flowKey} · step ${(stepIndex ?? 0) + 1}`}{q.data ? ` · ${q.data.source === "hand-authored" ? "Josh's salvaged copy" : "engine render"}` : ""}</div>
+            <div className="text-[11px] text-ops-text-muted">{instant ? "instant send" : `${flowKey} · step ${(stepIndex ?? 0) + 1}`}{q.data ? ` · ${q.data.source === "override" ? "✏️ ops-edited copy (LIVE)" : q.data.source === "hand-authored" ? "Josh's salvaged copy" : "engine render"}` : ""}</div>
           </div>
-          <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={18} /></button>
+          <span className="flex shrink-0 items-center gap-2">
+            {!editing && q.data && (
+              <button type="button" onClick={() => startEdit(q.data!.html)}
+                className="rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">✏️ Edit copy</button>
+            )}
+            <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={18} /></button>
+          </span>
         </div>
         <div className="p-3">
+          {editing ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                {!instant && (
+                  <label className="block text-[11px] text-ops-text-muted">Subject override (blank = keep the default)
+                    <input value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} placeholder={subject}
+                      className="mt-1 w-full rounded-lg border border-ops-border bg-ops-bg px-2.5 py-2 text-xs text-ops-text focus:outline-none" />
+                  </label>
+                )}
+                <label className="block text-[11px] text-ops-text-muted">Email document ({'{{{firstName}}}'}, {'{{{couponCode}}}'}, {'{{{siteUrl}}}'}, {'{{{unsubscribeUrl}}}'} substitute per recipient)
+                  <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={18}
+                    className="mt-1 w-full rounded-lg border border-ops-border bg-ops-bg px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ops-text focus:outline-none" />
+                </label>
+                {saveMsg && <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-400">{saveMsg}</div>}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button type="button" disabled={saving} onClick={() => saveOverride(false)}
+                    className="rounded-lg border border-ops-border px-3 py-1.5 text-[11px] font-semibold text-ops-text hover:bg-ops-bg disabled:opacity-40">
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : "Save draft"}
+                  </button>
+                  <button type="button" disabled={saving || !draft.trim()} onClick={() => saveOverride(true)}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white disabled:opacity-40">
+                    {enabled ? "Save & keep live" : "Save & make LIVE"}
+                  </button>
+                  {hasOverride && (
+                    <button type="button" disabled={saving} onClick={removeOverride}
+                      className="rounded-lg border border-red-500/40 px-3 py-1.5 text-[11px] font-semibold text-red-400 hover:bg-red-500/10 disabled:opacity-40">
+                      Remove edit (back to default)
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setEditing(false)} className="ml-auto text-[11px] text-ops-text-muted hover:text-ops-text">Back to preview</button>
+                </div>
+                <div className="text-[10px] text-ops-text-muted">Live = customers receive this copy on their next send (within a minute). Draft = saved but customers keep getting the default.</div>
+              </div>
+              <div>
+                {draftDoc
+                  ? <iframe title="Draft preview" sandbox="" srcDoc={draftDoc} className="h-[62vh] w-full rounded-lg border border-ops-border bg-white" />
+                  : <div className="flex h-[62vh] items-center justify-center rounded-lg border border-dashed border-ops-border text-[11px] text-ops-text-muted">Draft preview renders here as you type.</div>}
+              </div>
+            </div>
+          ) : (<>
           {q.isLoading && <div className="flex h-40 items-center justify-center"><Loader2 className="animate-spin text-ops-text-muted" /></div>}
           {q.error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{String((q.error as Error).message)}</div>}
           {q.data && (
@@ -154,6 +278,7 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
               <iframe title="Email preview" sandbox="" srcDoc={q.data.html} className="h-[68vh] w-full rounded-lg border border-ops-border bg-white" />
             </>
           )}
+          </>)}
         </div>
       </div>
     </div>
