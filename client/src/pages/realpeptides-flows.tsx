@@ -499,7 +499,7 @@ function SiteEmailCatalog({ onPreview }: { onPreview: (key: string, name: string
   return (
     <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
       <h2 className="mb-1 text-sm font-bold text-ops-text">Site emails — transactional &amp; notifications <span className="font-normal text-ops-text-muted">· {q.data.emails.length} active</span></h2>
-      <p className="mb-3 text-xs text-ops-text-muted">Everything the site sends on real events (orders, claims, subscriptions, logins…). All of these route through the new engine — they never stopped. Previews render where a sample renderer exists; in-dashboard editing of these is the next build.</p>
+      <p className="mb-3 text-xs text-ops-text-muted">Everything the site sends on real events (orders, claims, subscriptions, logins…). Every one previews with sample data — byte-faithful, rendered by the real sender — and ✏️ Edit copy works on all of them: an enabled edit replaces the built-in design on the next real send.</p>
       {groups.map((g) => (
         <div key={g} className="mb-3">
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ops-text-muted">{g}</div>
