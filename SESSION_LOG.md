@@ -3498,3 +3498,15 @@ RP Command Center hero row (revenue/orders/AOV: count-ups, deltas, daily-series 
 Verified on the live bundle at 30d range. Next: Paul reacts to the flagship → calibrate →
 P2 IA migration per the audit. Audit headlines: 4 brands/4 nav models, unwrapped tables
 everywhere (crit), sub-36px touch targets (crit), stale-bundle toast needed, icon unification.
+
+## 2026-10-02 (morning) — Facelift P2–P6 first increments shipped
+
+Paul: "move on p2 and the rest of everything". Shipped serially (commits 19e5e62, 19a74c0,
+009c65b, 0539b47, 4b39865): P2 unified nav taxonomy across all 4 brands + /fitscript/* URL
+symmetry + 18 tables wrapped + /api/ops/version stale-bundle toast; fixes for Paul's two morning
+catches (search tile now labels its real clamped GSC window; phone date picker is a centered
+modal); P3 StatCard consolidation (kit Card + FS tiles + RP Card → one component, central
+skeletons, pawgen hero sparklines); P4 calendar v2 (Month/List views, Today, polished cells —
+send machinery untouched); P5 Dirt voice chat (auto-send on pause + spoken answers + mute
+toggle); P6 coarse-pointer hit-area expansion. P2/P3 browser-verified live (all 4 brand navs,
+19-20 StatCards/page animating, pawgen sparks). P4-P6 awaiting the tip deploy, verify next.
