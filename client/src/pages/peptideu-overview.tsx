@@ -43,9 +43,9 @@ function GrowthRow({ d, range }: { d?: Cmd; range: DateRange }) {
   const v = (k: keyof Counts) => (c ? <>{num(c[k])}<Delta cur={c[k]} prev={p?.[k] ?? 0} /></> : "…");
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-      <Card label={`Signups · ${rl}`} to="/peptideu/members" value={v("signups")} tone={c?.signups ? "good" : undefined} sub={d?.today ? `${num(d.today.signups)} in the last 24h` : undefined} />
+      <Card label={`Signups · ${rl}`} to="/peptideu/members" spark={(d?.series ?? []).map((r: any) => r.signups)} value={v("signups")} tone={c?.signups ? "good" : undefined} sub={d?.today ? `${num(d.today.signups)} in the last 24h` : undefined} />
       <Card label={`Onboarded · ${rl}`} value={v("onboarded")} sub={c ? `${c.signups ? Math.round((c.onboarded / c.signups) * 100) : 0}% of new signups` : undefined} />
-      <Card label={`Active members · ${rl}`} value={v("active_members")} sub="learned, asked, posted, logged or scanned" />
+      <Card label={`Active members · ${rl}`} spark={(d?.series ?? []).map((r: any) => r.learners)} value={v("active_members")} sub="learned, asked, posted, logged or scanned" />
       <Card label={`Lessons completed · ${rl}`} to="/peptideu/curriculum" value={v("lessons_completed")} sub={c ? `${num(c.active_learners)} learners · ${c.quiz_attempts ? Math.round((c.quiz_passes / c.quiz_attempts) * 100) : 0}% quiz pass` : undefined} />
       <Card label={`Memberships granted · ${rl}`} to="/peptideu/drawing" value={v("memberships_granted")} sub="lifetime / comp grants" />
     </div>
