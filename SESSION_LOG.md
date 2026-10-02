@@ -3443,3 +3443,12 @@ Resend killed the RP account tonight; the site now sends over Mailgun through it
 UX direction from Paul: the email surface should become a Klaviyo-meets-Resend hybrid
 (composer + segments + proper campaign analytics). This commit is the send plumbing; the
 composer/analytics polish is the next phase.
+
+## 2026-10-02 (overnight, cont.) — Flow review gallery + unsubscribe import
+
+Paul's hold: nothing sends until reviewed in-browser. New /realpeptides/flows (Email → Flows
+subtab): every engine flow step rendered via the bridge's exact-render endpoint in an iframe
+(hand-authored salvage badged "Josh's copy"), plus the Resend-contacts-CSV unsubscribe import
+(client parses, filters unsubscribed=true, chunks 2000/POST; set-only server-side). Proxies in
+realpeptides-marketing.ts: GET flows, POST render, POST import-unsubscribes. The site's
+FLOW_SENDS_PAUSED stays true until Paul reviews + imports, then the site repo flips it.
