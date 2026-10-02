@@ -12,11 +12,13 @@ import { ui } from "./coa/api";
  * (paid_social/cpc still read as "Paid ads"). utm_source splits Social by platform, utm_campaign
  * by guide. Everything here is static — no API — so it can never break a fetch.
  */
+// ❗ Links go to each site's /optin SQUEEZE page, never the root (Paul, 2026-10-01): the root
+// SERVES the guide itself — a root link gives the guide away with no email captured.
 const GUIDES = [
-  { key: "fat-loss-bible", label: "Fat Loss Bible", base: "https://www.fatlossbible.co/" },
-  { key: "hair-growth", label: "Hair Growth Protocol", base: "https://www.hairgrowthprotocol.com/" },
-  { key: "peptide-101", label: "Peptide 101", base: "https://www.peptide101guide.com/" },
-  { key: "sexual-health", label: "Sexual Health Guide", base: "https://sexualhealthguide.com/" },
+  { key: "fat-loss-bible", label: "Fat Loss Bible", base: "https://www.fatlossbible.co/optin" },
+  { key: "hair-growth", label: "Hair Growth Protocol", base: "https://www.hairgrowthprotocol.com/optin" },
+  { key: "peptide-101", label: "Peptide 101", base: "https://www.peptide101guide.com/optin" },
+  { key: "sexual-health", label: "Sexual Health Guide", base: "https://sexualhealthguide.com/optin" },
 ];
 
 const PLATFORMS = ["instagram", "tiktok", "youtube", "facebook", "x"];

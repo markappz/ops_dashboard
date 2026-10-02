@@ -3414,3 +3414,10 @@ in-app browsers strip referrers → built /pawgen/campaign-links (UTM builder li
 site already captures utm_* first-touch via lib/attribution.ts) and surfaced lead attribution on
 Email ▸ Leads: By signup form / By first-touch source / By campaign bars (leads endpoint +
 fetchLeads now carry ref_source/ref_medium/ref_campaign).
+
+## 2026-10-01 later — Campaign Links point at /optin (Autom)
+Paul: "utm links need to lead to the optin pages not the actual guide pages." On the guide
+funnel sites the ROOT serves the guide itself (/optin captures, root delivers — docs/
+GUIDE-OPTIN-EMBED.md in realpeptides) — so the builder's root links were giving the guides away
+uncaptured. All four bases now /optin (verified 200 + form renders on fatlossbible). Desktop
+reference doc updated to match.
