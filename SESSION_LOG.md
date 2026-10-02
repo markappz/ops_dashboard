@@ -3487,3 +3487,14 @@ STILL HELD: flow sends paused site-side until Paul finishes review + runs both i
   Paul's report); desktop footer pinned too. Shared component → all command centers fixed.
 - Mobile email audit: 21/30 salvaged docs carry their own @media blocks (byte-exact migration);
   engine renders share emailTheme's 600px breakpoint; Phone preview = one-click mobile QA.
+
+## 2026-10-02 (~4am PT) — Facelift P0 audit + P1 flagship increment
+
+Paul greenlit the full ops facelift (his private brief; audit artifact is Paul-only — the
+makeover is a surprise for Michael/team, keep findings out of team channels). Shipped tonight:
+components/stat.tsx (CountUp, DeltaPill, Sparkline, StatCard v2 with stagger/lift) + motion
+primitives in index.css (ops-rise, ops-skeleton, reduced-motion safe) + flagship refit of the
+RP Command Center hero row (revenue/orders/AOV: count-ups, deltas, daily-series sparklines).
+Verified on the live bundle at 30d range. Next: Paul reacts to the flagship → calibrate →
+P2 IA migration per the audit. Audit headlines: 4 brands/4 nav models, unwrapped tables
+everywhere (crit), sub-36px touch targets (crit), stale-bundle toast needed, icon unification.
