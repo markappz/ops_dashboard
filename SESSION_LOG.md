@@ -3402,3 +3402,15 @@ hairgrowthprotocol.com, peptide101guide.com, sexualhealthguide.com), a live "sho
 readout, and the convention explainer. Pairs with the site classifier fix (realpeptides 501cdcc)
 that routes utm_medium=social → Social. Desktop reference doc also written for Paul. Build clean.
 Awaiting push go.
+
+## 2026-10-01 — Lead tiles disambiguated; pawgen attribution surfaced + Campaign Links (Autom)
+Paul/Michael: "new leads today" showed twice on RP with different numbers, and pawgen leads felt
+low/disconnected. Diagnosis: the two RP tiles are the SAME metric (marketing captures) over two
+windows — selected range vs rolling 24h — wearing one label. Relabeled: second tile is now
+"New leads · 24h · same captures · rolling last 24 hours" (pawgen overview too). pawgen's
+15-18/day IS real (queried Supabase directly: 255 leads/14d, 97% guide-magnet; 1,353 total, well
+under the 10k REST cap — ops is accurate). Half of pawgen leads are "direct/untagged" because DM
+in-app browsers strip referrers → built /pawgen/campaign-links (UTM builder like RP's guide one;
+site already captures utm_* first-touch via lib/attribution.ts) and surfaced lead attribution on
+Email ▸ Leads: By signup form / By first-touch source / By campaign bars (leads endpoint +
+fetchLeads now carry ref_source/ref_medium/ref_campaign).

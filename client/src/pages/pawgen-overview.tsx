@@ -41,7 +41,7 @@ function LeadsRow({ d }: { d: any }) {
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Guide leads" to="/pawgen/marketing" value={l ? num(l.total) : "…"} sub={l ? `${num(l.guideSent)} guides sent` : undefined} />
-      <Card label="New leads · today" value={l ? num(l.today) : "…"} tone={l?.today ? "good" : undefined} sub="last 24 hours" />
+      <Card label="New leads · 24h" value={l ? num(l.today) : "…"} tone={l?.today ? "good" : undefined} sub="rolling last 24 hours" />
       <Card label="New leads · 7 days" value={l ? num(l.week) : "…"} sub={l?.week ? `${Math.round(l.week / 7)}/day` : "last 7 days"} />
       <Card label="New leads · 30 days" value={l ? num(l.month) : "…"} sub={l?.bySource?.[0] ? `top source · ${l.bySource[0].source}` : "last 30 days"} />
       <Card label="Lead → buyer" value={l ? `${conv}%` : "…"} tone={conv >= 5 ? "good" : undefined} sub={l ? `${num(l.converted)} leads bought` : undefined} />

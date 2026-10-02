@@ -169,8 +169,8 @@ export async function ordersForAnalytics() {
 
 /** Guide-magnet leads. */
 export async function fetchLeads() {
-  const { rows } = await rest<{ id: string; email: string; source: string | null; created_at: string; guide_sent: boolean | null }>(
-    `leads?select=id,email,source,created_at,guide_sent&order=created_at.desc`,
+  const { rows } = await rest<{ id: string; email: string; source: string | null; created_at: string; guide_sent: boolean | null; ref_source: string | null; ref_medium: string | null; ref_campaign: string | null }>(
+    `leads?select=id,email,source,created_at,guide_sent,ref_source,ref_medium,ref_campaign&order=created_at.desc`,
     { range: { from: 0, to: REST_PAGE_MAX - 1 } }
   );
   return rows;

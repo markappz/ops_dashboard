@@ -110,8 +110,8 @@ function LeadCards({ contacts, rlabel, days }: { contacts: ReturnType<typeof use
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Contacts" to="/realpeptides/leads" value={v(c?.totals?.total)} sub={off ? c?.hint : c ? `${num(c.totals.marketable)} mailable · ${num(c.totals.buyers)} buyers` : "Resend list"} />
-      <Card label={`New leads · ${rlabel}`} to="/realpeptides/leads" value={v(c?.new?.window)} tone={c?.new?.window ? "good" : undefined} sub={perDay(c?.new?.window) ?? "marketing captures"} />
-      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} sub="last 24 hours" />
+      <Card label={`New leads · ${rlabel}`} to="/realpeptides/leads" value={v(c?.new?.window)} tone={c?.new?.window ? "good" : undefined} sub={perDay(c?.new?.window) ?? "marketing captures · selected range"} />
+      <Card label="New leads · 24h" to="/realpeptides/leads" value={v(c?.new?.today)} sub="same captures · rolling last 24 hours" />
       <Card label={`Top source · ${rlabel}`} to="/realpeptides/leads" value={off || !c ? v(undefined) : topSource ? num(topSource.count) : "0"} sub={topSource ? topSource.source : "no captures in this window"} />
       <Card label={`New customers · ${rlabel}`} to="/realpeptides/orders" value={v(nc?.window)} accent sub={nc ? `${num(nc.today)} today · first paid order` : "first paid order"} />
     </div>
