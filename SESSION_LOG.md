@@ -3452,3 +3452,22 @@ subtab): every engine flow step rendered via the bridge's exact-render endpoint 
 (client parses, filters unsubscribed=true, chunks 2000/POST; set-only server-side). Proxies in
 realpeptides-marketing.ts: GET flows, POST render, POST import-unsubscribes. The site's
 FLOW_SENDS_PAUSED stays true until Paul reviews + imports, then the site repo flips it.
+
+## 2026-10-02 (pre-dawn) — Attribution, analytics-in-review, Activity, exports, Josh's MCP
+
+- Leads: recent leads now carry first-touch UTM chips (site's ops-contacts select gained
+  `capture`; chips show source/campaign, hover = full set). The data was always stored.
+- Flows review page: per-step Sends·90d + open·click columns and per-flow attributed revenue,
+  joined from the email summary — review and performance on one page.
+- /realpeptides/activity: per-contact engagement timeline (ledger events + flow sends + status
+  chips). Segments table gained per-segment CSV export.
+- server/rp-email-mcp.ts: MCP server at POST /api/mcp/rp-email (bearer RP_EMAIL_MCP_TOKEN,
+  secret rev'd by Paul → task-def rev 321, workflow_dispatch redeploy). Tools: list_segments,
+  preview_audience, create/update_campaign (DRAFTS ONLY — mass send stays human in Review &
+  send), list_campaigns, test_send, campaign_stats. Verified: 401 bare, initialize/tools/list/
+  tools/call live; preview_audience(vip)=430 matches export. Token for Josh:
+  ~/rp-email-mcp-token.txt on Paul's Mac.
+- AI composer: /email/compose?company=realpeptides saves drafts into ops_email_plans.
+
+STILL HELD: flow sends paused site-side until Paul finishes review + runs both imports on
+/realpeptides/flows and says go. Next design phase: dedicated two-pane broadcast builder.
