@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { Link } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { PageHero } from "../components/page-hero";
@@ -81,9 +82,20 @@ function SalesCards({ ov, rlabel, days }: { ov: ReturnType<typeof useOverviewDat
     const perDay = days > 1 ? `${(sales.current.orders / days).toFixed(1)}/day · ` : "";
     return (
       <>
-        <Card label={`Revenue · ${rlabel}`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
-        <Card label={`Orders · ${rlabel}`} to="/realpeptides/orders" value={<>{num(sales.current.orders)}<Delta cur={sales.current.orders} prev={sales.previous.orders} /></>} sub={`${perDay}paid${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
-        <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items`} />
+        <StatCard i={0} label={`Revenue · ${rlabel}`} accent
+          number={sales.current.revenue} format={(n) => usd(n)}
+          delta={{ cur: sales.current.revenue, prev: sales.previous.revenue }}
+          spark={(sales.daily ?? []).map((d: { revenue: number }) => d.revenue)}
+          sub={`net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
+        <StatCard i={1} label={`Orders · ${rlabel}`} to="/realpeptides/orders"
+          number={sales.current.orders}
+          delta={{ cur: sales.current.orders, prev: sales.previous.orders }}
+          spark={(sales.daily ?? []).map((d: { orders: number }) => d.orders)}
+          sub={`${perDay}paid${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+        <StatCard i={2} label="Average order"
+          number={sales.current.aov} format={(n) => usd(n)}
+          delta={{ cur: sales.current.aov, prev: sales.previous.aov }}
+          sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items`} />
       </>
     );
   }

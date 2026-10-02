@@ -257,3 +257,31 @@ body {
   outline: none;
   border-color: rgb(var(--fitscript-green, 14 165 122));
 }
+
+/* ── Facelift motion primitives (P1, 2026-10-02) ───────────────────────────
+   Restrained by design: one entrance, one hover, one shimmer. Everything
+   honors prefers-reduced-motion. */
+@keyframes ops-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ops-rise { animation: ops-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes ops-shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position: 200% 0; }
+}
+.ops-skeleton {
+  border-radius: 8px;
+  background: linear-gradient(90deg,
+    rgb(var(--ops-surface-hover)) 25%,
+    rgb(var(--ops-surface-raised)) 50%,
+    rgb(var(--ops-surface-hover)) 75%);
+  background-size: 200% 100%;
+  animation: ops-shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-rise { animation: none; }
+  .ops-skeleton { animation: none; }
+}
