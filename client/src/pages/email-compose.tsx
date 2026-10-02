@@ -276,7 +276,7 @@ export default function EmailCompose(props?: { company?: string }) {
           name: templateName.trim(),
           subject: parsed.subject,
           preheader: parsed.preheader,
-          html: parsed.html || undefined,
+          html_b64: parsed.html ? btoa(String.fromCharCode(...new TextEncoder().encode(parsed.html))) : undefined,
           text: parsed.text || undefined,
           ...(company ? { company } : {}),
         }),

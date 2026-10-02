@@ -107,9 +107,13 @@ export function registerRealPeptidesMarketing(app: Express) {
       res.json(await bridge(`/api/ops-marketing?what=recent-events&limit=${Number(req.query.limit) || 100}`));
     } catch (e: any) { res.status(502).json({ error: e.message }); }
   });
+  const decodeHtml = (body: any): string => {
+    if (body?.html_b64) { try { return Buffer.from(String(body.html_b64), "base64").toString("utf8"); } catch { /* fall through */ } }
+    return body?.html ?? "";
+  };
   app.post("/api/ops/realpeptides/marketing/render-broadcast", async (req, res) => {
     try {
-      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render-broadcast", html: req.body?.html ?? "" } }));
+      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render-broadcast", html: decodeHtml(req.body) } }));
     } catch (e: any) { res.status(502).json({ error: e.message }); }
   });
 
@@ -143,7 +147,8 @@ export function registerRealPeptidesMarketing(app: Express) {
 
   app.post("/api/ops/realpeptides/marketing/test", async (req: any, res) => {
     try {
-      const { subject, html, to } = req.body ?? {};
+      const { subject, to } = req.body ?? {};
+      const html = decodeHtml(req.body);
       if (!subject || !html || !to) return res.status(400).json({ error: "subject, html and to are required" });
       const out = await bridge("/api/ops-marketing", { method: "POST", body: { action: "test", subject, html, to } });
       console.log(`[OPS][RP-MARKETING] test send to ${to} by ${req.adminEmail}`);

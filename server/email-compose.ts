@@ -685,7 +685,10 @@ export function registerEmailComposeRoutes(app: Express) {
   // ─── Save final email to Klaviyo ─────────────────────────────────
 
   app.post("/api/ops/email/compose/save", async (req: AdminReq, res) => {
-    const { name, html, subject, preheader, text, company } = req.body ?? {};
+    const { name, subject, preheader, text, company } = req.body ?? {};
+    // The Cloudflare WAF in front of ops rejects rich HTML inside JSON, so the client base64s it.
+    let html = req.body?.html;
+    if (req.body?.html_b64) { try { html = Buffer.from(String(req.body.html_b64), "base64").toString("utf8"); } catch { /* keep raw */ } }
     if (!name || typeof name !== "string") {
       return res.status(400).json({ error: "name required" });
     }

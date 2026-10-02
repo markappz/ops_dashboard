@@ -17,6 +17,9 @@ import { PageHero } from "../components/page-hero";
 interface Plan { id: number; title: string; subject: string | null; preheader: string | null; status: string; send_date: string | null; audience_id: string | null; html: string | null; resend_broadcast_id: string | null; updated_at: string }
 interface Campaign { broadcastId: string; name: string; sentAt?: string; sends: number; uniqueOpens: number; uniqueClicks: number; bounces: number; complaints: number; attributedOrders: number; attributedRevenueCents: number }
 
+/** Rich HTML in JSON trips the WAF in front of ops, so every html payload ships base64. */
+const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+
 const input = "w-full rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text placeholder:text-ops-text-muted focus:border-brand-blue-500 focus:outline-none";
 
 export default function RealPeptidesBroadcasts() {
@@ -68,7 +71,7 @@ export default function RealPeptidesBroadcasts() {
 
   async function save(): Promise<number | null> {
     setBusy("save"); setMsg(null);
-    const body = { company: "realpeptides", title: f.title || f.subject || "Untitled broadcast", subject: f.subject || null, preheader: f.preheader || null, audience_id: f.segment || null, html: f.html || null, status: "draft" };
+    const body = { company: "realpeptides", title: f.title || f.subject || "Untitled broadcast", subject: f.subject || null, preheader: f.preheader || null, audience_id: f.segment || null, html_b64: f.html ? b64(f.html) : null, status: "draft" };
     const r = await fetch(planId ? `/api/ops/email-plans/${planId}` : "/api/ops/email-plans", {
       method: planId ? "PATCH" : "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
@@ -86,7 +89,7 @@ export default function RealPeptidesBroadcasts() {
     setBusy("test");
     const r = await fetch("/api/ops/realpeptides/marketing/test", {
       method: "POST", credentials: "include", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ subject: f.subject, html: f.html, to: testTo.trim() }),
+      body: JSON.stringify({ subject: f.subject, html_b64: b64(f.html), to: testTo.trim() }),
     });
     const j = await r.json().catch(() => ({}));
     setBusy(null);
@@ -292,7 +295,7 @@ function LivePreview({ subject, preheader, html }: { subject: string; preheader:
       setLoading(true);
       try {
         const r = await fetch("/api/ops/realpeptides/marketing/render-broadcast", {
-          method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ html }),
+          method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ html_b64: btoa(String.fromCharCode(...new TextEncoder().encode(html))) }),
         });
         const j = await r.json();
         if (r.ok) setDoc(j.html);

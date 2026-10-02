@@ -147,6 +147,13 @@ async function ensureTable() {
   `);
 }
 
+/** Rich HTML in JSON gets eaten by the Cloudflare WAF in front of ops, so clients send it
+ * base64-encoded; decode here before storage. Raw `html` still accepted for old callers. */
+function bodyHtml(body: any): string | null {
+  if (body?.html_b64) { try { return Buffer.from(String(body.html_b64), "base64").toString("utf8"); } catch { /* fall through */ } }
+  return body?.html ?? null;
+}
+
 export function registerEmailPlannerRoutes(app: Express) {
   /** Plans for a company. HTML is omitted from the list (fetch one plan for it). */
   app.get("/api/ops/email-plans", async (req, res) => {
@@ -202,7 +209,7 @@ export function registerEmailPlannerRoutes(app: Express) {
           b.send_time ? String(b.send_time) : null,
           b.from_address ? String(b.from_address) : defaultFrom(company),
           b.audience_id ? String(b.audience_id) : null,
-          b.html ? String(b.html) : null,
+          bodyHtml(b),
           b.notes ? String(b.notes) : null,
           req.adminEmail || null,
         ],
@@ -241,7 +248,7 @@ export function registerEmailPlannerRoutes(app: Express) {
           b.send_time !== undefined, b.send_time ? String(b.send_time) : null,
           b.from_address !== undefined, b.from_address ? String(b.from_address) : null,
           b.audience_id !== undefined, b.audience_id ? String(b.audience_id) : null,
-          b.html !== undefined, b.html ? String(b.html) : null,
+          b.html !== undefined || b.html_b64 !== undefined, bodyHtml(b),
           b.notes !== undefined, b.notes ? String(b.notes) : null,
         ],
       );
