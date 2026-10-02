@@ -285,3 +285,16 @@ body {
   .ops-rise { animation: none; }
   .ops-skeleton { animation: none; }
 }
+
+/* Facelift P6 — touch hardening. On coarse pointers every control gets an invisible
+   expanded hit area, so dense table actions clear ~44px without layout change. */
+@media (pointer: coarse) {
+  button, [role="button"], a[href] {
+    position: relative;
+  }
+  button::after, [role="button"]::after, a[href]::after {
+    content: "";
+    position: absolute;
+    inset: -5px;
+  }
+}
