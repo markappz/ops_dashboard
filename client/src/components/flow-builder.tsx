@@ -95,6 +95,16 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
   const [preview, setPreview] = useState(false);
   const [testTo, setTestTo] = useState(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
   const [enrollPreview, setEnrollPreview] = useState<{ recipients: number; segment: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  async function deleteFlow() {
+    if (!flow.id) return;
+    setBusy("delete");
+    try {
+      await post({ action: "custom-flow-delete", id: flow.id });
+      onSaved(); onClose();
+    } catch (e: any) { setMsg({ tone: "bad", text: e.message }); setConfirmDelete(false); } finally { setBusy(null); }
+  }
 
   const segments = useQuery({
     queryKey: ["rp-marketing-segments"],
@@ -226,6 +236,19 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
           className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-xs font-bold text-white disabled:opacity-40">
           {busy === "save" ? <Loader2 size={13} className="animate-spin" /> : "Save"}
         </button>
+        {flow.id && flow.status !== "active" && (
+          confirmDelete ? (
+            <span className="flex items-center gap-1.5 text-xs">
+              <span className="text-red-400">Delete this flow and its enrollments?</span>
+              <button type="button" disabled={busy !== null} onClick={() => void deleteFlow()} className="rounded-lg bg-red-500 px-2.5 py-1.5 font-bold text-white disabled:opacity-40">
+                {busy === "delete" ? <Loader2 size={12} className="animate-spin" /> : "Delete"}
+              </button>
+              <button type="button" onClick={() => setConfirmDelete(false)} className="text-ops-text-muted hover:text-ops-text">Keep</button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setConfirmDelete(true)} className="rounded-lg p-2 text-ops-text-muted hover:text-red-400" aria-label="Delete flow"><Trash2 size={15} /></button>
+          )
+        )}
         <button type="button" onClick={onClose} className="rounded-lg p-2 text-ops-text-muted hover:text-ops-text" aria-label="Close"><X size={18} /></button>
       </div>
 
