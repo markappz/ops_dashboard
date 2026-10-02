@@ -141,7 +141,7 @@ export default function EmailCompose() {
   const [templateName, setTemplateName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [saved, setSaved] = useState<{ templateId: string; klaviyoUrl: string | null } | null>(null);
+  const [saved, setSaved] = useState<{ templateId: string; klaviyoUrl: string | null; plan?: boolean } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -242,6 +242,9 @@ export default function EmailCompose() {
     }
   };
 
+  const company = new URLSearchParams(window.location.search).get("company");
+  const isRP = company === "realpeptides";
+
   const reset = () => {
     abortRef.current?.abort();
     setMessages([]);
@@ -267,11 +270,15 @@ export default function EmailCompose() {
           preheader: parsed.preheader,
           html: parsed.html || undefined,
           text: parsed.text || undefined,
+          ...(company ? { company } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
         setSaveMsg(`Failed: ${j.error || "unknown"}`);
+      } else if (j.destination === "plan") {
+        setSaveMsg(null);
+        setSaved({ templateId: String(j.planId), klaviyoUrl: null, plan: true });
       } else {
         setSaveMsg(null);
         setSaved({ templateId: j.templateId, klaviyoUrl: j.klaviyoUrl ?? null });
@@ -285,6 +292,11 @@ export default function EmailCompose() {
 
   const continueToSend = () => {
     if (!saved) return;
+    if (saved.plan) {
+      // RP drafts live in the email calendar; the Review & send door is on the plan editor there.
+      navigate("/realpeptides/email");
+      return;
+    }
     const qs = new URLSearchParams({
       templateId: saved.templateId,
       name: templateName.trim(),
@@ -496,7 +508,7 @@ export default function EmailCompose() {
         <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5">
           {!saved ? (
             <>
-              <h3 className="text-sm font-semibold text-ops-text mb-3">Save to Klaviyo</h3>
+              <h3 className="text-sm font-semibold text-ops-text mb-3">{isRP ? "Save to the Real Peptides calendar" : "Save to Klaviyo"}</h3>
               {parsed.subject && (
                 <div className="mb-3">
                   <div className="text-[11px] font-semibold text-ops-text-muted uppercase tracking-wider mb-1">Subject</div>
@@ -517,7 +529,7 @@ export default function EmailCompose() {
                   disabled={saving || !templateName.trim()}
                   className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95"
                 >
-                  {saving ? "Saving…" : "Save to Klaviyo"}
+                  {saving ? "Saving…" : isRP ? "Save as RP draft" : "Save to Klaviyo"}
                 </button>
               </div>
               {saveMsg && (
@@ -533,8 +545,8 @@ export default function EmailCompose() {
                   <svg className="w-4 h-4 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-ops-text">Saved to Klaviyo</div>
-                  <div className="text-[11px] text-ops-text-muted">Template <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
+                  <div className="text-sm font-semibold text-ops-text">{saved.plan ? "Saved to the RP email calendar" : "Saved to Klaviyo"}</div>
+                  <div className="text-[11px] text-ops-text-muted">{saved.plan ? "Plan" : "Template"} <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -542,7 +554,7 @@ export default function EmailCompose() {
                   onClick={continueToSend}
                   className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] hover:opacity-95 inline-flex items-center gap-1.5"
                 >
-                  Continue to schedule send
+                  {saved.plan ? "Open the calendar → Review & send" : "Continue to schedule send"}
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                 </button>
                 {saved.klaviyoUrl && (
