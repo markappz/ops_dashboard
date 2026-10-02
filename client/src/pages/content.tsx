@@ -315,47 +315,49 @@ function ContentBody({
           {topQueries.length === 0 ? (
             <div className="p-8 text-center text-sm text-ops-text-muted">No query data yet.</div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
-                  <th className="text-left px-3 py-2 font-medium">Query</th>
-                  <th className="text-right px-3 py-2 font-medium">Clicks</th>
-                  <th className="text-right px-3 py-2 font-medium">Impr</th>
-                  <th className="text-right px-3 py-2 font-medium">CTR</th>
-                  <th className="text-right px-3 py-2 font-medium">Pos</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ops-border/40">
-                {topQueries.map((q) => (
-                  <tr key={q.query}>
-                    <td
-                      className="px-3 py-2 text-ops-text max-w-[200px] truncate"
-                      title={q.query}
-                    >
-                      {q.query}
-                    </td>
-                    <td className="px-3 py-2 text-right text-fitscript-green font-medium">
-                      {q.clicks.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right text-ops-text-muted">
-                      {q.impressions.toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right text-ops-text">{q.ctr}%</td>
-                    <td
-                      className={`px-3 py-2 text-right font-medium ${
-                        parseFloat(q.position) <= 10
-                          ? "text-fitscript-green"
-                          : parseFloat(q.position) <= 20
-                            ? "text-amber-400"
-                            : "text-ops-text-muted"
-                      }`}
-                    >
-                      {q.position}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
+                    <th className="text-left px-3 py-2 font-medium">Query</th>
+                    <th className="text-right px-3 py-2 font-medium">Clicks</th>
+                    <th className="text-right px-3 py-2 font-medium">Impr</th>
+                    <th className="text-right px-3 py-2 font-medium">CTR</th>
+                    <th className="text-right px-3 py-2 font-medium">Pos</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-ops-border/40">
+                  {topQueries.map((q) => (
+                    <tr key={q.query}>
+                      <td
+                        className="px-3 py-2 text-ops-text max-w-[200px] truncate"
+                        title={q.query}
+                      >
+                        {q.query}
+                      </td>
+                      <td className="px-3 py-2 text-right text-fitscript-green font-medium">
+                        {q.clicks.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right text-ops-text-muted">
+                        {q.impressions.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right text-ops-text">{q.ctr}%</td>
+                      <td
+                        className={`px-3 py-2 text-right font-medium ${
+                          parseFloat(q.position) <= 10
+                            ? "text-fitscript-green"
+                            : parseFloat(q.position) <= 20
+                              ? "text-amber-400"
+                              : "text-ops-text-muted"
+                        }`}
+                      >
+                        {q.position}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
@@ -366,51 +368,53 @@ function ContentBody({
           {topPages.length === 0 ? (
             <div className="p-8 text-center text-sm text-ops-text-muted">No page data yet.</div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
-                  <th className="text-left px-3 py-2 font-medium">Page</th>
-                  <th className="text-right px-3 py-2 font-medium">Clicks</th>
-                  <th className="text-right px-3 py-2 font-medium">Impr</th>
-                  <th className="text-right px-3 py-2 font-medium">CTR</th>
-                  <th className="text-right px-3 py-2 font-medium">Pos</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-ops-border/40">
-                {topPages.map((p) => {
-                  // Strip protocol + host for compact display, keep path
-                  const path = p.page.replace(/^https?:\/\/[^/]+/, "") || "/";
-                  return (
-                    <tr key={p.page}>
-                      <td
-                        className="px-3 py-2 text-ops-text max-w-[220px] truncate"
-                        title={p.page}
-                      >
-                        {path}
-                      </td>
-                      <td className="px-3 py-2 text-right text-fitscript-green font-medium">
-                        {p.clicks.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2 text-right text-ops-text-muted">
-                        {p.impressions.toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2 text-right text-ops-text">{p.ctr}%</td>
-                      <td
-                        className={`px-3 py-2 text-right font-medium ${
-                          parseFloat(p.position) <= 10
-                            ? "text-fitscript-green"
-                            : parseFloat(p.position) <= 20
-                              ? "text-amber-400"
-                              : "text-ops-text-muted"
-                        }`}
-                      >
-                        {p.position}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
+                    <th className="text-left px-3 py-2 font-medium">Page</th>
+                    <th className="text-right px-3 py-2 font-medium">Clicks</th>
+                    <th className="text-right px-3 py-2 font-medium">Impr</th>
+                    <th className="text-right px-3 py-2 font-medium">CTR</th>
+                    <th className="text-right px-3 py-2 font-medium">Pos</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-ops-border/40">
+                  {topPages.map((p) => {
+                    // Strip protocol + host for compact display, keep path
+                    const path = p.page.replace(/^https?:\/\/[^/]+/, "") || "/";
+                    return (
+                      <tr key={p.page}>
+                        <td
+                          className="px-3 py-2 text-ops-text max-w-[220px] truncate"
+                          title={p.page}
+                        >
+                          {path}
+                        </td>
+                        <td className="px-3 py-2 text-right text-fitscript-green font-medium">
+                          {p.clicks.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right text-ops-text-muted">
+                          {p.impressions.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right text-ops-text">{p.ctr}%</td>
+                        <td
+                          className={`px-3 py-2 text-right font-medium ${
+                            parseFloat(p.position) <= 10
+                              ? "text-fitscript-green"
+                              : parseFloat(p.position) <= 20
+                                ? "text-amber-400"
+                                : "text-ops-text-muted"
+                          }`}
+                        >
+                          {p.position}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </div>

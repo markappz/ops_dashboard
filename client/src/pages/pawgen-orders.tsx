@@ -237,46 +237,48 @@ function Referrals() {
       ) : !sources.length ? (
         <div className="px-5 py-8 text-center text-sm text-ops-text-muted">No orders yet</div>
       ) : (
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-ops-border">
-              <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Source</th>
-              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Clicks</th>
-              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Orders</th>
-              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Paid</th>
-              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Conv.</th>
-              <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Revenue</th>
-              <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Last order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sources.map((s) => (
-              <tr key={s.source} className="border-t border-ops-border">
-                <td className="px-5 py-2.5 text-sm">
-                  {s.source === "(direct)" ? (
-                    <span className="text-ops-text-muted" title="Direct traffic, plus every order placed before attribution existed">
-                      direct / untagged
-                    </span>
-                  ) : (
-                    <span className="text-fitscript-green font-medium">{s.source}</span>
-                  )}
-                </td>
-                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
-                  {s.clicks === null ? "—" : s.clicks.toLocaleString()}
-                </td>
-                <td className="px-5 py-2.5 text-right text-sm text-ops-text">{s.orders}</td>
-                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">{s.paidOrders}</td>
-                <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
-                  {s.conversion === null ? "—" : `${s.conversion}%`}
-                </td>
-                <td className="px-5 py-2.5 text-right text-sm font-medium text-ops-text">{money(s.revenue)}</td>
-                <td className="px-5 py-2.5 text-sm text-ops-text-muted">
-                  {s.lastOrderAt ? new Date(s.lastOrderAt).toLocaleDateString() : "—"}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-ops-border">
+                <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Source</th>
+                <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Clicks</th>
+                <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Orders</th>
+                <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Paid</th>
+                <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Conv.</th>
+                <th className="text-right px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Revenue</th>
+                <th className="text-left px-5 py-2 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Last order</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sources.map((s) => (
+                <tr key={s.source} className="border-t border-ops-border">
+                  <td className="px-5 py-2.5 text-sm">
+                    {s.source === "(direct)" ? (
+                      <span className="text-ops-text-muted" title="Direct traffic, plus every order placed before attribution existed">
+                        direct / untagged
+                      </span>
+                    ) : (
+                      <span className="text-fitscript-green font-medium">{s.source}</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
+                    {s.clicks === null ? "—" : s.clicks.toLocaleString()}
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-sm text-ops-text">{s.orders}</td>
+                  <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">{s.paidOrders}</td>
+                  <td className="px-5 py-2.5 text-right text-sm text-ops-text-muted">
+                    {s.conversion === null ? "—" : `${s.conversion}%`}
+                  </td>
+                  <td className="px-5 py-2.5 text-right text-sm font-medium text-ops-text">{money(s.revenue)}</td>
+                  <td className="px-5 py-2.5 text-sm text-ops-text-muted">
+                    {s.lastOrderAt ? new Date(s.lastOrderAt).toLocaleDateString() : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {!isLoading && sources.length > 0 && data?.clicksTracked === false && (

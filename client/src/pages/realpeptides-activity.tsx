@@ -105,25 +105,27 @@ export default function RealPeptidesActivity() {
 
           <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
             <h2 className="mb-2 text-sm font-bold text-ops-text">Flow sends <span className="font-normal text-ops-text-muted">· {d.flowSends.length}</span></h2>
-            <table className="w-full text-left text-xs">
-              <thead><tr className="text-[10px] uppercase tracking-wide text-ops-text-muted"><th className="pb-1 pr-2 font-medium">Sent</th><th className="pb-1 pr-2 font-medium">Flow · step</th><th className="pb-1 pr-2 font-medium">Subject</th><th className="pb-1 font-medium">Result</th></tr></thead>
-              <tbody>
-                {d.flowSends.map((f, i) => (
-                  <tr key={i} className="border-t border-ops-border/60">
-                    <td className="py-1.5 pr-2 text-ops-text-muted">{when(f.sentAt)}</td>
-                    <td className="py-1.5 pr-2 text-ops-text">{f.enrollment.flowKey} · {f.stepIndex + 1}</td>
-                    <td className="py-1.5 pr-2 text-ops-text">{f.subject}</td>
-                    <td className="py-1.5">
-                      {f.bouncedAt ? <span className="text-red-400">bounced</span>
-                        : f.clickedAt ? <span className="text-emerald-400">clicked {when(f.clickedAt)}</span>
-                        : f.openedAt ? <span className="text-brand-blue-400">opened {when(f.openedAt)}</span>
-                        : <span className="text-ops-text-muted">delivered</span>}
-                    </td>
-                  </tr>
-                ))}
-                {!d.flowSends.length && <tr><td colSpan={4} className="py-4 text-center text-ops-text-muted">No flow sends yet.</td></tr>}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead><tr className="text-[10px] uppercase tracking-wide text-ops-text-muted"><th className="pb-1 pr-2 font-medium">Sent</th><th className="pb-1 pr-2 font-medium">Flow · step</th><th className="pb-1 pr-2 font-medium">Subject</th><th className="pb-1 font-medium">Result</th></tr></thead>
+                <tbody>
+                  {d.flowSends.map((f, i) => (
+                    <tr key={i} className="border-t border-ops-border/60">
+                      <td className="py-1.5 pr-2 text-ops-text-muted">{when(f.sentAt)}</td>
+                      <td className="py-1.5 pr-2 text-ops-text">{f.enrollment.flowKey} · {f.stepIndex + 1}</td>
+                      <td className="py-1.5 pr-2 text-ops-text">{f.subject}</td>
+                      <td className="py-1.5">
+                        {f.bouncedAt ? <span className="text-red-400">bounced</span>
+                          : f.clickedAt ? <span className="text-emerald-400">clicked {when(f.clickedAt)}</span>
+                          : f.openedAt ? <span className="text-brand-blue-400">opened {when(f.openedAt)}</span>
+                          : <span className="text-ops-text-muted">delivered</span>}
+                      </td>
+                    </tr>
+                  ))}
+                  {!d.flowSends.length && <tr><td colSpan={4} className="py-4 text-center text-ops-text-muted">No flow sends yet.</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

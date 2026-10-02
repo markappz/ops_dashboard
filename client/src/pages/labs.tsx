@@ -99,24 +99,26 @@ function OrdersTab({ qc }: { qc: ReturnType<typeof useQueryClient> }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       <div className="lg:col-span-2 bg-ops-card border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
-            <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Customer</th><th className="text-left p-3">Method</th><th className="text-left p-3">Status</th><th className="text-left p-3">Created</th></tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => (
-              <tr key={o.id} onClick={() => setSelected(o.id)}
-                className={`border-t border-ops-border cursor-pointer hover:bg-ops-bg/50 ${selected === o.id ? "bg-ops-bg/50" : ""}`}>
-                <td className="p-3 text-ops-text">{o.panel_name || o.panel_slug}<span className="ml-1 text-xs text-ops-text-muted">[{o.junction_env}]</span></td>
-                <td className="p-3 text-ops-text-muted">{o.user_email || "—"}</td>
-                <td className="p-3 text-ops-text-muted">{(o.collection_method || "").replace(/_/g, " ")}</td>
-                <td className="p-3"><StatusBadge status={o.status} /></td>
-                <td className="p-3 text-ops-text-muted text-xs">{dt(o.created_at)}</td>
-              </tr>
-            ))}
-            {!orders.length && <tr><td colSpan={5} className="p-6 text-center text-ops-text-muted">No Junction orders yet.</td></tr>}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
+              <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Customer</th><th className="text-left p-3">Method</th><th className="text-left p-3">Status</th><th className="text-left p-3">Created</th></tr>
+            </thead>
+            <tbody>
+              {orders.map((o) => (
+                <tr key={o.id} onClick={() => setSelected(o.id)}
+                  className={`border-t border-ops-border cursor-pointer hover:bg-ops-bg/50 ${selected === o.id ? "bg-ops-bg/50" : ""}`}>
+                  <td className="p-3 text-ops-text">{o.panel_name || o.panel_slug}<span className="ml-1 text-xs text-ops-text-muted">[{o.junction_env}]</span></td>
+                  <td className="p-3 text-ops-text-muted">{o.user_email || "—"}</td>
+                  <td className="p-3 text-ops-text-muted">{(o.collection_method || "").replace(/_/g, " ")}</td>
+                  <td className="p-3"><StatusBadge status={o.status} /></td>
+                  <td className="p-3 text-ops-text-muted text-xs">{dt(o.created_at)}</td>
+                </tr>
+              ))}
+              {!orders.length && <tr><td colSpan={5} className="p-6 text-center text-ops-text-muted">No Junction orders yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
       <OrderDetail id={selected}
         onRefresh={(id) => refresh.mutate(id)}
@@ -199,36 +201,38 @@ function MappingsTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClie
         <button onClick={() => navigate(`/labs/mapping/new?env=${env}`)} className="text-sm px-4 py-1.5 rounded-lg bg-fitscript-green text-black font-medium hover:opacity-90">+ Add Mapping</button>
       </div>
       <div className="bg-ops-card border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
-            <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Method</th><th className="text-left p-3">Junction Test</th><th className="text-left p-3">Price (ours / Junction)</th><th className="text-left p-3">Image</th><th className="text-left p-3">Enabled</th><th className="p-3"></th></tr>
-          </thead>
-          <tbody>
-            {mappings.map((m) => (
-              <tr key={m.id} className="border-t border-ops-border hover:bg-ops-bg/40 cursor-pointer" onClick={() => navigate(`/labs/mapping/${m.id}`)}>
-                <td className="p-3 text-ops-text">{m.display_name || m.panel_slug}<div className="text-xs text-ops-text-muted">{m.panel_slug}</div></td>
-                <td className="p-3 text-ops-text-muted">{(m.collection_method || "").replace(/_/g, " ")}</td>
-                <td className="p-3 text-ops-text-muted">{m.test_name || m.junction_lab_test_id?.slice(0, 8) + "…"}</td>
-                <td className="p-3">
-                  <div className="text-ops-text">
-                    {money(m.price_cents ?? m.panel_price_cents)}
-                    {m.price_cents != null && <span className="ml-1 text-[10px] text-fitscript-green">override</span>}
-                  </div>
-                  <div className="text-xs text-ops-text-muted">Junction {money(m.test_price_cents)}</div>
-                </td>
-                <td className="p-3">{m.image_url ? <img src={m.image_url} alt="" className="w-8 h-8 rounded object-cover" /> : <span className="text-xs text-ops-text-muted">—</span>}</td>
-                <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => toggle.mutate({ id: m.id, enabled: !m.enabled })} disabled={toggle.isPending}
-                    className={`relative w-10 h-5 rounded-full transition ${m.enabled ? "bg-fitscript-green" : "bg-ops-border"}`}>
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition ${m.enabled ? "translate-x-5" : ""}`} />
-                  </button>
-                </td>
-                <td className="p-3"><span className="text-xs text-fitscript-green">Edit →</span></td>
-              </tr>
-            ))}
-            {!mappings.length && <tr><td colSpan={7} className="p-6 text-center text-ops-text-muted">No mappings for {env}. Click "+ Add Mapping".</td></tr>}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
+              <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Method</th><th className="text-left p-3">Junction Test</th><th className="text-left p-3">Price (ours / Junction)</th><th className="text-left p-3">Image</th><th className="text-left p-3">Enabled</th><th className="p-3"></th></tr>
+            </thead>
+            <tbody>
+              {mappings.map((m) => (
+                <tr key={m.id} className="border-t border-ops-border hover:bg-ops-bg/40 cursor-pointer" onClick={() => navigate(`/labs/mapping/${m.id}`)}>
+                  <td className="p-3 text-ops-text">{m.display_name || m.panel_slug}<div className="text-xs text-ops-text-muted">{m.panel_slug}</div></td>
+                  <td className="p-3 text-ops-text-muted">{(m.collection_method || "").replace(/_/g, " ")}</td>
+                  <td className="p-3 text-ops-text-muted">{m.test_name || m.junction_lab_test_id?.slice(0, 8) + "…"}</td>
+                  <td className="p-3">
+                    <div className="text-ops-text">
+                      {money(m.price_cents ?? m.panel_price_cents)}
+                      {m.price_cents != null && <span className="ml-1 text-[10px] text-fitscript-green">override</span>}
+                    </div>
+                    <div className="text-xs text-ops-text-muted">Junction {money(m.test_price_cents)}</div>
+                  </td>
+                  <td className="p-3">{m.image_url ? <img src={m.image_url} alt="" className="w-8 h-8 rounded object-cover" /> : <span className="text-xs text-ops-text-muted">—</span>}</td>
+                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={() => toggle.mutate({ id: m.id, enabled: !m.enabled })} disabled={toggle.isPending}
+                      className={`relative w-10 h-5 rounded-full transition ${m.enabled ? "bg-fitscript-green" : "bg-ops-border"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition ${m.enabled ? "translate-x-5" : ""}`} />
+                    </button>
+                  </td>
+                  <td className="p-3"><span className="text-xs text-fitscript-green">Edit →</span></td>
+                </tr>
+              ))}
+              {!mappings.length && <tr><td colSpan={7} className="p-6 text-center text-ops-text-muted">No mappings for {env}. Click "+ Add Mapping".</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -263,24 +267,26 @@ function CatalogTab({ env, qc }: { env: Env; qc: ReturnType<typeof useQueryClien
       {sync.data && <div className="text-xs text-fitscript-green">Synced {sync.data.count} tests.</div>}
       <div className="bg-ops-card border border-ops-border rounded-xl overflow-hidden">
         {isLoading ? <Loading /> : (
-          <table className="w-full text-sm">
-            <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
-              <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Method</th><th className="text-left p-3">Lab</th><th className="text-left p-3">Price</th><th className="text-left p-3">Markers</th><th className="text-left p-3">Status</th></tr>
-            </thead>
-            <tbody>
-              {tests.map((t) => (
-                <tr key={t.junction_lab_test_id} className="border-t border-ops-border">
-                  <td className="p-3 text-ops-text">{t.name}</td>
-                  <td className="p-3 text-ops-text-muted">{(t.method || "").replace(/_/g, " ")}</td>
-                  <td className="p-3 text-ops-text-muted">{t.lab_name || "—"}</td>
-                  <td className="p-3 text-ops-text-muted">{money(t.price_cents)}</td>
-                  <td className="p-3 text-ops-text-muted">{t.marker_count ?? "—"}</td>
-                  <td className="p-3"><span className={`text-xs ${t.status === "active" ? "text-fitscript-green" : "text-ops-text-muted"}`}>{t.status}</span></td>
-                </tr>
-              ))}
-              {!tests.length && <tr><td colSpan={6} className="p-6 text-center text-ops-text-muted">No cached tests. Click "Sync from Junction".</td></tr>}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
+                <tr><th className="text-left p-3">Name</th><th className="text-left p-3">Method</th><th className="text-left p-3">Lab</th><th className="text-left p-3">Price</th><th className="text-left p-3">Markers</th><th className="text-left p-3">Status</th></tr>
+              </thead>
+              <tbody>
+                {tests.map((t) => (
+                  <tr key={t.junction_lab_test_id} className="border-t border-ops-border">
+                    <td className="p-3 text-ops-text">{t.name}</td>
+                    <td className="p-3 text-ops-text-muted">{(t.method || "").replace(/_/g, " ")}</td>
+                    <td className="p-3 text-ops-text-muted">{t.lab_name || "—"}</td>
+                    <td className="p-3 text-ops-text-muted">{money(t.price_cents)}</td>
+                    <td className="p-3 text-ops-text-muted">{t.marker_count ?? "—"}</td>
+                    <td className="p-3"><span className={`text-xs ${t.status === "active" ? "text-fitscript-green" : "text-ops-text-muted"}`}>{t.status}</span></td>
+                  </tr>
+                ))}
+                {!tests.length && <tr><td colSpan={6} className="p-6 text-center text-ops-text-muted">No cached tests. Click "Sync from Junction".</td></tr>}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
@@ -303,24 +309,26 @@ function PanelsTab() {
         <button onClick={() => navigate("/labs/panel/new")} className="text-sm px-4 py-1.5 rounded-lg bg-fitscript-green text-black font-medium hover:opacity-90">+ New Panel</button>
       </div>
       <div className="bg-ops-card border border-ops-border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
-            <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Type</th><th className="text-left p-3">Price</th><th className="text-left p-3">Markers</th><th className="text-left p-3">Active</th><th className="p-3"></th></tr>
-          </thead>
-          <tbody>
-            {panels.map((p) => (
-              <tr key={p.slug} className="border-t border-ops-border hover:bg-ops-bg/40 cursor-pointer" onClick={() => navigate(`/labs/panel/${p.slug}`)}>
-                <td className="p-3 text-ops-text">{p.name}<div className="text-xs text-ops-text-muted">{p.slug}</div></td>
-                <td className="p-3 text-ops-text-muted">{p.panel_type || "—"}</td>
-                <td className="p-3 text-ops-text-muted">{money(p.price_cents)}</td>
-                <td className="p-3 text-ops-text-muted">{p.markers_count ?? "—"}</td>
-                <td className="p-3"><span className={`text-xs ${p.is_active ? "text-fitscript-green" : "text-ops-text-muted"}`}>{p.is_active ? "live" : "hidden"}</span></td>
-                <td className="p-3"><span className="text-xs text-fitscript-green">Edit →</span></td>
-              </tr>
-            ))}
-            {!panels.length && <tr><td colSpan={6} className="p-6 text-center text-ops-text-muted">No panels.</td></tr>}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-ops-bg text-ops-text-muted text-xs uppercase">
+              <tr><th className="text-left p-3">Panel</th><th className="text-left p-3">Type</th><th className="text-left p-3">Price</th><th className="text-left p-3">Markers</th><th className="text-left p-3">Active</th><th className="p-3"></th></tr>
+            </thead>
+            <tbody>
+              {panels.map((p) => (
+                <tr key={p.slug} className="border-t border-ops-border hover:bg-ops-bg/40 cursor-pointer" onClick={() => navigate(`/labs/panel/${p.slug}`)}>
+                  <td className="p-3 text-ops-text">{p.name}<div className="text-xs text-ops-text-muted">{p.slug}</div></td>
+                  <td className="p-3 text-ops-text-muted">{p.panel_type || "—"}</td>
+                  <td className="p-3 text-ops-text-muted">{money(p.price_cents)}</td>
+                  <td className="p-3 text-ops-text-muted">{p.markers_count ?? "—"}</td>
+                  <td className="p-3"><span className={`text-xs ${p.is_active ? "text-fitscript-green" : "text-ops-text-muted"}`}>{p.is_active ? "live" : "hidden"}</span></td>
+                  <td className="p-3"><span className="text-xs text-fitscript-green">Edit →</span></td>
+                </tr>
+              ))}
+              {!panels.length && <tr><td colSpan={6} className="p-6 text-center text-ops-text-muted">No panels.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

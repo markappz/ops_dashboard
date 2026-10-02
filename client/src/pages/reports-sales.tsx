@@ -269,26 +269,28 @@ export default function ReportsSales() {
               {!r.subscriptions || r.subscriptions.breakdown.length === 0 ? (
                 <div className="text-[11.5px] text-ops-text-muted italic">No active paid subscriptions</div>
               ) : (
-                <table className="w-full text-[12px]">
-                  <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle">
-                    <tr>
-                      <th className="text-left font-medium py-1">Tier</th>
-                      <th className="text-left font-medium py-1">Period</th>
-                      <th className="text-right font-medium py-1">Subs</th>
-                      <th className="text-right font-medium py-1">Monthly value</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-ops-text">
-                    {r.subscriptions.breakdown.map((b) => (
-                      <tr key={`${b.tier}-${b.period}`} className="border-t border-ops-border">
-                        <td className="py-1.5 font-mono">{b.tier}</td>
-                        <td className="py-1.5 text-ops-text-muted">{b.period || "—"}</td>
-                        <td className="py-1.5 text-right tabular-nums">{fmtInt(b.count)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{fmtMoney(b.monthly_value)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12px]">
+                    <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle">
+                      <tr>
+                        <th className="text-left font-medium py-1">Tier</th>
+                        <th className="text-left font-medium py-1">Period</th>
+                        <th className="text-right font-medium py-1">Subs</th>
+                        <th className="text-right font-medium py-1">Monthly value</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="text-ops-text">
+                      {r.subscriptions.breakdown.map((b) => (
+                        <tr key={`${b.tier}-${b.period}`} className="border-t border-ops-border">
+                          <td className="py-1.5 font-mono">{b.tier}</td>
+                          <td className="py-1.5 text-ops-text-muted">{b.period || "—"}</td>
+                          <td className="py-1.5 text-right tabular-nums">{fmtInt(b.count)}</td>
+                          <td className="py-1.5 text-right tabular-nums">{fmtMoney(b.monthly_value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>

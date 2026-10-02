@@ -8,97 +8,131 @@ import { Dirt } from "../dirt/Dirt";
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
-const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen", "/realpeptides"]);
+const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides"]);
+let ALL_ALIASES: Record<string, string> = {};
 
 // Consolidated nav (2026-09-16): these URLs still route, but live as sub-tabs
 // inside a merged sidebar entry — highlight that entry, not nothing.
 const NAV_ALIASES: Record<string, string> = { "/peptideu/content": "/peptideu/seo", "/peptideu/pages": "/peptideu/seo" };
 for (const b of ["realpeptides", "pawgen"]) {
-  NAV_ALIASES[`/${b}/traffic`] = `/${b}/marketing`;
   NAV_ALIASES[`/${b}/content`] = `/${b}/seo`;
   NAV_ALIASES[`/${b}/pages`] = `/${b}/seo`;
-  NAV_ALIASES[`/${b}/leads`] = `/${b}/email`;
+}
+// RP's email suite pages highlight the Email entry (Audience/Leads/Activity have their own).
+for (const sub of ["flows", "broadcasts", "compose"]) {
+  NAV_ALIASES[`/realpeptides/${sub}`] = "/realpeptides/email";
 }
 
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/peptideu", label: "Overview", icon: "grid" }] },
   {
-    label: "PeptideU",
+    label: "Customers",
     items: [
-      { path: "/peptideu", label: "Overview", icon: "grid" },
-      { path: "/peptideu/email", label: "Email", icon: "mail" },
       { path: "/peptideu/members", label: "Members", icon: "users" },
       { path: "/peptideu/requests", label: "Requests", icon: "file-text" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/peptideu/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/peptideu/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/peptideu/seo", label: "SEO", icon: "file-text" }] },
+  {
+    label: "Community",
+    items: [
       { path: "/peptideu/moderation", label: "Moderation", icon: "shield" },
-      { path: "/peptideu/drawing", label: "Drawing", icon: "gift" },
       { path: "/peptideu/questions", label: "Questions", icon: "chat" },
+      { path: "/peptideu/drawing", label: "Drawing", icon: "gift" },
       { path: "/peptideu/features", label: "Features", icon: "zap" },
       { path: "/peptideu/curriculum", label: "Curriculum", icon: "file-text" },
       { path: "/peptideu/ap", label: "AP Class", icon: "clipboard" },
       { path: "/peptideu/library", label: "Library Updates", icon: "flask" },
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
-      { path: "/peptideu/traffic", label: "Site Traffic", icon: "chart" },
-      { path: "/peptideu/seo", label: "SEO", icon: "file-text" },
-      { path: "/peptideu/integrations", label: "Integrations", icon: "link" },
     ],
   },
+  { label: "System", items: [{ path: "/peptideu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const PAWGEN_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/pawgen", label: "Overview", icon: "grid" }] },
+  { label: "Sales", items: [{ path: "/pawgen/orders", label: "Orders", icon: "package" }] },
+  { label: "Customers", items: [{ path: "/pawgen/leads", label: "Leads", icon: "funnel" }] },
+  { label: "Email", items: [{ path: "/pawgen/email", label: "Email", icon: "mail" }] },
   {
-    label: "pawgen",
+    label: "Marketing",
     items: [
-      { path: "/pawgen", label: "Overview", icon: "grid" },
-      { path: "/pawgen/email", label: "Email", icon: "mail" },
-      { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
-      { path: "/pawgen/marketing", label: "Marketing", icon: "chart" },
-      { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
-      { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
+      { path: "/pawgen/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/pawgen/campaign-links", label: "Campaign Links", icon: "link" },
+      { path: "/pawgen/traffic", label: "Traffic", icon: "chart" },
     ],
   },
+  { label: "SEO", items: [{ path: "/pawgen/seo", label: "SEO", icon: "file-text" }] },
+  { label: "System", items: [{ path: "/pawgen/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/realpeptides", label: "Overview", icon: "grid" }] },
   {
-    label: "Real Peptides",
+    label: "Sales",
     items: [
-      { path: "/realpeptides", label: "Overview", icon: "grid" },
       { path: "/realpeptides/orders", label: "Orders", icon: "package" },
-      { path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" },
-      { path: "/realpeptides/email", label: "Email", icon: "mail" },
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
-      { path: "/realpeptides/paid", label: "Paid", icon: "megaphone" },
-      { path: "/realpeptides/affiliates", label: "Affiliates", icon: "users" },
-      { path: "/realpeptides/marketing", label: "Marketing", icon: "chart" },
-      { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
-      { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
-      { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
     ],
-  },
-];
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    label: "Overview",
-    items: [{ path: "/", label: "Command Center", icon: "grid" }],
   },
   {
     label: "Customers",
     items: [
-      { path: "/leads", label: "Leads", icon: "funnel" },
-      { path: "/members", label: "Members", icon: "users" },
-      { path: "/orders", label: "Orders", icon: "package" },
-      { path: "/labs", label: "Labs", icon: "flask" },
-      { path: "/supplements", label: "Supplements", icon: "pill" },
+      { path: "/realpeptides/audience", label: "Audience", icon: "users" },
+      { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
+      { path: "/realpeptides/activity", label: "Activity", icon: "chart" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/realpeptides/email", label: "Email", icon: "mail" }] },
+  {
+    label: "Marketing",
+    items: [
+      { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/realpeptides/paid", label: "Paid", icon: "dollar" },
+      { path: "/realpeptides/campaign-links", label: "Campaign Links", icon: "link" },
+      { path: "/realpeptides/affiliates", label: "Affiliates", icon: "users" },
+      { path: "/realpeptides/traffic", label: "Traffic", icon: "chart" },
+    ],
+  },
+  { label: "SEO", items: [{ path: "/realpeptides/seo", label: "SEO", icon: "file-text" }] },
+  {
+    label: "Lab",
+    items: [{ path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" }],
+  },
+  {
+    label: "Workspace",
+    items: [{ path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" }],
+  },
+  { label: "System", items: [{ path: "/realpeptides/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/fitscript", label: "Command Center", icon: "grid" }] },
+  { label: "Sales", items: [{ path: "/fitscript/orders", label: "Orders", icon: "package" }] },
+  {
+    label: "Customers",
+    items: [
+      { path: "/fitscript/leads", label: "Leads", icon: "funnel" },
+      { path: "/fitscript/members", label: "Members", icon: "users" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/fitscript/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/fitscript/marketing", label: "Marketing", icon: "megaphone" }] },
+  {
+    label: "SEO",
+    items: [
+      { path: "/fitscript/content", label: "SEO", icon: "file-text" },
+      { path: "/fitscript/pages", label: "Pages", icon: "chart" },
     ],
   },
   {
-    label: "Growth",
+    label: "Health",
     items: [
-      { path: "/marketing", label: "Marketing", icon: "megaphone" },
-      { path: "/content", label: "Content & SEO", icon: "file-text" },
-      { path: "/pages", label: "Pages", icon: "chart" },
-      { path: "/email", label: "Email", icon: "mail" },
+      { path: "/fitscript/labs", label: "Labs", icon: "flask" },
+      { path: "/fitscript/supplements", label: "Supplements", icon: "pill" },
     ],
   },
   {
@@ -121,14 +155,25 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/content-library", label: "Content Library", icon: "folder" },
     ],
   },
-  {
-    label: "System",
-    items: [
-      { path: "/integrations", label: "Integrations", icon: "link" },
-      { path: "/settings", label: "Settings", icon: "settings" },
-    ],
-  },
+  { label: "System", items: [{ path: "/integrations", label: "Integrations", icon: "link" }] },
 ];
+
+ALL_ALIASES = {}; // populated below once both maps exist
+/** Old FitScript root paths → their /fitscript/* nav twins, so deep links and internal
+ * navigation keep highlighting the right entry while both URL families route. */
+const FITSCRIPT_PATH_ALIASES: Record<string, string> = {
+  "/": "/fitscript",
+  "/leads": "/fitscript/leads",
+  "/members": "/fitscript/members",
+  "/orders": "/fitscript/orders",
+  "/labs": "/fitscript/labs",
+  "/supplements": "/fitscript/supplements",
+  "/marketing": "/fitscript/marketing",
+  "/content": "/fitscript/content",
+  "/pages": "/fitscript/pages",
+  "/email": "/fitscript/email",
+};
+ALL_ALIASES = { ...NAV_ALIASES, ...FITSCRIPT_PATH_ALIASES };
 
 const ICONS: Record<string, ReactNode> = {
   shield: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12.75L11.25 15 15 9.75M21 12c0 5.591-3.824 10.29-9 11.622C6.824 22.29 3 17.591 3 12V5.25a.75.75 0 01.53-.717 11.209 11.209 0 007.877-3.08.75.75 0 011.185 0 11.209 11.209 0 007.877 3.08.75.75 0 01.531.717V12z" /></svg>,
@@ -191,20 +236,43 @@ export function OpsLayout({
   // Every brand lands on its Overview — the top tab (RP's Leads-as-home era
   // ended when its Overview got real order data).
   const companyHome = (c: Company) =>
-    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : "/";
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : "/fitscript";
 
-  // On first load, honor the remembered company preference.
+  // On first load, honor the remembered company preference ("/" now always forwards to a home).
   const didRedirect = useRef(false);
   useEffect(() => {
     if (didRedirect.current) return;
     didRedirect.current = true;
-    if (company !== "fitscript" && location === "/") navigate(companyHome(company));
+    if (location === "/") navigate(companyHome(company));
   }, [company, location, navigate]);
 
   const selectCompany = (c: Company) => {
     setCompany(c);
     navigate(companyHome(c));
   };
+
+  // Stale-bundle beacon (facelift P2): open tabs kept serving old JS after deploys all week.
+  // Poll the server's build id; when it changes, offer one tap to refresh.
+  const [staleBuild, setStaleBuild] = useState(false);
+  useEffect(() => {
+    let baseline: string | null = null;
+    let stop = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/ops/version", { credentials: "include" });
+        if (!r.ok) return;
+        const { build } = await r.json();
+        if (!build) return;
+        if (baseline === null) baseline = build;
+        else if (build !== baseline && !stop) setStaleBuild(true);
+      } catch { /* offline blips are fine */ }
+    };
+    check();
+    const t = setInterval(check, 4 * 60_000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -272,7 +340,8 @@ export function OpsLayout({
                 // A company root must match exactly, or every child route lights it up
                 // too (/pawgen was already doing that — /pawgen/orders lit Overview).
                 const isHome = COMPANY_ROOTS.has(item.path);
-                const effective = NAV_ALIASES[location] ?? location;
+                const aliasKey = Object.keys(ALL_ALIASES).find((k) => location === k || (k !== "/" && location.startsWith(k + "/")));
+                const effective = aliasKey ? ALL_ALIASES[aliasKey] : location;
                 const isActive = isHome ? effective === item.path : effective.startsWith(item.path);
                 return (
                   <Link key={item.path} href={item.path}>
@@ -334,7 +403,16 @@ export function OpsLayout({
           </div>
 
           {/* Center: Talk Dirt command bar */}
-          <DirtCommandBar />
+          {staleBuild && (
+        <div className="ops-rise fixed inset-x-4 bottom-4 z-[70] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl border border-ops-border bg-ops-surface-raised px-4 py-3 shadow-card-lg">
+          <span className="text-sm text-ops-text">Ops was updated — refresh for the latest version.</span>
+          <button type="button" onClick={() => location.reload()}
+            className="shrink-0 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-1.5 text-xs font-semibold text-white">
+            Refresh
+          </button>
+        </div>
+      )}
+      <DirtCommandBar />
 
           <div className="flex items-center gap-3 shrink-0">
             <DirtNotifications />

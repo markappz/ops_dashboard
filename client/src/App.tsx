@@ -209,6 +209,18 @@ export default function App() {
       <ErrorBoundary>
         <Switch>
           <Route path="/" component={CommandCenter} />
+          {/* FitScript URL symmetry (facelift P2): same pages under /fitscript/*; the old
+              root paths above keep routing so bookmarks and in-app links never break. */}
+          <Route path="/fitscript" component={CommandCenter} />
+          <Route path="/fitscript/leads" component={Leads} />
+          <Route path="/fitscript/members" component={Members} />
+          <Route path="/fitscript/orders" component={Orders} />
+          <Route path="/fitscript/labs" component={Labs} />
+          <Route path="/fitscript/supplements" component={Supplements} />
+          <Route path="/fitscript/marketing" component={Marketing} />
+          <Route path="/fitscript/content" component={Content} />
+          <Route path="/fitscript/pages">{() => <CompanyPages company="fitscript" label="FitScript" />}</Route>
+          <Route path="/fitscript/email" component={Email} />
 
           {/* Customers */}
           <Route path="/leads" component={Leads} />

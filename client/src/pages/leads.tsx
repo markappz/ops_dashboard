@@ -270,104 +270,106 @@ export default function Leads() {
               : "No data yet. As visitors land on fitscript.me, they'll appear here."}
           </div>
         ) : (
-          <table className="w-full min-w-[800px] text-sm">
-            <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
-              <tr>
-                <th className="text-left px-5 py-3 font-medium">Status</th>
-                <th className="text-left px-5 py-3 font-medium">Lead</th>
-                <th className="text-left px-5 py-3 font-medium">Source</th>
-                <th className="text-right px-5 py-3 font-medium">Sessions</th>
-                <th className="text-right px-5 py-3 font-medium">Revenue</th>
-                <th className="text-left px-5 py-3 font-medium">First Touch</th>
-                <th className="text-left px-5 py-3 font-medium">Last Touch</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ops-border">
-              {data.leads.map((l) => {
-                const style = STATUS_STYLES[l.status];
-                const cell = (
-                  <>
-                    <td className="px-5 py-3">
-                      <span className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded ${style.pill}`}>
-                        {style.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      {l.email ? (
-                        <div>
-                          <div className="text-ops-text">
-                            {l.firstName || ""} {l.email && <span className="text-ops-text-muted text-xs">{l.email}</span>}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[800px] text-sm">
+              <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
+                <tr>
+                  <th className="text-left px-5 py-3 font-medium">Status</th>
+                  <th className="text-left px-5 py-3 font-medium">Lead</th>
+                  <th className="text-left px-5 py-3 font-medium">Source</th>
+                  <th className="text-right px-5 py-3 font-medium">Sessions</th>
+                  <th className="text-right px-5 py-3 font-medium">Revenue</th>
+                  <th className="text-left px-5 py-3 font-medium">First Touch</th>
+                  <th className="text-left px-5 py-3 font-medium">Last Touch</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ops-border">
+                {data.leads.map((l) => {
+                  const style = STATUS_STYLES[l.status];
+                  const cell = (
+                    <>
+                      <td className="px-5 py-3">
+                        <span className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded ${style.pill}`}>
+                          {style.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        {l.email ? (
+                          <div>
+                            <div className="text-ops-text">
+                              {l.firstName || ""} {l.email && <span className="text-ops-text-muted text-xs">{l.email}</span>}
+                            </div>
+                            <div className="text-[10px] text-ops-text-muted font-mono">
+                              {l.visitorId.slice(0, 12)}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-ops-text-muted font-mono">
-                            {l.visitorId.slice(0, 12)}
+                        ) : (
+                          <div>
+                            <div className="text-ops-text-muted italic">Anonymous visitor</div>
+                            <div className="text-[10px] text-ops-text-muted font-mono">
+                              {l.visitorId.slice(0, 12)}
+                            </div>
                           </div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-ops-text-muted">
+                        {l.source}
+                        {l.campaign && (
+                          <div className="text-[10px] opacity-60">{l.campaign}</div>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-right text-ops-text">
+                        {l.sessions}
+                        <div className="text-[10px] text-ops-text-muted">
+                          {l.touchpoints} events
                         </div>
-                      ) : (
+                      </td>
+                      <td className="px-5 py-3 text-right text-fitscript-green font-medium">
+                        {l.revenue > 0 ? `$${l.revenue.toFixed(2)}` : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-ops-text-muted text-xs">
                         <div>
-                          <div className="text-ops-text-muted italic">Anonymous visitor</div>
-                          <div className="text-[10px] text-ops-text-muted font-mono">
-                            {l.visitorId.slice(0, 12)}
-                          </div>
+                          {l.firstTouchAt
+                            ? new Date(l.firstTouchAt).toLocaleDateString()
+                            : "—"}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-ops-text-muted">
-                      {l.source}
-                      {l.campaign && (
-                        <div className="text-[10px] opacity-60">{l.campaign}</div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-right text-ops-text">
-                      {l.sessions}
-                      <div className="text-[10px] text-ops-text-muted">
-                        {l.touchpoints} events
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-right text-fitscript-green font-medium">
-                      {l.revenue > 0 ? `$${l.revenue.toFixed(2)}` : "—"}
-                    </td>
-                    <td className="px-5 py-3 text-ops-text-muted text-xs">
-                      <div>
-                        {l.firstTouchAt
-                          ? new Date(l.firstTouchAt).toLocaleDateString()
-                          : "—"}
-                      </div>
-                      <div className="text-[10px] opacity-60">
-                        {l.daysSinceFirstTouch}d ago
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-ops-text-muted text-xs">
-                      <div>
-                        {l.lastTouchAt
-                          ? new Date(l.lastTouchAt).toLocaleDateString()
-                          : "—"}
-                      </div>
-                      <div className="text-[10px] opacity-60">
-                        {l.daysSinceLastTouch}d ago
-                      </div>
-                    </td>
-                  </>
-                );
-                // Signed-up leads link through to the member detail page
-                if (l.userId) {
+                        <div className="text-[10px] opacity-60">
+                          {l.daysSinceFirstTouch}d ago
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-ops-text-muted text-xs">
+                        <div>
+                          {l.lastTouchAt
+                            ? new Date(l.lastTouchAt).toLocaleDateString()
+                            : "—"}
+                        </div>
+                        <div className="text-[10px] opacity-60">
+                          {l.daysSinceLastTouch}d ago
+                        </div>
+                      </td>
+                    </>
+                  );
+                  // Signed-up leads link through to the member detail page
+                  if (l.userId) {
+                    return (
+                      <tr
+                        key={l.visitorId}
+                        onClick={() => (window.location.href = `/members/${l.userId}`)}
+                        className="hover:bg-ops-surface-hover cursor-pointer"
+                      >
+                        {cell}
+                      </tr>
+                    );
+                  }
                   return (
-                    <tr
-                      key={l.visitorId}
-                      onClick={() => (window.location.href = `/members/${l.userId}`)}
-                      className="hover:bg-ops-surface-hover cursor-pointer"
-                    >
+                    <tr key={l.visitorId} className="hover:bg-ops-surface-hover">
                       {cell}
                     </tr>
                   );
-                }
-                return (
-                  <tr key={l.visitorId} className="hover:bg-ops-surface-hover">
-                    {cell}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

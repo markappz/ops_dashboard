@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+import { readFileSync } from "fs";
 import "dotenv/config";
 import express from "express";
 import cookieParser from "cookie-parser";
@@ -124,6 +126,12 @@ registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesMarketing(app);
 registerRpEmailMcp(app);
+
+// Build identity for the client's stale-bundle toast (facelift P2): the running server
+// bundle's hash changes exactly when a deploy ships new code, and client+server ship together.
+let BUILD_ID = "dev";
+try { BUILD_ID = createHash("sha1").update(readFileSync(process.argv[1] ?? "")).digest("hex").slice(0, 12); } catch { /* dev mode */ }
+app.get("/api/ops/version", (_req, res) => res.json({ build: BUILD_ID }));
 registerBrandEmail(app);
 registerRealPeptidesContacts(app);
 registerRpImageSync(app);

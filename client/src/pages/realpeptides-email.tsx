@@ -235,30 +235,32 @@ function FlowRow({ f }: { f: Flow }) {
         <tr className="bg-ops-bg/30">
           <td colSpan={7} className="px-4 py-3">
             {!f.steps.length ? <span className="text-xs text-ops-text-muted">No steps recorded in this window.</span> : (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
-                    <th className="py-1 pr-3 text-left font-medium">Step</th>
-                    <th className="py-1 pr-3 text-left font-medium">Subject</th>
-                    <th className="py-1 pr-3 text-right font-medium">Sends</th>
-                    <th className="py-1 pr-3 text-right font-medium">Open</th>
-                    <th className="py-1 pr-3 text-right font-medium">CTR</th>
-                    <th className="py-1 text-right font-medium">Bounce/Spam</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ops-border/40">
-                  {f.steps.map((s) => (
-                    <tr key={`${s.stepIndex}-${s.subject}`}>
-                      <td className="py-1.5 pr-3 tabular-nums text-ops-text-muted">#{s.stepIndex + 1}</td>
-                      <td className="max-w-[380px] truncate py-1.5 pr-3 text-ops-text" title={s.subject}>{s.subject}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{s.sends}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.openRate)}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.clickRate)}</td>
-                      <td className="py-1.5 text-right"><BadCounts bounces={s.bounces} complaints={s.complaints} /></td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
+                      <th className="py-1 pr-3 text-left font-medium">Step</th>
+                      <th className="py-1 pr-3 text-left font-medium">Subject</th>
+                      <th className="py-1 pr-3 text-right font-medium">Sends</th>
+                      <th className="py-1 pr-3 text-right font-medium">Open</th>
+                      <th className="py-1 pr-3 text-right font-medium">CTR</th>
+                      <th className="py-1 text-right font-medium">Bounce/Spam</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-ops-border/40">
+                    {f.steps.map((s) => (
+                      <tr key={`${s.stepIndex}-${s.subject}`}>
+                        <td className="py-1.5 pr-3 tabular-nums text-ops-text-muted">#{s.stepIndex + 1}</td>
+                        <td className="max-w-[380px] truncate py-1.5 pr-3 text-ops-text" title={s.subject}>{s.subject}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{s.sends}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.openRate)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.clickRate)}</td>
+                        <td className="py-1.5 text-right"><BadCounts bounces={s.bounces} complaints={s.complaints} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </td>
         </tr>
