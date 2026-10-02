@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, X, Trash2, Loader2, Send, Eye, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, Trash2, Loader2, Send, Eye, CalendarDays, List, LayoutGrid, Plus } from "lucide-react";
 
 /**
  * Email content calendar — one per brand, mounted inside its Email tab.
@@ -42,6 +42,9 @@ export function EmailCalendar({ company }: { company: string }) {
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [openId, setOpenId] = useState<number | "new" | null>(null);
   const [newDate, setNewDate] = useState<string | null>(null);
+  // Phones get an agenda list by default — the month grid needs 720px (facelift P4).
+  const [view, setView] = useState<"month" | "list">(() =>
+    typeof window !== "undefined" && window.innerWidth < 640 ? "list" : "month");
 
   const q = useQuery({
     queryKey: ["email-plans", company],
@@ -87,38 +90,53 @@ export function EmailCalendar({ company }: { company: string }) {
             Plan the month, paste the design, {q.data?.resendConnected ? "push straight to Resend." : "and push to Resend once it's connected for this brand."}
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
-            className="rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronLeft size={15} /></button>
-          <span className="w-40 text-center text-sm font-semibold text-ops-text">{monthLabel}</span>
-          <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
-            className="rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronRight size={15} /></button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center rounded-lg border border-ops-border p-0.5">
+            <button type="button" onClick={() => setView("month")} aria-label="Month view"
+              className={`rounded-md p-1.5 transition ${view === "month" ? "bg-ops-bg text-ops-text" : "text-ops-text-muted hover:text-ops-text"}`}><LayoutGrid size={14} /></button>
+            <button type="button" onClick={() => setView("list")} aria-label="List view"
+              className={`rounded-md p-1.5 transition ${view === "list" ? "bg-ops-bg text-ops-text" : "text-ops-text-muted hover:text-ops-text"}`}><List size={14} /></button>
+          </div>
+          <button type="button" onClick={() => setMonth(new Date(today.getFullYear(), today.getMonth(), 1))}
+            className="min-h-[36px] rounded-lg border border-ops-border px-2.5 text-xs font-semibold text-ops-text-muted hover:text-ops-text">Today</button>
+          <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month"
+            className="min-h-[36px] min-w-[36px] rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronLeft size={15} className="mx-auto" /></button>
+          <span className="w-36 text-center text-sm font-semibold text-ops-text">{monthLabel}</span>
+          <button type="button" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month"
+            className="min-h-[36px] min-w-[36px] rounded-lg border border-ops-border p-1.5 text-ops-text-muted hover:text-ops-text"><ChevronRight size={15} className="mx-auto" /></button>
+          <button type="button" onClick={() => { setNewDate(todayKey); setOpenId("new"); }}
+            className="ml-1 flex min-h-[36px] items-center gap-1 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 text-xs font-semibold text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"><Plus size={13} /> New</button>
         </div>
       </div>
 
+      {view === "month" ? (
       <div className="overflow-x-auto">
         <div className="min-w-[720px]">
           <div className="grid grid-cols-7 gap-1 pb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-ops-text-muted">
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <div key={d}>{d}</div>)}
           </div>
           <div className="grid grid-cols-7 gap-1">
-            {cells.map((d) => {
+            {cells.map((d, ci) => {
               const k = ymd(d);
               const inMonth = d.getMonth() === month.getMonth();
+              const weekend = ci % 7 >= 5;
               const dayPlans = byDay.get(k) ?? [];
               return (
                 <button key={k} type="button"
                   onClick={() => { setNewDate(k); setOpenId("new"); }}
-                  className={`min-h-[76px] rounded-lg border p-1.5 text-left align-top transition ${
-                    k === todayKey ? "border-brand-blue-500/60 bg-brand-blue-500/5" : "border-ops-border/60"
-                  } ${inMonth ? "bg-ops-bg/40 hover:border-brand-blue-500/40" : "opacity-40"}`}>
-                  <div className="text-[10px] tabular-nums text-ops-text-muted">{d.getDate()}</div>
+                  className={`group/day relative min-h-[84px] rounded-lg border p-1.5 text-left align-top transition ${
+                    k === todayKey ? "border-brand-blue-500/70 bg-brand-blue-500/[0.06] ring-1 ring-brand-blue-500/30" : "border-ops-border/60"
+                  } ${inMonth ? `${weekend ? "bg-ops-bg/20" : "bg-ops-bg/40"} hover:border-brand-blue-500/40` : "opacity-40"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[10px] tabular-nums ${k === todayKey ? "flex h-4 w-4 items-center justify-center rounded-full bg-brand-blue-500 font-bold text-white" : "text-ops-text-muted"}`}>{d.getDate()}</span>
+                    <Plus size={11} className="text-ops-text-subtle opacity-0 transition group-hover/day:opacity-100" />
+                  </div>
                   <div className="mt-1 flex flex-col gap-1">
                     {dayPlans.map((p) => (
                       <span key={p.id} role="button" tabIndex={0}
                         onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setOpenId(p.id); } }}
-                        className={`block truncate rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_CHIP[p.status]} hover:opacity-80`}>
+                        className={`block truncate rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_CHIP[p.status]} transition hover:opacity-80`}>
                         {p.send_time ? `${p.send_time} · ` : ""}{p.title}
                       </span>
                     ))}
@@ -129,7 +147,34 @@ export function EmailCalendar({ company }: { company: string }) {
           </div>
         </div>
       </div>
-
+      ) : (
+      <div className="flex flex-col gap-1">
+        {[...byDay.keys()].filter((k) => k.slice(0, 7) === ymd(month).slice(0, 7)).sort().map((k) => {
+          const d = new Date(k + "T00:00:00");
+          return (
+            <div key={k} className={`rounded-lg border p-2.5 ${k === todayKey ? "border-brand-blue-500/60 bg-brand-blue-500/[0.06]" : "border-ops-border/60 bg-ops-bg/30"}`}>
+              <div className="mb-1.5 text-[11px] font-semibold text-ops-text-muted">
+                {d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}{k === todayKey ? " · today" : ""}
+              </div>
+              <div className="flex flex-col gap-1">
+                {(byDay.get(k) ?? []).map((p) => (
+                  <button key={p.id} type="button" onClick={() => setOpenId(p.id)}
+                    className={`flex min-h-[40px] items-center justify-between gap-2 rounded-lg px-2.5 text-left text-xs font-semibold ${STATUS_CHIP[p.status]} transition hover:opacity-80`}>
+                    <span className="truncate">{p.title}</span>
+                    <span className="shrink-0 text-[10px] opacity-80">{p.send_time ?? ""}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {![...byDay.keys()].some((k) => k.slice(0, 7) === ymd(month).slice(0, 7)) && (
+          <div className="rounded-lg border border-dashed border-ops-border px-3 py-6 text-center text-xs text-ops-text-muted">
+            Nothing planned for {monthLabel} — tap New to add the first send.
+          </div>
+        )}
+      </div>
+      )}
       {unscheduled.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-ops-border pt-3">
           <span className="text-[11px] text-ops-text-muted">No date yet:</span>
