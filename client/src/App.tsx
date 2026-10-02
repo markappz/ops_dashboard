@@ -63,6 +63,7 @@ import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
 import RealPeptidesEmail from "./pages/realpeptides-email";
+import RealPeptidesFlows from "./pages/realpeptides-flows";
 import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
 
@@ -83,6 +84,7 @@ const subTabs = (prefix: string) => ({
   ],
   email: [
     { path: `/${prefix}/email`, label: "Email" },
+    ...(prefix === "realpeptides" ? [{ path: `/${prefix}/flows`, label: "Flows" }] : []),
     { path: `/${prefix}/leads`, label: "Leads" },
   ],
 });
@@ -276,6 +278,7 @@ export default function App() {
           <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
           <Route path="/realpeptides/tasks" component={TasksBoard} />
           <Route path="/realpeptides/email">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesEmail /></>}</Route>
+          <Route path="/realpeptides/flows">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesFlows /></>}</Route>
           <Route path="/realpeptides/wholesale" component={RealPeptidesWholesale} />
           <Route path="/realpeptides/leads">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesLeads /></>}</Route>
           <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>

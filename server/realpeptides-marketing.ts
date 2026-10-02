@@ -54,6 +54,35 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+  app.get("/api/ops/realpeptides/marketing/flows", async (_req, res) => {
+    try {
+      res.json(await bridge("/api/ops-marketing?what=flows"));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  // One flow step rendered exactly as the engine would send it - the browser review gallery.
+  app.post("/api/ops/realpeptides/marketing/render", async (req, res) => {
+    try {
+      const { flowKey, stepIndex } = req.body ?? {};
+      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render", flowKey, stepIndex } }));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  // Compliance import: unsubscribed addresses from the salvaged Resend export, chunked by the client.
+  app.post("/api/ops/realpeptides/marketing/import-unsubscribes", async (req: any, res) => {
+    try {
+      const out = await bridge("/api/ops-marketing", { method: "PUT", body: { action: "import-unsubscribes", emails: req.body?.emails ?? [] } });
+      console.log(`[OPS][RP-MARKETING] unsubscribe import chunk by ${req.adminEmail}:`, JSON.stringify(out));
+      res.json(out);
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   app.post("/api/ops/realpeptides/marketing/test", async (req: any, res) => {
     try {
       const { subject, html, to } = req.body ?? {};
