@@ -37,7 +37,7 @@ export default function RealPeptidesFlows() {
   const custom = useQuery({
     queryKey: ["rp-custom-flows"],
     queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/custom-flows", { credentials: "include" })).json() as
-      Promise<{ flows?: { id: string; key: string; name: string; status: "draft" | "active" | "paused"; trigger: { type: string; segment?: string }; exitOnPurchase: boolean; steps: { index: number; delayHours: number; subject: string; html_b64?: string }[]; enrollments: { active: number; completed: number; exited: number } }[]; error?: string }>,
+      Promise<{ flows?: { id: string; key: string; name: string; status: "draft" | "active" | "paused"; trigger: { type: string; segment?: string }; exitOnPurchase: boolean; splitOn?: string | null; steps: { index: number; delayHours: number; subject: string; html_b64?: string; branch?: string | null }[]; enrollments: { active: number; completed: number; exited: number } }[]; error?: string }>,
     staleTime: 60_000,
   });
   const fromB64 = (x?: string) => { try { return x ? new TextDecoder().decode(Uint8Array.from(atob(x), (c) => c.charCodeAt(0))) : ""; } catch { return ""; } };
@@ -45,7 +45,8 @@ export default function RealPeptidesFlows() {
     const f = custom.data?.flows?.find((x) => x.id === id);
     if (!f) return;
     setBuilder({ id: f.id, key: f.key, name: f.name, status: f.status, trigger: f.trigger as BuilderFlow["trigger"], exitOnPurchase: f.exitOnPurchase,
-      steps: f.steps.map((st) => ({ delayHours: st.delayHours, subject: st.subject, html: fromB64(st.html_b64) })) });
+      splitOn: f.splitOn === "opened" || f.splitOn === "clicked" ? f.splitOn : null,
+      steps: f.steps.map((st) => ({ delayHours: st.delayHours, subject: st.subject, html: fromB64(st.html_b64), branch: st.branch === "yes" || st.branch === "no" ? st.branch : undefined })) });
   };
   const overrides = useQuery({
     queryKey: ["rp-overrides"],
@@ -105,7 +106,7 @@ export default function RealPeptidesFlows() {
                     f.status === "active" ? "bg-emerald-500/15 text-emerald-400" : f.status === "paused" ? "bg-amber-500/15 text-amber-400" : "bg-ops-border text-ops-text-muted"}`}>{f.status}</span>
                 </div>
                 <div className="mt-1 text-[11px] text-ops-text-muted">
-                  {f.trigger.type === "optin" ? "on opt-in" : f.trigger.type === "first-purchase" ? "on order" : `segment one-shot${f.trigger.segment ? ` · ${f.trigger.segment}` : ""}`} · {f.steps.length} email{f.steps.length === 1 ? "" : "s"}
+                  {f.trigger.type === "optin" ? "on opt-in" : f.trigger.type === "first-purchase" ? "on order" : `segment one-shot${f.trigger.segment ? ` · ${f.trigger.segment}` : ""}`} · {f.steps.length} email{f.steps.length === 1 ? "" : "s"}{f.splitOn ? ` · ⑂ ${f.splitOn} split` : ""}
                 </div>
                 <div className="mt-1 text-[10px] tabular-nums text-ops-text-subtle">
                   {f.enrollments.active.toLocaleString()} active · {f.enrollments.completed.toLocaleString()} completed · {f.enrollments.exited.toLocaleString()} exited

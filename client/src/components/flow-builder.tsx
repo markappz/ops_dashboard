@@ -2,16 +2,21 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ReactFlow, Background, Controls, type Node, type Edge, type NodeProps, Handle, Position } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { X, Zap, Mail, Plus, Trash2, Loader2, Eye, Code2, ArrowUp, ArrowDown, Play, Pause, Send, Users } from "lucide-react";
+import { X, Zap, Mail, Plus, Trash2, Loader2, Eye, Code2, ArrowUp, ArrowDown, Play, Pause, Send, Users, GitFork } from "lucide-react";
 
 /**
- * Visual flow builder (phase 2, 2026-10-02) — create and edit ops-built email sequences on a
- * canvas, Klaviyo-style. Everything here is DRAFT-first: the engine ignores drafts entirely,
- * activation is an explicit action, and segment enrollment is a server-enforced two-step
- * (counts first, nothing enrolls without confirm).
+ * Visual flow builder (phase 2 + conditional splits, 2026-10-02) — create and edit ops-built
+ * email sequences on a canvas, Klaviyo-style, including an open/click split: shared emails,
+ * then "did they open/click the last email?" → YES arm / NO arm. Everything is DRAFT-first:
+ * the engine ignores drafts entirely, activation is explicit, and segment enrollment is a
+ * server-enforced two-step.
+ *
+ * Split semantics (mirrors the engine): the split checks ONCE, `splitWaitHours` after the last
+ * shared email sends; both arms proceed from that moment. Arm-first delays are the split's wait.
  */
 
-export interface BuilderStep { delayHours: number; subject: string; html: string }
+export type Branch = "yes" | "no";
+export interface BuilderStep { delayHours: number; subject: string; html: string; branch?: Branch }
 export interface BuilderFlow {
   id?: string;
   key?: string;
@@ -19,6 +24,7 @@ export interface BuilderFlow {
   status: "draft" | "active" | "paused";
   trigger: { type: "optin" | "first-purchase" | "segment-oneshot"; segment?: string };
   exitOnPurchase: boolean;
+  splitOn?: "opened" | "clicked" | null;
   steps: BuilderStep[];
 }
 
@@ -55,13 +61,13 @@ function BTriggerNode({ data }: NodeProps) {
 }
 
 function BEmailNode({ data }: NodeProps) {
-  const d = data as unknown as { step: BuilderStep; index: number; selected: boolean; onSelect: () => void };
+  const d = data as unknown as { step: BuilderStep; label: string; selected: boolean; onSelect: () => void };
   return (
     <div onClick={d.onSelect}
       className={`w-[250px] cursor-pointer rounded-2xl border bg-ops-surface p-3.5 shadow-card transition ${d.selected ? "border-brand-blue-500 ring-2 ring-brand-blue-500/30" : "border-ops-border hover:border-brand-blue-500/50"}`}>
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-0 !bg-ops-border" />
       <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-ops-text-muted">
-        <Mail size={12} className="text-brand-blue-400" /> Email {d.index + 1}
+        <Mail size={12} className="text-brand-blue-400" /> {d.label}
       </div>
       <div className="mt-1 line-clamp-2 text-xs font-semibold leading-snug text-ops-text">{d.step.subject || <span className="italic text-ops-text-subtle">no subject yet</span>}</div>
       <div className="mt-1.5 text-[10px] text-ops-text-muted">{d.step.html.trim() ? `${Math.round(d.step.html.length / 1024)}kb HTML` : "empty body"}</div>
@@ -70,41 +76,49 @@ function BEmailNode({ data }: NodeProps) {
   );
 }
 
-function BAddNode({ data }: NodeProps) {
-  const d = data as unknown as { onAdd: () => void };
+function BSplitNode({ data }: NodeProps) {
+  const d = data as unknown as { splitOn: "opened" | "clicked"; waitHours: number; selected: boolean; onSelect: () => void };
   return (
-    <div onClick={d.onAdd}
-      className="flex w-[250px] cursor-pointer items-center justify-center gap-1.5 rounded-2xl border border-dashed border-ops-border bg-ops-bg/40 px-3 py-4 text-xs font-semibold text-ops-text-muted transition hover:border-brand-blue-500/60 hover:text-ops-text">
+    <div onClick={d.onSelect}
+      className={`w-[250px] cursor-pointer rounded-2xl border-2 bg-ops-surface p-3.5 shadow-card transition ${d.selected ? "border-violet-500 ring-2 ring-violet-500/30" : "border-violet-500/50 hover:border-violet-500"}`}>
       <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-0 !bg-ops-border" />
-      <Plus size={14} /> Add email
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-violet-400"><GitFork size={12} /> Split</div>
+      <div className="mt-1 text-xs font-bold text-ops-text">Did they {d.splitOn === "clicked" ? "click" : "open"} the last email?</div>
+      <div className="mt-0.5 text-[10px] text-ops-text-muted">checks once, {fmtDelay(d.waitHours).replace("wait ", "")} after it sends</div>
+      <Handle id="yes" type="source" position={Position.Bottom} style={{ left: "25%" }} className="!h-2 !w-2 !border-0 !bg-emerald-400" />
+      <Handle id="no" type="source" position={Position.Bottom} style={{ left: "75%" }} className="!h-2 !w-2 !border-0 !bg-red-400" />
     </div>
   );
 }
 
-const nodeTypes = { btrigger: BTriggerNode, bemail: BEmailNode, badd: BAddNode };
+function BAddNode({ data }: NodeProps) {
+  const d = data as unknown as { label: string; onAdd: () => void };
+  return (
+    <div onClick={d.onAdd}
+      className="flex w-[250px] cursor-pointer items-center justify-center gap-1.5 rounded-2xl border border-dashed border-ops-border bg-ops-bg/40 px-3 py-4 text-xs font-semibold text-ops-text-muted transition hover:border-brand-blue-500/60 hover:text-ops-text">
+      <Handle type="target" position={Position.Top} className="!h-2 !w-2 !border-0 !bg-ops-border" />
+      <Plus size={14} /> {d.label}
+    </div>
+  );
+}
+
+const nodeTypes = { btrigger: BTriggerNode, bemail: BEmailNode, bsplit: BSplitNode, badd: BAddNode };
+
+type Sel = number | "trigger" | "split" | null;
 
 export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<BuilderFlow>; onClose: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
   const [flow, setFlow] = useState<BuilderFlow>({
-    name: "", status: "draft", trigger: { type: "optin" }, exitOnPurchase: true, steps: [],
+    name: "", status: "draft", trigger: { type: "optin" }, exitOnPurchase: true, splitOn: null, steps: [],
     ...initial,
   } as BuilderFlow);
-  const [sel, setSel] = useState<number | "trigger" | null>("trigger");
+  const [sel, setSel] = useState<Sel>("trigger");
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [preview, setPreview] = useState(false);
   const [testTo, setTestTo] = useState(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
   const [enrollPreview, setEnrollPreview] = useState<{ recipients: number; segment: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  async function deleteFlow() {
-    if (!flow.id) return;
-    setBusy("delete");
-    try {
-      await post({ action: "custom-flow-delete", id: flow.id });
-      onSaved(); onClose();
-    } catch (e: any) { setMsg({ tone: "bad", text: e.message }); setConfirmDelete(false); } finally { setBusy(null); }
-  }
 
   const segments = useQuery({
     queryKey: ["rp-marketing-segments"],
@@ -113,43 +127,117 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
     staleTime: 5 * 60_000,
   });
 
+  // Derived groups over the one flat, ordered array (shared → yes → no).
+  const shared = flow.steps.filter((s) => !s.branch);
+  const yesArm = flow.steps.filter((s) => s.branch === "yes");
+  const noArm = flow.steps.filter((s) => s.branch === "no");
+  const hasSplit = !!flow.splitOn;
+  const splitWait = yesArm[0]?.delayHours ?? noArm[0]?.delayHours ?? 24;
+  const flatIndex = (step: BuilderStep) => flow.steps.indexOf(step);
+  const armFirst = (i: number) => hasSplit && (flow.steps[i] === yesArm[0] || flow.steps[i] === noArm[0]);
+
+  const reorder = (steps: BuilderStep[]) => [...steps.filter((s) => !s.branch), ...steps.filter((s) => s.branch === "yes"), ...steps.filter((s) => s.branch === "no")];
   const setStep = (i: number, patch: Partial<BuilderStep>) =>
     setFlow((f) => ({ ...f, steps: f.steps.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
-  const addStep = () => {
-    setFlow((f) => ({ ...f, steps: [...f.steps, { delayHours: f.steps.length === 0 ? 0 : 24, subject: "", html: "" }] }));
-    setSel(flow.steps.length);
-  };
-  const removeStep = (i: number) => { setFlow((f) => ({ ...f, steps: f.steps.filter((_, j) => j !== i) })); setSel("trigger"); };
-  const moveStep = (i: number, dir: -1 | 1) => {
+
+  const addStep = (branch?: Branch) => {
     setFlow((f) => {
-      const steps = [...f.steps];
-      const j = i + dir;
-      if (j < 0 || j >= steps.length) return f;
-      [steps[i], steps[j]] = [steps[j], steps[i]];
+      const group = f.steps.filter((s) => s.branch === branch || (!branch && !s.branch));
+      const step: BuilderStep = { delayHours: branch ? (group.length ? 24 : splitWait) : group.length === 0 && !branch ? 0 : 24, subject: "", html: "", branch };
+      const steps = reorder([...f.steps, step]);
+      setTimeout(() => setSel(steps.indexOf(step)), 0);
       return { ...f, steps };
     });
-    setSel(i + dir);
   };
 
+  const removeStep = (i: number) => {
+    const victim = flow.steps[i];
+    if (!victim.branch && shared.length === 1 && hasSplit) { setMsg({ tone: "bad", text: "Remove the split first — it needs a shared email to test." }); return; }
+    setFlow((f) => ({ ...f, steps: f.steps.filter((_, j) => j !== i) }));
+    setSel("trigger");
+  };
+
+  const moveStep = (i: number, dir: -1 | 1) => {
+    setFlow((f) => {
+      const s = f.steps[i];
+      const group = f.steps.filter((x) => x.branch === s.branch);
+      const gi = group.indexOf(s);
+      const gj = gi + dir;
+      if (gj < 0 || gj >= group.length) return f;
+      const newGroup = [...group];
+      [newGroup[gi], newGroup[gj]] = [newGroup[gj], newGroup[gi]];
+      const others = f.steps.filter((x) => x.branch !== s.branch);
+      const steps = reorder([...others, ...newGroup]);
+      setTimeout(() => setSel(steps.indexOf(s)), 0);
+      return { ...f, steps };
+    });
+  };
+
+  const addSplit = () => {
+    if (!shared.length) { setMsg({ tone: "bad", text: "Add a shared email first — the split tests its opens/clicks." }); return; }
+    setFlow((f) => ({ ...f, splitOn: "opened" }));
+    setSel("split");
+  };
+  const removeSplit = () => {
+    setFlow((f) => ({ ...f, splitOn: null, steps: f.steps.filter((s) => !s.branch) }));
+    setSel("trigger");
+  };
+  const setSplitWait = (h: number) =>
+    setFlow((f) => ({
+      ...f,
+      steps: f.steps.map((s) => {
+        const ya = f.steps.filter((x) => x.branch === "yes")[0];
+        const na = f.steps.filter((x) => x.branch === "no")[0];
+        return s === ya || s === na ? { ...s, delayHours: h } : s;
+      }),
+    }));
+
   const { nodes, edges } = useMemo(() => {
-    const nodes: Node[] = [
-      { id: "trigger", type: "btrigger", position: { x: 0, y: 0 }, data: { flow, selected: sel === "trigger", onSelect: () => setSel("trigger") } },
-      ...flow.steps.map((s, i) => ({
-        id: `s${i}`, type: "bemail", position: { x: 25, y: 140 + i * 140 },
-        data: { step: s, index: i, selected: sel === i, onSelect: () => setSel(i) },
-      })),
-      { id: "add", type: "badd", position: { x: 25, y: 140 + flow.steps.length * 140 }, data: { onAdd: addStep } },
-    ];
-    const edges: Edge[] = [
-      ...flow.steps.map((s, i) => ({
-        id: `e${i}`, source: i === 0 ? "trigger" : `s${i - 1}`, target: `s${i}`,
-        label: fmtDelay(s.delayHours), animated: true,
-        labelStyle: { fontSize: 10, fontWeight: 600, fill: "rgb(var(--ops-text-muted))" },
-        labelBgStyle: { fill: "rgb(var(--ops-bg))", fillOpacity: 0.9 }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 6,
-        style: { stroke: "rgb(var(--ops-border))", strokeWidth: 1.5 },
-      })),
-      { id: "eadd", source: flow.steps.length ? `s${flow.steps.length - 1}` : "trigger", target: "add", style: { stroke: "rgb(var(--ops-border))", strokeDasharray: "4 4" } },
-    ];
+    const nodes: Node[] = [{ id: "trigger", type: "btrigger", position: { x: 0, y: 0 }, data: { flow, selected: sel === "trigger", onSelect: () => setSel("trigger") } }];
+    const edges: Edge[] = [];
+    const edgeStyle = { stroke: "rgb(var(--ops-border))", strokeWidth: 1.5 };
+    const lbl = (text: string) => ({
+      label: text, labelStyle: { fontSize: 10, fontWeight: 600, fill: "rgb(var(--ops-text-muted))" },
+      labelBgStyle: { fill: "rgb(var(--ops-bg))", fillOpacity: 0.9 }, labelBgPadding: [6, 3] as [number, number], labelBgBorderRadius: 6,
+    });
+    let y = 140;
+    let prev = "trigger";
+    shared.forEach((s) => {
+      const i = flatIndex(s);
+      nodes.push({ id: `s${i}`, type: "bemail", position: { x: 25, y }, data: { step: s, label: `Email ${shared.indexOf(s) + 1}`, selected: sel === i, onSelect: () => setSel(i) } });
+      edges.push({ id: `e${i}`, source: prev, target: `s${i}`, animated: true, ...lbl(fmtDelay(s.delayHours)), style: edgeStyle });
+      prev = `s${i}`; y += 140;
+    });
+    if (!hasSplit) {
+      nodes.push({ id: "add-shared", type: "badd", position: { x: 25, y }, data: { label: "Add email", onAdd: () => addStep() } });
+      edges.push({ id: "e-add", source: prev, target: "add-shared", style: { ...edgeStyle, strokeDasharray: "4 4" } });
+      if (shared.length) {
+        nodes.push({ id: "add-split", type: "badd", position: { x: 320, y }, data: { label: "Add split (open/click)", onAdd: addSplit } });
+        edges.push({ id: "e-add-split", source: prev, target: "add-split", style: { ...edgeStyle, strokeDasharray: "4 4" } });
+      }
+    } else {
+      nodes.push({ id: "split", type: "bsplit", position: { x: 25, y }, data: { splitOn: flow.splitOn, waitHours: splitWait, selected: sel === "split", onSelect: () => setSel("split") } });
+      edges.push({ id: "e-split", source: prev, target: "split", animated: true, ...lbl(fmtDelay(splitWait)), style: edgeStyle });
+      y += 150;
+      const arm = (steps: BuilderStep[], branch: Branch, x: number, handle: string, color: string) => {
+        let aPrev = "split";
+        let ay = y;
+        steps.forEach((s, ai) => {
+          const i = flatIndex(s);
+          nodes.push({ id: `s${i}`, type: "bemail", position: { x, y: ay }, data: { step: s, label: `${branch === "yes" ? "YES" : "NO"} · email ${ai + 1}`, selected: sel === i, onSelect: () => setSel(i) } });
+          edges.push({
+            id: `e${i}`, source: aPrev, target: `s${i}`, animated: true,
+            ...(aPrev === "split" ? { sourceHandle: handle, ...lbl(branch === "yes" ? "YES" : "NO") } : lbl(fmtDelay(s.delayHours))),
+            style: { stroke: color, strokeWidth: 1.5 },
+          });
+          aPrev = `s${i}`; ay += 140;
+        });
+        nodes.push({ id: `add-${branch}`, type: "badd", position: { x, y: ay }, data: { label: `Add ${branch.toUpperCase()} email`, onAdd: () => addStep(branch) } });
+        edges.push({ id: `e-add-${branch}`, source: aPrev, target: `add-${branch}`, ...(aPrev === "split" ? { sourceHandle: handle, ...lbl(branch === "yes" ? "YES" : "NO") } : {}), style: { stroke: color, strokeWidth: 1.5, strokeDasharray: "4 4" } });
+      };
+      arm(yesArm, "yes", -150, "yes", "rgba(52,199,123,0.55)");
+      arm(noArm, "no", 200, "no", "rgba(239,68,68,0.5)");
+    }
     return { nodes, edges };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flow, sel]);
@@ -157,11 +245,14 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
   async function save(): Promise<{ id: string; key: string } | null> {
     if (!flow.name.trim()) { setMsg({ tone: "bad", text: "Name the flow first." }); return null; }
     if (!flow.steps.length) { setMsg({ tone: "bad", text: "Add at least one email." }); return null; }
+    if (hasSplit && !yesArm.length && !noArm.length) { setMsg({ tone: "bad", text: "The split has no arm emails — add one or remove the split." }); return null; }
     setBusy("save"); setMsg(null);
     try {
+      const ordered = reorder(flow.steps);
       const j = await post({
         action: "custom-flow-save", id: flow.id, name: flow.name, trigger: flow.trigger, exitOnPurchase: flow.exitOnPurchase,
-        steps: flow.steps.map((s, i) => ({ index: i, delayHours: s.delayHours, subject: s.subject, html_b64: b64(s.html) })),
+        splitOn: hasSplit ? flow.splitOn : null,
+        steps: ordered.map((s, i) => ({ index: i, delayHours: s.delayHours, subject: s.subject, html_b64: b64(s.html), branch: s.branch ?? null })),
       });
       setFlow((f) => ({ ...f, id: j.id, key: j.key }));
       setMsg({ tone: "ok", text: flow.status === "active" ? "Saved — live flow updated (next sweep uses the new copy)." : "Draft saved." });
@@ -182,14 +273,24 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
     } catch (e: any) { setMsg({ tone: "bad", text: e.message }); } finally { setBusy(null); }
   }
 
+  async function deleteFlow() {
+    if (!flow.id) return;
+    setBusy("delete");
+    try {
+      await post({ action: "custom-flow-delete", id: flow.id });
+      onSaved(); onClose();
+    } catch (e: any) { setMsg({ tone: "bad", text: e.message }); setConfirmDelete(false); } finally { setBusy(null); }
+  }
+
   async function sendTest(i: number) {
     const saved = await save();
     if (!saved || !testTo.trim()) return;
     try { localStorage.setItem("rp-test-inbox", testTo.trim()); } catch {}
     setBusy("test");
     try {
-      await post({ action: "custom-flow-test", flowKey: saved.key, stepIndex: i, to: testTo.trim() });
-      setMsg({ tone: "ok", text: `Test of email ${i + 1} sent to ${testTo.trim()}.` });
+      const orderedIndex = reorder(flow.steps).indexOf(flow.steps[i]);
+      await post({ action: "custom-flow-test", flowKey: saved.key, stepIndex: orderedIndex, to: testTo.trim() });
+      setMsg({ tone: "ok", text: `Test sent to ${testTo.trim()}.` });
     } catch (e: any) { setMsg({ tone: "bad", text: e.message }); } finally { setBusy(null); }
   }
 
@@ -203,11 +304,11 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
       });
       if (j.preview) { setEnrollPreview({ recipients: j.recipients, segment: j.segment }); return; }
       setEnrollPreview(null);
-      setMsg({ tone: "ok", text: `Enrolled ${j.enrolled.toLocaleString()} contacts — first email per the step 1 delay.` });
+      setMsg({ tone: "ok", text: `Enrolled ${j.enrolled.toLocaleString()} contacts — first email per its delay.` });
     } catch (e: any) { setEnrollPreview(null); setMsg({ tone: "bad", text: e.message }); } finally { setBusy(null); }
   }
 
-  const s = sel !== "trigger" && sel !== null ? flow.steps[sel] : null;
+  const s = typeof sel === "number" ? flow.steps[sel] : null;
   const input = "w-full rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-brand-blue-500 focus:outline-none";
 
   return (
@@ -274,7 +375,7 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <div className="min-h-[300px] flex-1">
           <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
-            minZoom={0.3} maxZoom={1.4} nodesConnectable={false} nodesDraggable={false} proOptions={{ hideAttribution: true }}>
+            minZoom={0.25} maxZoom={1.4} nodesConnectable={false} nodesDraggable={false} proOptions={{ hideAttribution: true }}>
             <Background gap={22} size={1.2} color="rgb(var(--ops-border))" />
             <Controls showInteractive={false} position="bottom-right" />
           </ReactFlow>
@@ -313,29 +414,69 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
                 </button>
               )}
             </div>
-          ) : s ? (
-            <div className="space-y-3">
+          ) : sel === "split" && hasSplit ? (
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-ops-text">Email {(sel as number) + 1}</h3>
-                <div className="flex items-center gap-1">
-                  <button type="button" onClick={() => moveStep(sel as number, -1)} disabled={sel === 0} className="rounded p-1.5 text-ops-text-muted hover:text-ops-text disabled:opacity-30" aria-label="Move up"><ArrowUp size={14} /></button>
-                  <button type="button" onClick={() => moveStep(sel as number, 1)} disabled={(sel as number) === flow.steps.length - 1} className="rounded p-1.5 text-ops-text-muted hover:text-ops-text disabled:opacity-30" aria-label="Move down"><ArrowDown size={14} /></button>
-                  <button type="button" onClick={() => removeStep(sel as number)} className="rounded p-1.5 text-ops-text-muted hover:text-red-400" aria-label="Delete step"><Trash2 size={14} /></button>
-                </div>
+                <h3 className="flex items-center gap-1.5 text-sm font-bold text-ops-text"><GitFork size={14} className="text-violet-400" /> Conditional split</h3>
+                <button type="button" onClick={removeSplit} className="flex items-center gap-1 rounded p-1.5 text-xs text-ops-text-muted hover:text-red-400">
+                  <Trash2 size={13} /> Remove split
+                </button>
               </div>
-              <label className="block text-xs text-ops-text-muted">Wait before this email
+              <p className="text-[11px] text-ops-text-muted">Tests engagement on the <b>last shared email</b> once, after the wait below. YES = they {flow.splitOn === "clicked" ? "clicked" : "opened"}; NO = they didn't. Removing the split deletes both arms' emails.</p>
+              <div className="space-y-2">
+                {(["opened", "clicked"] as const).map((k) => (
+                  <button key={k} type="button" onClick={() => setFlow((f) => ({ ...f, splitOn: k }))}
+                    className={`block w-full rounded-xl border p-3 text-left transition ${flow.splitOn === k ? "border-violet-500 bg-violet-500/5" : "border-ops-border hover:border-ops-border-strong"}`}>
+                    <div className="text-xs font-bold text-ops-text">{k === "opened" ? "Opened the email" : "Clicked a link"}</div>
+                    <div className="text-[11px] text-ops-text-muted">{k === "opened" ? "any open (clicks count as opens)" : "stricter — needs a link click"}</div>
+                  </button>
+                ))}
+              </div>
+              <label className="block text-xs text-ops-text-muted">Wait before checking
                 <div className="mt-1 flex items-center gap-2">
-                  <input type="number" min={0} value={s.delayHours % 24 === 0 ? s.delayHours / 24 : s.delayHours}
-                    onChange={(e) => { const v = Math.max(0, Number(e.target.value) || 0); setStep(sel as number, { delayHours: s.delayHours % 24 === 0 ? v * 24 : v }); }}
+                  <input type="number" min={1} value={splitWait % 24 === 0 ? splitWait / 24 : splitWait}
+                    onChange={(e) => { const v = Math.max(1, Number(e.target.value) || 1); setSplitWait(splitWait % 24 === 0 ? v * 24 : v); }}
                     className={`${input} w-24`} />
-                  <select value={s.delayHours % 24 === 0 ? "days" : "hours"}
-                    onChange={(e) => { const n = s.delayHours % 24 === 0 ? s.delayHours / 24 : s.delayHours; setStep(sel as number, { delayHours: e.target.value === "days" ? n * 24 : n }); }}
+                  <select value={splitWait % 24 === 0 ? "days" : "hours"}
+                    onChange={(e) => { const n = splitWait % 24 === 0 ? splitWait / 24 : splitWait; setSplitWait(e.target.value === "days" ? n * 24 : n); }}
                     className={`${input} w-28`}>
                     <option value="days">days</option><option value="hours">hours</option>
                   </select>
-                  <span className="text-[11px] text-ops-text-muted">{fmtDelay(s.delayHours)}</span>
                 </div>
+                <span className="mt-1 block text-[10px] text-ops-text-subtle">Both arms start at this moment — the engagement window is exactly this wait.</span>
               </label>
+            </div>
+          ) : s ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-ops-text">
+                  {s.branch ? `${s.branch.toUpperCase()} arm · ` : ""}Email {(s.branch ? (s.branch === "yes" ? yesArm : noArm) : shared).indexOf(s) + 1}
+                </h3>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => moveStep(sel as number, -1)} className="rounded p-1.5 text-ops-text-muted hover:text-ops-text disabled:opacity-30" aria-label="Move up"><ArrowUp size={14} /></button>
+                  <button type="button" onClick={() => moveStep(sel as number, 1)} className="rounded p-1.5 text-ops-text-muted hover:text-ops-text disabled:opacity-30" aria-label="Move down"><ArrowDown size={14} /></button>
+                  <button type="button" onClick={() => removeStep(sel as number)} className="rounded p-1.5 text-ops-text-muted hover:text-red-400" aria-label="Delete step"><Trash2 size={14} /></button>
+                </div>
+              </div>
+              {armFirst(sel as number) ? (
+                <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-[11px] text-ops-text-muted">
+                  Sends at the split check ({fmtDelay(splitWait)} after the last shared email) — the wait is set on the split node.
+                </div>
+              ) : (
+                <label className="block text-xs text-ops-text-muted">Wait before this email
+                  <div className="mt-1 flex items-center gap-2">
+                    <input type="number" min={0} value={s.delayHours % 24 === 0 ? s.delayHours / 24 : s.delayHours}
+                      onChange={(e) => { const v = Math.max(0, Number(e.target.value) || 0); setStep(sel as number, { delayHours: s.delayHours % 24 === 0 ? v * 24 : v }); }}
+                      className={`${input} w-24`} />
+                    <select value={s.delayHours % 24 === 0 ? "days" : "hours"}
+                      onChange={(e) => { const n = s.delayHours % 24 === 0 ? s.delayHours / 24 : s.delayHours; setStep(sel as number, { delayHours: e.target.value === "days" ? n * 24 : n }); }}
+                      className={`${input} w-28`}>
+                      <option value="days">days</option><option value="hours">hours</option>
+                    </select>
+                    <span className="text-[11px] text-ops-text-muted">{fmtDelay(s.delayHours)}</span>
+                  </div>
+                </label>
+              )}
               <label className="block text-xs text-ops-text-muted">Subject
                 <input value={s.subject} onChange={(e) => setStep(sel as number, { subject: e.target.value })} className={`${input} mt-1`} placeholder="Subject line…" />
               </label>
@@ -364,7 +505,7 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
               </div>
             </div>
           ) : (
-            <div className="text-xs text-ops-text-muted">Select the trigger or an email on the canvas to edit it — or add your first email.</div>
+            <div className="text-xs text-ops-text-muted">Select the trigger, the split, or an email on the canvas — or add your first email.</div>
           )}
         </div>
       </div>
