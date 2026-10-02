@@ -113,6 +113,7 @@ export default function RealPeptidesFlows() {
           </table>
         </div>
       ))}
+      <SiteEmailCatalog onPreview={(key, name) => setOpen({ instant: key, subject: name })} />
       {open && <PreviewModal {...open} onClose={() => setOpen(null)} />}
     </div>
   );
@@ -263,6 +264,44 @@ function UnsubImport() {
         </div>
       )}
       {err && <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{err}</div>}
+    </div>
+  );
+}
+
+interface SiteEmail { key: string; name: string; group: string; trigger: string; to: string; preview?: string }
+
+/** Every transactional + notification email the site sends, grouped like the old Resend folders. */
+function SiteEmailCatalog({ onPreview }: { onPreview: (key: string, name: string) => void }) {
+  const q = useQuery({
+    queryKey: ["rp-site-emails"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/site-emails", { credentials: "include" })).json() as Promise<{ emails: SiteEmail[] }>,
+    staleTime: 30 * 60_000,
+  });
+  if (!q.data?.emails) return null;
+  const groups = [...new Set(q.data.emails.map((e) => e.group))];
+  const TO: Record<string, string> = { customer: "customer", internal: "team", affiliate: "affiliate", wholesale: "wholesale" };
+  return (
+    <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+      <h2 className="mb-1 text-sm font-bold text-ops-text">Site emails — transactional &amp; notifications <span className="font-normal text-ops-text-muted">· {q.data.emails.length} active</span></h2>
+      <p className="mb-3 text-xs text-ops-text-muted">Everything the site sends on real events (orders, claims, subscriptions, logins…). All of these route through the new engine — they never stopped. Previews render where a sample renderer exists; in-dashboard editing of these is the next build.</p>
+      {groups.map((g) => (
+        <div key={g} className="mb-3">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-ops-text-muted">{g}</div>
+          {q.data!.emails.filter((e) => e.group === g).map((e) => (
+            <div key={e.key} className="flex flex-wrap items-center gap-2 border-t border-ops-border/50 py-1.5 text-xs">
+              <span className="w-64 shrink-0 font-medium text-ops-text">{e.name}</span>
+              <span className="rounded-full border border-ops-border px-1.5 py-0.5 text-[10px] text-ops-text-muted">{TO[e.to] ?? e.to}</span>
+              <span className="min-w-0 flex-1 truncate text-ops-text-muted" title={e.trigger}>{e.trigger}</span>
+              {e.preview && (
+                <button type="button" onClick={() => onPreview(e.preview!, e.name)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">
+                  <Eye size={11} /> Preview
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

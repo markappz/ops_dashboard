@@ -154,8 +154,11 @@ export function registerEmailPlannerRoutes(app: Express) {
       await ensureTable();
       const company = String(req.query.company || "");
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
-      try { await pullFromResend(company); }
-      catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
+      // Real Peptides left Resend 2026-10-01 (account suspended); its plans are born in ops now.
+      if (company !== "realpeptides") {
+        try { await pullFromResend(company); }
+        catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
+      }
       const { rows } = await pool.query(
         `SELECT id, company, title, subject, preheader, status, send_date, send_time,
                 from_address, audience_id, notes, resend_broadcast_id,

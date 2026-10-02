@@ -119,7 +119,7 @@ function parseFinalEmail(raw: string): ParsedEmail {
   return { subject, preheader, changes, html, text };
 }
 
-export default function EmailCompose() {
+export default function EmailCompose(props?: { company?: string }) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
 
@@ -242,8 +242,16 @@ export default function EmailCompose() {
     }
   };
 
-  const company = new URLSearchParams(window.location.search).get("company");
+  const company = props?.company ?? new URLSearchParams(window.location.search).get("company");
   const isRP = company === "realpeptides";
+
+  // Composing for Real Peptides: default to the RP brand profile when one exists, so the chat
+  // writes in the right voice without Josh having to remember to switch.
+  useEffect(() => {
+    if (!isRP || profileId) return;
+    const rp = profiles.find((pr) => /real\s*peptides|^rp\b/i.test(pr.name));
+    if (rp) setProfileId(rp.id);
+  }, [isRP, profileId, profiles]);
 
   const reset = () => {
     abortRef.current?.abort();

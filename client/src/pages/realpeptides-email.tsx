@@ -73,7 +73,7 @@ export default function RealPeptidesEmail() {
         eyebrow="Real Peptides"
         title="Email"
         subtitle="Flows and campaigns from the site's own send instrumentation — open rates, clicks, unsubscribes, and the sales each flow and broadcast produced (coupon first, else the last email clicked within 7 days)."
-        actions={<div className="flex items-center gap-2"><a href="/email/compose?company=realpeptides" className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-95">✨ Compose with AI</a><DateRangePicker value={range} onChange={setRange} /></div>}
+        actions={<div className="flex items-center gap-2"><a href="/realpeptides/compose" className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-95">✨ Compose with AI</a><DateRangePicker value={range} onChange={setRange} /></div>}
       />
 
       <EmailCalendar company="realpeptides" />

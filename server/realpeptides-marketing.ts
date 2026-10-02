@@ -94,6 +94,30 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+  // Audience browser + audience-wide activity feed + broadcast live preview.
+  app.get("/api/ops/realpeptides/marketing/contacts", async (req, res) => {
+    try {
+      const qs = new URLSearchParams();
+      for (const k of ["q", "page", "pageSize"]) if (req.query[k]) qs.set(k, String(req.query[k]));
+      res.json(await bridge(`/api/ops-marketing?what=contacts&${qs}`));
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.get("/api/ops/realpeptides/marketing/recent-events", async (req, res) => {
+    try {
+      res.json(await bridge(`/api/ops-marketing?what=recent-events&limit=${Number(req.query.limit) || 100}`));
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+  app.post("/api/ops/realpeptides/marketing/render-broadcast", async (req, res) => {
+    try {
+      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render-broadcast", html: req.body?.html ?? "" } }));
+    } catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
+  app.get("/api/ops/realpeptides/marketing/site-emails", async (_req, res) => {
+    try { res.json(await bridge("/api/ops-marketing?what=site-emails")); }
+    catch (e: any) { res.status(502).json({ error: e.message }); }
+  });
+
   // Per-contact engagement timeline for the Activity view.
   app.get("/api/ops/realpeptides/marketing/activity", async (req, res) => {
     try {

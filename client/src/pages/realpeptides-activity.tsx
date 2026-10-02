@@ -31,8 +31,10 @@ const TYPE_LABEL: Record<string, { label: string; tone: string }> = {
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export default function RealPeptidesActivity() {
-  const [input, setInput] = useState("");
-  const [email, setEmail] = useState<string | null>(null);
+  // Deep-linkable: the Audience table and engagement feed land here with ?email=…
+  const fromUrl = new URLSearchParams(window.location.search).get("email");
+  const [input, setInput] = useState(fromUrl ?? "");
+  const [email, setEmail] = useState<string | null>(fromUrl);
   const q = useQuery({
     queryKey: ["rp-activity", email],
     queryFn: async () => {
