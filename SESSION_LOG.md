@@ -3471,3 +3471,19 @@ FLOW_SENDS_PAUSED stays true until Paul reviews + imports, then the site repo fl
 
 STILL HELD: flow sends paused site-side until Paul finishes review + runs both imports on
 /realpeptides/flows and says go. Next design phase: dedicated two-pane broadcast builder.
+
+## 2026-10-02 (~2:30am PT) — Copy editor live, builder polish, calendar mobile fix
+
+- EmailOverride layer (site repo, additive migration applied via CodeBuild): enabled overrides
+  beat hand-authored salvage and code renders; 60s cache; fail-open. Bridge: override CRUD +
+  render-draft (sample values). Ops: ✏️ Edit copy on every previewable email — fork current
+  render, live draft preview, Save draft / make LIVE / Remove; step rows badge edited copy.
+  VERIFIED on prod: draft save → substituted preview → gallery stayed default → delete clean.
+- Broadcasts builder polish: numbered sections, subject/preheader char guidance, segment
+  definition + live reach (echoed on the send button), Gmail-style inbox row, Desktop/Phone
+  toggle (device frame), remembered test inbox, stat pills on Sent, 🤖 agent badges.
+- Order-confirmation sample preview in the site-email catalog (fixture-rendered).
+- date-range-picker: phone = bottom sheet w/ PINNED Apply bar (was running off-screen —
+  Paul's report); desktop footer pinned too. Shared component → all command centers fixed.
+- Mobile email audit: 21/30 salvaged docs carry their own @media blocks (byte-exact migration);
+  engine renders share emailTheme's 600px breakpoint; Phone preview = one-click mobile QA.
