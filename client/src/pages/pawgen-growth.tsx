@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { PageHero } from "../components/page-hero";
 
 /**
@@ -40,14 +41,7 @@ const usd = (n: number) => `$${(n ?? 0).toLocaleString(undefined, { minimumFract
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
 
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "good" | "warn" }) {
-  const c = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${c}`}>{value}</div>
-      {hint && <div className="mt-1 text-xs text-ops-text-muted">{hint}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={hint} tone={tone} />;
 }
 
 /** Count-only bars for lead rollups (no revenue axis). */

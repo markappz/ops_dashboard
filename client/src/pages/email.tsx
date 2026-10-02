@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { useState } from "react";
 import { Link } from "wouter";
 import { InlineError, hasApiError } from "../components/query-error";
@@ -540,14 +541,7 @@ function Header({ canSend = false }: { canSend?: boolean }) {
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5">
-      <div className="text-xs text-ops-text-muted font-medium uppercase tracking-wider mb-2">
-        {label}
-      </div>
-      <div className="text-2xl font-bold text-ops-text">{value}</div>
-    </div>
-  );
+  return <StatCard label={label} number={value} />;
 }
 
 function CampaignsTable({

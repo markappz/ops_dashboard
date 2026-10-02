@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, Info } from "lucide-react";
 import { Link } from "wouter";
@@ -161,14 +162,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
 }
 
 function Stat({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: "good" | "warn" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
-  return (
-    <div className="rounded-2xl border border-ops-border bg-ops-surface p-3.5 shadow-card">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-ops-text-muted">{icon} {label}</div>
-      <div className={`mt-1.5 text-lg font-bold leading-none tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard icon={icon} label={label} value={value} sub={sub} tone={tone} />;
 }
 
 function BadCounts({ bounces, complaints }: { bounces: number; complaints: number }) {

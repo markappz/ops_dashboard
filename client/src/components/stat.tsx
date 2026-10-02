@@ -77,8 +77,9 @@ export function Sparkline({ points, className }: { points: number[]; className?:
 
 type Tone = "good" | "warn" | "bad" | "info";
 
-export function StatCard({ label, value, number, format, sub, delta, spark, accent, tone, to, i = 0 }: {
+export function StatCard({ label, icon, value, number, format, sub, delta, spark, accent, tone, to, i = 0 }: {
   label: string;
+  icon?: React.ReactNode;
   /** Preformatted node, OR pass `number` (+ optional `format`) for the count-up treatment. */
   value?: React.ReactNode;
   number?: number;
@@ -106,7 +107,7 @@ export function StatCard({ label, value, number, format, sub, delta, spark, acce
     >
       {accent && <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-blue-500/70 to-transparent" />}
       <div className="mb-2 flex items-start justify-between gap-2">
-        <div className="text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
+        <div className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{icon && <span className="text-ops-text-subtle [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>}{label}</div>
         {spark && <div className={`-mt-1 shrink-0 opacity-80 ${accent ? "text-brand-blue-500" : "text-ops-text-muted"}`}><Sparkline points={spark} /></div>}
       </div>
       <div className={`text-2xl font-bold tracking-tight ${color}`}>
