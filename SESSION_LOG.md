@@ -3421,3 +3421,25 @@ funnel sites the ROOT serves the guide itself (/optin captures, root delivers �
 GUIDE-OPTIN-EMBED.md in realpeptides) — so the builder's root links were giving the guides away
 uncaptured. All four bases now /optin (verified 200 + form renders on fatlossbible). Desktop
 reference doc updated to match.
+
+## 2026-10-01 (late) — RP email: in-house engine door in ops (Resend deactivated RP's account)
+
+Resend killed the RP account tonight; the site now sends over Mailgun through its own engine
+(see realpeptides repo SESSION_LOG, commits 81f2419/26b8ad4/1609894). Ops side of the cutover:
+
+- `server/realpeptides-marketing.ts` — NEW bridge to the site's token-gated /api/ops-marketing:
+  GET segments (live counts), POST test send, and POST /api/ops/email-plans/:id/send-rp — the
+  RP send door for calendar plans. Two-step enforced server-side on BOTH ends: no confirm, no
+  send. Sent plans refuse a re-send (duplicate a new plan instead). The engine tag is stored in
+  resend_broadcast_id (column keeps its historic name) and matches EmailEvent.broadcastId on
+  the site, so the Email tab's campaign stats pick up ops sends automatically.
+- `email-calendar.tsx` — for company=realpeptides the plan editor now shows: engine segments
+  with live counts (suppressions excluded) instead of Resend audiences, a "Send test" inbox
+  field, and "Review & send" -> amber confirm bar showing the real recipient count. Other
+  brands' Push-to-Resend is untouched.
+- email-planner's Resend pull loop still warns for realpeptides every cycle (dead key, caught);
+  harmless — silence it by unsetting RESEND_API_KEY_REALPEPTIDES on ops when convenient.
+
+UX direction from Paul: the email surface should become a Klaviyo-meets-Resend hybrid
+(composer + segments + proper campaign analytics). This commit is the send plumbing; the
+composer/analytics polish is the next phase.

@@ -1,0 +1,100 @@
+/**
+ * Real Peptides marketing bridge — the ops side of the in-house email engine that replaced
+ * Resend (account deactivated 2026-10-01). The engine, the suppression gate and the audit
+ * trail live in the RP site repo behind the token-gated /api/ops-marketing; ops is the UI.
+ *
+ *   GET  /api/ops/realpeptides/marketing/segments     audience picker: segments + live counts
+ *   POST /api/ops/realpeptides/marketing/test         one rendered test send { subject, html, to }
+ *   POST /api/ops/email-plans/:id/send-rp             send a calendar plan through the engine
+ *
+ * send-rp is two-step like the engine itself: without { confirm: true } it returns the live
+ * recipient count and sends nothing. The plan's audience_id column (Resend audience in its old
+ * life) now holds an engine segment slug, empty = everyone. The engine's tag for the send is
+ * stored in resend_broadcast_id so the analytics ledger (EmailEvent.broadcastId = tag) lines
+ * up with the calendar row under the column's historical name.
+ */
+import type { Express } from "express";
+import { pool } from "./db";
+
+function cfg() {
+  const base = process.env.RP_SITE_API_URL;
+  const token = process.env.RP_SITE_OPS_TOKEN;
+  return base && token ? { base: base.replace(/\/$/, ""), token } : null;
+}
+
+async function bridge(path: string, init?: { method?: string; body?: unknown }) {
+  const c = cfg();
+  if (!c) throw new Error("Connect the RP backend first (RP_SITE_API_URL + RP_SITE_OPS_TOKEN).");
+  const r = await fetch(`${c.base}${path}`, {
+    method: init?.method ?? "GET",
+    headers: { Authorization: `Bearer ${c.token}`, "content-type": "application/json" },
+    body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+    signal: AbortSignal.timeout(290_000),
+  });
+  const text = await r.text();
+  let j: any;
+  try { j = JSON.parse(text); } catch { j = { raw: text.slice(0, 200) }; }
+  if (!r.ok) throw new Error(j.error || `ops-marketing ${r.status}`);
+  return j;
+}
+
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+export function registerRealPeptidesMarketing(app: Express) {
+  let segCache: { at: number; data: any } | null = null;
+
+  app.get("/api/ops/realpeptides/marketing/segments", async (_req, res) => {
+    try {
+      if (segCache && Date.now() - segCache.at < 5 * 60_000) return res.json(segCache.data);
+      const data = await bridge("/api/ops-marketing?what=segments");
+      segCache = { at: Date.now(), data };
+      res.json(data);
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/realpeptides/marketing/test", async (req: any, res) => {
+    try {
+      const { subject, html, to } = req.body ?? {};
+      if (!subject || !html || !to) return res.status(400).json({ error: "subject, html and to are required" });
+      const out = await bridge("/api/ops-marketing", { method: "POST", body: { action: "test", subject, html, to } });
+      console.log(`[OPS][RP-MARKETING] test send to ${to} by ${req.adminEmail}`);
+      res.json(out);
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/email-plans/:id/send-rp", async (req: any, res) => {
+    try {
+      const { rows } = await pool.query("SELECT * FROM ops_email_plans WHERE id = $1", [parseInt(req.params.id, 10)]);
+      const p = rows[0];
+      if (!p) return res.status(404).json({ error: "Plan not found" });
+      if (p.company !== "realpeptides") return res.status(400).json({ error: "send-rp is the Real Peptides engine door; use push for other brands." });
+      if (p.status === "sent") return res.status(409).json({ error: "This plan has already been sent — duplicate a new plan rather than re-sending." });
+      if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });
+      if (!p.html) return res.status(400).json({ error: "Add the email design (HTML) first." });
+
+      const segment = p.audience_id?.trim() || undefined;
+      if (!req.body?.confirm) {
+        const preview = await bridge("/api/ops-marketing", { method: "POST", body: { action: "preview", segment } });
+        return res.json({ preview: true, recipients: preview.recipients, segment: preview.segment });
+      }
+
+      const tag = `ops-${p.id}-${slugify(p.title || p.subject)}`;
+      const out = await bridge("/api/ops-marketing", {
+        method: "POST",
+        body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
+      });
+      await pool.query(
+        `UPDATE ops_email_plans SET resend_broadcast_id = $2, status = 'sent', updated_at = NOW() WHERE id = $1`,
+        [p.id, out.tag],
+      );
+      console.log(`[OPS][RP-MARKETING] plan ${p.id} "${p.title}" sent to ${out.sent}/${out.of} (${out.tag}) by ${req.adminEmail}`);
+      res.json({ ok: true, ...out });
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+}

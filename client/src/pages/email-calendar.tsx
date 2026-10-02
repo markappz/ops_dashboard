@@ -162,6 +162,9 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   resendConnected: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const isNew = planId === null;
+  // Real Peptides sends through the in-house engine (Resend deactivated the account 2026-10-01):
+  // audience = engine segments with live counts, send = two-step preview -> confirm via send-rp.
+  const isRP = company === "realpeptides";
   const full = useQuery({
     queryKey: ["email-plan", planId],
     queryFn: async () => (await fetch(`/api/ops/email-plans/${planId}`, { credentials: "include" })).json(),
@@ -171,14 +174,24 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
     queryKey: ["resend-audiences", company],
     queryFn: async () => (await fetch(`/api/ops/email-plans/resend/audiences?company=${company}`, { credentials: "include" })).json() as
       Promise<{ connected: boolean; audiences: { id: string; name: string }[] }>,
-    enabled: resendConnected,
+    enabled: resendConnected && !isRP,
     staleTime: 10 * 60_000,
+  });
+  const rpSegments = useQuery({
+    queryKey: ["rp-marketing-segments"],
+    queryFn: async () => (await fetch(`/api/ops/realpeptides/marketing/segments`, { credentials: "include" })).json() as
+      Promise<{ all: number; segments: { slug: string; count: number }[] }>,
+    enabled: isRP,
+    staleTime: 5 * 60_000,
   });
 
   const [f, setF] = useState<any>(null);
-  const [busy, setBusy] = useState<"save" | "push" | null>(null);
+  const [busy, setBusy] = useState<"save" | "push" | "test" | "send" | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [preview, setPreview] = useState(false);
+  const [testTo, setTestTo] = useState("");
+  /** The engine's preview answer; non-null means we are one click from a real send. */
+  const [sendPreview, setSendPreview] = useState<{ recipients: number; segment: string } | null>(null);
 
   const p = full.data;
   if (!isNew && p && f === null) {
@@ -246,6 +259,37 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
     onSaved(); onClose();
   }
 
+  async function sendTest() {
+    if (!testTo.trim()) return;
+    setBusy("test"); setMsg(null);
+    const r = await fetch(`/api/ops/realpeptides/marketing/test`, {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject: f.subject, html: f.html, to: testTo.trim() }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) return setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+    setMsg({ tone: "ok", text: `Test sent to ${testTo.trim()} — check the inbox before the real send.` });
+  }
+
+  /** Step 1 saves and asks the engine who this reaches; step 2 (confirm) is the only real send. */
+  async function sendRP(confirmed: boolean) {
+    const id = await save();
+    if (!id) return;
+    setBusy("send"); setMsg(null);
+    const r = await fetch(`/api/ops/email-plans/${id}/send-rp`, {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify(confirmed ? { confirm: true } : {}),
+    });
+    const j = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) { setSendPreview(null); return setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); }
+    if (j.preview) { setSendPreview({ recipients: j.recipients, segment: j.segment }); return; }
+    setSendPreview(null);
+    setMsg({ tone: "ok", text: `Sent to ${j.sent} of ${j.of} recipients (${j.tag}).${j.failures?.length ? ` STOPPED EARLY: ${j.failures[0]}` : ""}` });
+    onSaved();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 backdrop-blur-sm sm:p-4" onClick={onClose}>
       <div className="my-4 w-full max-w-3xl rounded-2xl border border-ops-border bg-ops-surface shadow-card sm:my-8" onClick={(e) => e.stopPropagation()}>
@@ -281,17 +325,28 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
             <label className="text-xs text-ops-text-muted">From
               <input value={f.from_address} onChange={(e) => set("from_address", e.target.value)} placeholder="Real Peptides <hello@realpeptides.co>" className={`${input} mt-1`} />
             </label>
-            <label className="text-xs text-ops-text-muted">Resend audience
-              {audiences.data?.audiences?.length ? (
-                <select value={f.audience_id} onChange={(e) => set("audience_id", e.target.value)} className={`${input} mt-1`}>
-                  <option value="">Pick an audience…</option>
-                  {audiences.data.audiences.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            {isRP ? (
+              <label className="text-xs text-ops-text-muted">Audience (live counts, suppressions excluded)
+                <select value={f.audience_id} onChange={(e) => { set("audience_id", e.target.value); setSendPreview(null); }} className={`${input} mt-1`}>
+                  <option value="">Everyone{rpSegments.data ? ` (${rpSegments.data.all.toLocaleString()})` : ""}</option>
+                  {(rpSegments.data?.segments ?? []).map((s) => (
+                    <option key={s.slug} value={s.slug}>{s.slug} ({s.count.toLocaleString()})</option>
+                  ))}
                 </select>
-              ) : (
-                <input value={f.audience_id} onChange={(e) => set("audience_id", e.target.value)}
-                  placeholder={resendConnected ? "audience id" : "connects when Resend key is set"} className={`${input} mt-1`} />
-              )}
-            </label>
+              </label>
+            ) : (
+              <label className="text-xs text-ops-text-muted">Resend audience
+                {audiences.data?.audiences?.length ? (
+                  <select value={f.audience_id} onChange={(e) => set("audience_id", e.target.value)} className={`${input} mt-1`}>
+                    <option value="">Pick an audience…</option>
+                    {audiences.data.audiences.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                ) : (
+                  <input value={f.audience_id} onChange={(e) => set("audience_id", e.target.value)}
+                    placeholder={resendConnected ? "audience id" : "connects when Resend key is set"} className={`${input} mt-1`} />
+                )}
+              </label>
+            )}
           </div>
 
           <div>
@@ -324,7 +379,23 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
             </div>
           )}
           {p?.resend_broadcast_id && (
-            <div className="text-[11px] text-ops-text-muted">Resend broadcast: <code>{p.resend_broadcast_id}</code></div>
+            <div className="text-[11px] text-ops-text-muted">{isRP ? "Campaign tag" : "Resend broadcast"}: <code>{p.resend_broadcast_id}</code></div>
+          )}
+
+          {isRP && sendPreview && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+              <div className="text-xs text-amber-300">
+                This sends <span className="font-bold">{sendPreview.recipients.toLocaleString()}</span> real emails
+                ({sendPreview.segment === "all" ? "everyone" : `segment ${sendPreview.segment}`}). No undo.
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setSendPreview(null)} className="text-xs text-ops-text-muted hover:text-ops-text">Cancel</button>
+                <button type="button" disabled={busy !== null} onClick={() => sendRP(true)}
+                  className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black disabled:opacity-40">
+                  {busy === "send" ? <Loader2 size={13} className="animate-spin" /> : `Send to ${sendPreview.recipients.toLocaleString()} now`}
+                </button>
+              </div>
+            </div>
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ops-border pt-3">
@@ -332,17 +403,37 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
               className="flex items-center gap-1.5 text-xs text-ops-text-muted hover:text-red-400 disabled:opacity-0">
               <Trash2 size={13} /> Delete
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {isRP && (
+                <div className="flex items-center gap-1.5">
+                  <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="test inbox…"
+                    className="w-40 rounded-lg border border-ops-border bg-ops-bg px-2.5 py-2 text-xs text-ops-text placeholder:text-ops-text-muted focus:outline-none" />
+                  <button type="button" disabled={busy !== null || !testTo.trim() || !f.subject || !f.html} onClick={sendTest}
+                    title="One rendered test send, exactly as the broadcast would look"
+                    className="rounded-lg border border-ops-border px-3 py-2 text-xs font-semibold text-ops-text hover:bg-ops-bg disabled:opacity-40">
+                    {busy === "test" ? <Loader2 size={13} className="animate-spin" /> : "Send test"}
+                  </button>
+                </div>
+              )}
               <button type="button" disabled={busy !== null || !f.title.trim()} onClick={saveAndClose}
                 className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-bg disabled:opacity-40">
                 {busy === "save" ? <Loader2 size={15} className="animate-spin" /> : "Save"}
               </button>
-              <button type="button" disabled={busy !== null || !f.title.trim() || !resendConnected} onClick={push}
-                title={resendConnected ? "Create the broadcast in Resend and schedule it for the date above" : "Set RESEND_API_KEY for this brand on ops to enable"}
-                className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                {busy === "push" ? <Loader2 size={15} className="animate-spin" /> : <Send size={14} />}
-                Push to Resend
-              </button>
+              {isRP ? (
+                <button type="button" disabled={busy !== null || !f.title.trim() || p?.status === "sent" || !!sendPreview} onClick={() => sendRP(false)}
+                  title={p?.status === "sent" ? "Already sent — duplicate a new plan to re-run it" : "Shows the live recipient count first; nothing sends until you confirm"}
+                  className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  {busy === "send" && !sendPreview ? <Loader2 size={15} className="animate-spin" /> : <Send size={14} />}
+                  Review &amp; send
+                </button>
+              ) : (
+                <button type="button" disabled={busy !== null || !f.title.trim() || !resendConnected} onClick={push}
+                  title={resendConnected ? "Create the broadcast in Resend and schedule it for the date above" : "Set RESEND_API_KEY for this brand on ops to enable"}
+                  className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  {busy === "push" ? <Loader2 size={15} className="animate-spin" /> : <Send size={14} />}
+                  Push to Resend
+                </button>
+              )}
             </div>
           </div>
         </div>
