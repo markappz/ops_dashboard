@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FlowCanvas } from "../components/flow-canvas";
+import { FlowBuilder, type BuilderFlow } from "../components/flow-builder";
+import { Plus } from "lucide-react";
 import { GitBranch, Table2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Loader2, ShieldCheck, Upload, X } from "lucide-react";
@@ -31,6 +33,20 @@ export default function RealPeptidesFlows() {
   });
   const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
   const [view, setView] = useState<"table" | "canvas">("canvas");
+  const [builder, setBuilder] = useState<Partial<BuilderFlow> | null>(null);
+  const custom = useQuery({
+    queryKey: ["rp-custom-flows"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/custom-flows", { credentials: "include" })).json() as
+      Promise<{ flows?: { id: string; key: string; name: string; status: "draft" | "active" | "paused"; trigger: { type: string; segment?: string }; exitOnPurchase: boolean; steps: { index: number; delayHours: number; subject: string; html_b64?: string }[]; enrollments: { active: number; completed: number; exited: number } }[]; error?: string }>,
+    staleTime: 60_000,
+  });
+  const fromB64 = (x?: string) => { try { return x ? new TextDecoder().decode(Uint8Array.from(atob(x), (c) => c.charCodeAt(0))) : ""; } catch { return ""; } };
+  const openForEdit = (id: string) => {
+    const f = custom.data?.flows?.find((x) => x.id === id);
+    if (!f) return;
+    setBuilder({ id: f.id, key: f.key, name: f.name, status: f.status, trigger: f.trigger as BuilderFlow["trigger"], exitOnPurchase: f.exitOnPurchase,
+      steps: f.steps.map((st) => ({ delayHours: st.delayHours, subject: st.subject, html: fromB64(st.html_b64) })) });
+  };
   const overrides = useQuery({
     queryKey: ["rp-overrides"],
     queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/overrides", { credentials: "include" })).json() as
@@ -67,6 +83,42 @@ export default function RealPeptidesFlows() {
       </div>
       <UnsubImport />
       {flows.isLoading && <Loader2 className="animate-spin text-ops-text-muted" />}
+      <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-ops-text">Your flows</h2>
+            <p className="text-xs text-ops-text-muted">Built on the canvas, run by the live engine. Drafts never send; activation is explicit.</p>
+          </div>
+          <button type="button" onClick={() => setBuilder({})}
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3.5 py-2 text-xs font-bold text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]">
+            <Plus size={13} /> New flow
+          </button>
+        </div>
+        {custom.data?.flows?.length ? (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {custom.data.flows.map((f) => (
+              <button key={f.id} type="button" onClick={() => void openForEdit(f.id)}
+                className="rounded-xl border border-ops-border bg-ops-bg/40 p-3 text-left transition hover:border-brand-blue-500/50">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs font-bold text-ops-text">{f.name}</span>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
+                    f.status === "active" ? "bg-emerald-500/15 text-emerald-400" : f.status === "paused" ? "bg-amber-500/15 text-amber-400" : "bg-ops-border text-ops-text-muted"}`}>{f.status}</span>
+                </div>
+                <div className="mt-1 text-[11px] text-ops-text-muted">
+                  {f.trigger.type === "optin" ? "on opt-in" : f.trigger.type === "first-purchase" ? "on order" : `segment one-shot${f.trigger.segment ? ` · ${f.trigger.segment}` : ""}`} · {f.steps.length} email{f.steps.length === 1 ? "" : "s"}
+                </div>
+                <div className="mt-1 text-[10px] tabular-nums text-ops-text-subtle">
+                  {f.enrollments.active.toLocaleString()} active · {f.enrollments.completed.toLocaleString()} completed · {f.enrollments.exited.toLocaleString()} exited
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-ops-border px-3 py-5 text-center text-xs text-ops-text-muted">
+            {custom.data?.error ? custom.data.error : "No custom flows yet — hit New flow and build your first sequence on the canvas."}
+          </div>
+        )}
+      </div>
       {!!flows.data?.instant?.length && (
         <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
           <h2 className="mb-2 text-sm font-bold text-ops-text">Instant sends</h2>
@@ -163,6 +215,7 @@ export default function RealPeptidesFlows() {
       ))}
       <SiteEmailCatalog onPreview={(key, name) => setOpen({ instant: key, subject: name })} />
       {open && <PreviewModal {...open} onClose={() => setOpen(null)} />}
+      {builder !== null && <FlowBuilder initial={builder} onClose={() => setBuilder(null)} onSaved={() => void custom.refetch()} />}
     </div>
   );
 }

@@ -62,6 +62,25 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+  // ── Visual flow builder (2026-10-02): list + one write proxy for the custom-flow actions.
+  app.get("/api/ops/realpeptides/marketing/custom-flows", async (_req, res) => {
+    try {
+      res.json(await bridge("/api/ops-marketing?what=custom-flows"));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/ops/realpeptides/marketing/custom-flow", async (req, res) => {
+    try {
+      const action = String(req.body?.action ?? "");
+      if (!action.startsWith("custom-flow-")) return res.status(400).json({ error: "not a custom-flow action" });
+      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: req.body }));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   // One flow step rendered exactly as the engine would send it - the browser review gallery.
   app.post("/api/ops/realpeptides/marketing/render", async (req, res) => {
     try {
