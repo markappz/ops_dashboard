@@ -219,6 +219,61 @@ export default function RealPeptidesBroadcasts() {
           })}
         </div>
       </div>
+      <McpConnectCard />
+    </div>
+  );
+}
+
+/**
+ * Agent access — the "simple MCP UX": everything an agent builder needs to connect, in one card
+ * with copy buttons. The token itself is never displayed (it lives with Paul); the card explains
+ * exactly what an agent can and cannot do.
+ */
+function McpConnectCard() {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const URL_ = "https://ops.fitscript.me/api/mcp/rp-email";
+  const CONFIG = `{
+  "mcpServers": {
+    "rp-email": {
+      "url": "${URL_}",
+      "headers": { "Authorization": "Bearer <TOKEN — ask Paul>" }
+    }
+  }
+}`;
+  const copy = async (label: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch { /* http fallback: manual copy */ }
+  };
+  return (
+    <div className="rounded-2xl border border-ops-border bg-ops-surface">
+      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="text-sm font-bold text-ops-text">🤖 Agent access (MCP) <span className="font-normal text-ops-text-muted">· connect Claude or any agent builder to draft campaigns here</span></span>
+        <span className="text-xs text-ops-text-muted">{open ? "Hide" : "Show"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-ops-border p-4 text-xs text-ops-text-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-ops-text">Endpoint</span>
+            <code className="rounded bg-ops-bg px-2 py-1 text-[11px] text-ops-text">{URL_}</code>
+            <button type="button" onClick={() => copy("url", URL_)} className="rounded-lg border border-ops-border px-2 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">{copied === "url" ? "Copied ✓" : "Copy"}</button>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center gap-2">
+              <span className="font-semibold text-ops-text">Config (Claude Desktop / any MCP client)</span>
+              <button type="button" onClick={() => copy("cfg", CONFIG)} className="rounded-lg border border-ops-border px-2 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">{copied === "cfg" ? "Copied ✓" : "Copy"}</button>
+            </div>
+            <pre className="overflow-x-auto rounded-lg border border-ops-border bg-ops-bg p-3 text-[11px] leading-relaxed text-ops-text">{CONFIG}</pre>
+            <div className="mt-1">The bearer token is NOT shown here — ask Paul for it. Keep it out of repos and prompts.</div>
+          </div>
+          <div>
+            <span className="font-semibold text-ops-text">What the agent can do:</span> list segments with live counts, preview audience sizes, create and update campaign <b>drafts</b> (they appear in the list above), send tests to a named inbox, and read campaign stats.
+            <span className="font-semibold text-ops-text"> What it can't:</span> mass-send. Every real send is a human clicking Review &amp; send on this page.
+          </div>
+          <div>
+            <span className="font-semibold text-ops-text">Gotcha:</span> pass email HTML as <code>html_base64</code> (base64-encoded) — the firewall rejects raw HTML inside JSON.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
