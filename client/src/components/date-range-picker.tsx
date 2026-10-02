@@ -167,12 +167,21 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
       </button>
       {open && createPortal(
         <>
-          {isPhone && <div className="fixed inset-0 z-[59] bg-black/40" onClick={() => setOpen(false)} />}
+          {/* Phones: a CENTERED modal card (Paul, 10-02 — the bottom sheet read as misplaced),
+              with the Cancel/Apply bar pinned below the scrolling calendar. */}
+          {isPhone && <div className="fixed inset-0 z-[59] bg-black/50 backdrop-blur-[2px]" onClick={() => setOpen(false)} />}
           <div ref={panelRef} style={isPhone ? undefined : { top: pos.top, right: pos.right }}
             className={isPhone
-              ? "fixed inset-x-0 bottom-0 z-[60] flex max-h-[85vh] flex-col rounded-t-2xl border-t border-ops-border bg-ops-surface pb-[env(safe-area-inset-bottom)] shadow-2xl"
+              ? "fixed left-1/2 top-1/2 z-[60] flex max-h-[82vh] w-[calc(100vw-2rem)] max-w-[380px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"
               : "fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"}>
-          {isPhone && <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ops-border" />}
+          {isPhone && (
+            <div className="flex shrink-0 items-center justify-between border-b border-ops-border px-4 py-3">
+              <span className="text-sm font-semibold text-ops-text">Date range</span>
+              <button type="button" onClick={() => setOpen(false)} className="rounded p-1 text-ops-text-muted hover:text-ops-text" aria-label="Close">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+          )}
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-visible">
           <div className="flex max-h-[180px] shrink-0 flex-row flex-wrap gap-1 overflow-y-auto border-b border-ops-border p-2 md:max-h-none md:w-44 md:flex-col md:flex-nowrap md:overflow-y-auto md:border-b-0 md:border-r">
             {PRESETS.map((p) => (

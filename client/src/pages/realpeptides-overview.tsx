@@ -247,9 +247,15 @@ export default function RealPeptidesOverview() {
         <Card label={`Sessions · ${rlabel}`} to="/realpeptides/traffic"
           value={traffic?.pixelInstalled ? <>{num(traffic.current.sessions)}<Delta cur={traffic.current.sessions} prev={traffic.previous.sessions} /></> : "—"}
           sub={traffic?.pixelInstalled ? `${num(traffic.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
-        <Card label={`Search clicks · ${rlabel}`} to="/realpeptides/pages"
+        <Card
+          // Search Console publishes ~2 days late and short windows are clamped to 7 days, so
+          // this tile labels the window it ACTUALLY shows instead of echoing the page range
+          // (it used to read "today" while showing a trailing week — Paul caught it 10-02).
+          label={`Search clicks · ${rangeDays(range) < 7 ? "7d" : rlabel}`} to="/realpeptides/pages"
           value={d.pages.data?.gsc?.connected ? <>{num(pg?.clicks)}<Delta cur={pg?.clicks ?? 0} prev={pg?.prevClicks ?? 0} /></> : d.pages.isLoading ? "…" : "—"}
-          sub={d.pages.data?.gsc?.connected ? `${num(pg?.impressions)} impressions · Search Console` : d.pages.data?.gsc?.error ?? "Search Console"} />
+          sub={d.pages.data?.gsc?.connected
+            ? `${num(pg?.impressions)} impressions · GSC through ${d.pages.data?.window?.end ?? "—"} (lags ~2 days)`
+            : d.pages.data?.gsc?.error ?? "Search Console"} />
       </div>
 
       <Section title="Leads" hint={<>realpeptides.co CRM → Resend · same window as the tiles above{d.contacts.data?.generatedAt ? ` · as of ${clock(d.contacts.data.generatedAt)}` : ""}</>}>
