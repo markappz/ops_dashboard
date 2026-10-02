@@ -25,7 +25,9 @@ export default function RealPeptidesBroadcasts() {
     queryKey: ["rp-plans"],
     // The planner answers { plans, resendConnected, defaultFrom } - unwrap to the rows.
     queryFn: async () => {
-      const j = (await (await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" })).json()) as { plans?: Plan[] };
+      const r = await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" });
+      const j = (await r.json()) as { plans?: Plan[]; error?: string };
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       return j.plans ?? [];
     },
   });

@@ -31,17 +31,27 @@ export default function RealPeptidesAudience() {
 
   const contacts = useQuery({
     queryKey: ["rp-audience", q, page],
-    queryFn: async () => (await fetch(`/api/ops/realpeptides/marketing/contacts?q=${encodeURIComponent(q)}&page=${page}&pageSize=50`, { credentials: "include" })).json() as
-      Promise<{ total: number; page: number; pageSize: number; rows: Row[] }>,
+    queryFn: async () => {
+      const r = await fetch(`/api/ops/realpeptides/marketing/contacts?q=${encodeURIComponent(q)}&page=${page}&pageSize=50`, { credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return j as { total: number; page: number; pageSize: number; rows: Row[] };
+    },
+    retry: 1,
   });
   const feed = useQuery({
     queryKey: ["rp-audience-feed"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/recent-events?limit=60", { credentials: "include" })).json() as Promise<{ events: Ev[] }>,
+    queryFn: async () => {
+      const r = await fetch("/api/ops/realpeptides/marketing/recent-events?limit=60", { credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return j as { events: Ev[] };
+    },
     refetchInterval: 60_000,
   });
 
   const d = contacts.data;
-  const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
+  const pages = typeof d?.total === "number" && d.pageSize ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
 
   return (
     <div className="space-y-5">
@@ -53,9 +63,11 @@ export default function RealPeptidesAudience() {
         <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white"><Search size={14} /> Search</button>
       </form>
 
+      {contacts.error && <div className="max-w-xl rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{String((contacts.error as Error).message)}</div>}
+
       <div className="rounded-2xl border border-ops-border bg-ops-surface">
         <div className="flex items-center justify-between px-4 py-3">
-          <span className="text-sm font-bold text-ops-text">Contacts <span className="font-normal text-ops-text-muted">· {d ? d.total.toLocaleString() : "…"}{q ? ` matching “${q}”` : ""}</span></span>
+          <span className="text-sm font-bold text-ops-text">Contacts <span className="font-normal text-ops-text-muted">· {typeof d?.total === "number" ? d.total.toLocaleString() : "…"}{q ? ` matching “${q}”` : ""}</span></span>
           {contacts.isFetching && <Loader2 size={14} className="animate-spin text-ops-text-muted" />}
         </div>
         <div className="overflow-x-auto border-t border-ops-border">
