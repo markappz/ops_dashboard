@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard as SharedStatCard } from "../components/stat";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { InlineError, hasApiError } from "../components/query-error";
 import { CostVsRevenueChart } from "../components/charts/cost-vs-revenue-chart";
@@ -43,13 +44,7 @@ interface Campaign {
 const PIE_COLORS = ["#2E5BFF", "#5C7FFF", "#9FB6FF", "#1E4FE0", "#16263E", "#0EA57A", "#D97706", "#6B7280", "#1DA1F2", "#0A66C2"];
 
 function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <div className="text-[11px] text-ops-text-muted font-medium uppercase tracking-[0.1em] mb-2">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight ${accent ? "text-brand-blue-500" : "text-ops-text"}`}>{value}</div>
-      {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
-    </div>
-  );
+  return <SharedStatCard label={label} value={value} sub={sub} accent={accent} />;
 }
 
 function FunnelBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { PageHero } from "../components/page-hero";
 import { DateRangePicker, rangeQuery, useDateRange } from "../components/date-range-picker";
 
@@ -62,14 +63,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "warn" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-amber-500" : "text-ops-text";
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} tone={tone} />;
 }
 
 export default function RealPeptidesAffiliates() {

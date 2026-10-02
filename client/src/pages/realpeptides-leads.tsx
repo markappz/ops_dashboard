@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
@@ -38,14 +39,7 @@ const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => 
 const MINUTE = 60_000;
 
 function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "muted" | "accent" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "muted" ? "text-ops-text-muted" : tone === "accent" ? "text-brand-blue-500" : "text-ops-text";
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} tone={tone === "good" ? "good" : undefined} accent={tone === "accent"} />;
 }
 
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
