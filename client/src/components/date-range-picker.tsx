@@ -112,6 +112,7 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number; left?: number }>({ top: 0, right: 0 });
+  const [isPhone, setIsPhone] = useState(false);
   const now = useMemo(() => new Date(), [open]);
 
   // The panel is portaled to <body> and fixed-positioned under the button, so
@@ -122,9 +123,11 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
     const place = () => {
       const r = ref.current?.getBoundingClientRect();
       if (!r) return;
-      // Phones: full-width sheet under the button. Desktop: right-aligned to the button.
-      if (window.innerWidth < 768) setPos({ top: r.bottom + 8, left: 16, right: 16 });
-      else setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right) });
+      // Phones: a bottom sheet with the Apply bar pinned - a dropdown under the button ran past
+      // the bottom of the screen and hid Apply (Paul, 2026-10-02). Desktop: right-aligned dropdown.
+      const phone = window.innerWidth < 768;
+      setIsPhone(phone);
+      if (!phone) setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right) });
     };
     place();
     const onDoc = (e: MouseEvent) => {
@@ -163,8 +166,15 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
         <Calendar size={14} className="text-ops-text-muted" /> {fmtRange(value)} <ChevronDown size={14} className="text-ops-text-muted" />
       </button>
       {open && createPortal(
-        <div ref={panelRef} style={{ top: pos.top, right: pos.right, left: pos.left }} className="fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col overflow-auto rounded-2xl border border-ops-border bg-ops-surface shadow-2xl md:flex-row">
-          <div className="flex max-h-[220px] flex-row flex-wrap gap-1 overflow-y-auto border-b border-ops-border p-2 md:max-h-none md:w-44 md:flex-col md:flex-nowrap md:border-b-0 md:border-r">
+        <>
+          {isPhone && <div className="fixed inset-0 z-[59] bg-black/40" onClick={() => setOpen(false)} />}
+          <div ref={panelRef} style={isPhone ? undefined : { top: pos.top, right: pos.right }}
+            className={isPhone
+              ? "fixed inset-x-0 bottom-0 z-[60] flex max-h-[85vh] flex-col rounded-t-2xl border-t border-ops-border bg-ops-surface pb-[env(safe-area-inset-bottom)] shadow-2xl"
+              : "fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"}>
+          {isPhone && <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-ops-border" />}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-visible">
+          <div className="flex max-h-[180px] shrink-0 flex-row flex-wrap gap-1 overflow-y-auto border-b border-ops-border p-2 md:max-h-none md:w-44 md:flex-col md:flex-nowrap md:overflow-y-auto md:border-b-0 md:border-r">
             {PRESETS.map((p) => (
               <button key={p.key} type="button" onClick={() => pickPreset(p.key)} className={`rounded-lg px-3 py-1.5 text-left text-sm ${draft.key === p.key ? "bg-fitscript-green/10 font-medium text-fitscript-green" : "text-ops-text hover:bg-ops-border/60"}`}>{p.label}</button>
             ))}
@@ -182,15 +192,18 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
               <Month month={leftMonth} start={start} end={end} hover={hover} onPick={pickDay} onHover={setHover} max={now} />
               <div className="hidden md:block"><Month month={addMonths(leftMonth, 1)} start={start} end={end} hover={hover} onPick={pickDay} onHover={setHover} max={now} /></div>
             </div>
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-ops-border pt-3">
-              <span className="text-xs text-ops-text-muted">{start && end ? `${rangeDays({ from: start, to: end, label: "", key: "" })} days` : "Pick a start and end day"}</span>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-ops-border px-3 py-1.5 text-sm text-ops-text hover:bg-ops-border/60">Cancel</button>
-                <button type="button" onClick={apply} disabled={!canApply} className="rounded-lg bg-fitscript-green px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Apply</button>
-              </div>
+          </div>
+          </div>
+          {/* Pinned action bar: visible no matter how tall the calendar is - the whole point. */}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-ops-border px-4 py-3">
+            <span className="text-xs text-ops-text-muted">{start && end ? `${rangeDays({ from: start, to: end, label: "", key: "" })} days` : "Pick a start and end day"}</span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-border/60">Cancel</button>
+              <button type="button" onClick={apply} disabled={!canApply} className="rounded-lg bg-fitscript-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Apply</button>
             </div>
           </div>
-        </div>,
+          </div>
+        </>,
         document.body,
       )}
     </div>
