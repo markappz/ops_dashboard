@@ -78,6 +78,8 @@ export default function RealPeptidesEmail() {
 
       <EmailCalendar company="realpeptides" />
 
+      <SegmentsCard />
+
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading email analytics…</div>}
       {q.error && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.error as Error).message}</div>}
       {d && !d.configured && (
@@ -262,5 +264,57 @@ function FlowRow({ f }: { f: Flow }) {
         </tr>
       )}
     </>
+  );
+}
+
+interface SegmentRow { slug: string; name: string; description: string; count: number }
+
+/**
+ * The engine's segments with live counts — the same audiences the broadcast composer's picker
+ * offers. Definitions live in code (site repo, lib/server/flows/segments.ts) and membership is
+ * recomputed by the flow sweep; these replaced the Resend segments 1:1 after the 2026-10-01
+ * suspension (Resend's copies were mirrors of these to begin with).
+ */
+function SegmentsCard() {
+  const q = useQuery({
+    queryKey: ["rp-marketing-segments-full"],
+    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/segments", { credentials: "include" })).json() as
+      Promise<{ all: number; segments: SegmentRow[] }>,
+    staleTime: 5 * 60_000,
+  });
+  const [openSeg, setOpenSeg] = useState(false);
+  if (!q.data?.segments) return null;
+  return (
+    <div className="mb-6 rounded-2xl border border-ops-border bg-ops-surface shadow-card">
+      <button type="button" onClick={() => setOpenSeg(!openSeg)} className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="text-sm font-semibold text-ops-text">Segments <span className="font-normal text-ops-text-muted">· {q.data.segments.length} live · everyone mailable: {q.data.all.toLocaleString()}</span></span>
+        <span className="text-xs text-ops-text-muted">{openSeg ? "Hide" : "Show"}</span>
+      </button>
+      {openSeg && (
+        <div className="overflow-x-auto border-t border-ops-border">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wide text-ops-text-muted">
+                <th className="px-4 py-2 font-medium">Segment</th>
+                <th className="px-4 py-2 font-medium">Contacts</th>
+                <th className="px-4 py-2 font-medium">Definition</th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.data.segments.map((sg) => (
+                <tr key={sg.slug} className="border-t border-ops-border/60">
+                  <td className="px-4 py-2 font-medium text-ops-text">{sg.name} <code className="ml-1 text-[10px] text-ops-text-muted">{sg.slug}</code></td>
+                  <td className="px-4 py-2 text-ops-text">{sg.count.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-ops-text-muted">{sg.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="border-t border-ops-border px-4 py-2 text-[11px] text-ops-text-muted">
+            Segment definitions live in code and recompute automatically. Need a new one? Ask — it ships as a definition, so it stays correct forever instead of drifting like a hand-built list.
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

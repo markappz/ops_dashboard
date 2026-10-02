@@ -15,22 +15,38 @@ import { PageHero } from "../components/page-hero";
 
 interface FlowStep { stepIndex: number; subject: string; delayHours: number; handAuthored: boolean }
 interface Flow { key: string; banner: string; exitOnPurchase: boolean; steps: FlowStep[] }
+interface InstantSend { key: string; name: string }
 
 const fmtDelay = (h: number) => (h === 0 ? "immediately" : h % 24 === 0 ? `+${h / 24}d` : `+${h}h`);
 
 export default function RealPeptidesFlows() {
   const flows = useQuery({
     queryKey: ["rp-flows"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/flows", { credentials: "include" })).json() as Promise<{ flows: Flow[] }>,
+    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/flows", { credentials: "include" })).json() as Promise<{ flows: Flow[]; instant?: InstantSend[] }>,
     staleTime: 5 * 60_000,
   });
-  const [open, setOpen] = useState<{ flowKey: string; stepIndex: number; subject: string } | null>(null);
+  const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
 
   return (
     <div className="space-y-6">
       <PageHero title="Email Flows — Review" subtitle="Each step renders through the live engine, exactly as it would send. Flow sends are paused until this review is complete." />
       <UnsubImport />
       {flows.isLoading && <Loader2 className="animate-spin text-ops-text-muted" />}
+      {!!flows.data?.instant?.length && (
+        <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+          <h2 className="mb-2 text-sm font-bold text-ops-text">Instant sends</h2>
+          <p className="mb-3 text-xs text-ops-text-muted">One-off marketing emails that fire the moment something happens — not flow steps, but customers receive them, so they belong in this review. The welcome offer-code email is what delivers each subscriber's unique 40% code; the flow continues the story from the next day.</p>
+          {flows.data.instant.map((i) => (
+            <div key={i.key} className="flex items-center justify-between border-t border-ops-border/60 py-2 text-xs">
+              <span className="font-medium text-ops-text">{i.name}</span>
+              <button type="button" onClick={() => setOpen({ instant: i.key, subject: i.name })}
+                className="inline-flex items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg">
+                <Eye size={12} /> Preview
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {flows.data?.flows?.map((f) => (
         <div key={f.key} className="rounded-2xl border border-ops-border bg-ops-surface p-4">
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -82,13 +98,13 @@ export default function RealPeptidesFlows() {
   );
 }
 
-function PreviewModal({ flowKey, stepIndex, subject, onClose }: { flowKey: string; stepIndex: number; subject: string; onClose: () => void }) {
+function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowKey?: string; stepIndex?: number; instant?: string; subject: string; onClose: () => void }) {
   const q = useQuery({
-    queryKey: ["rp-flow-render", flowKey, stepIndex],
+    queryKey: ["rp-flow-render", flowKey, stepIndex, instant],
     queryFn: async () => {
       const r = await fetch("/api/ops/realpeptides/marketing/render", {
         method: "POST", credentials: "include", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ flowKey, stepIndex }),
+        body: JSON.stringify(instant ? { instant } : { flowKey, stepIndex }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -102,14 +118,21 @@ function PreviewModal({ flowKey, stepIndex, subject, onClose }: { flowKey: strin
         <div className="flex items-center justify-between gap-3 border-b border-ops-border p-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-ops-text">{q.data?.subject ?? subject}</div>
-            <div className="text-[11px] text-ops-text-muted">{flowKey} · step {stepIndex + 1}{q.data ? ` · ${q.data.source === "hand-authored" ? "Josh's salvaged copy" : "engine render"} · sample contact “Alex”` : ""}</div>
+            <div className="text-[11px] text-ops-text-muted">{instant ? "instant send" : `${flowKey} · step ${(stepIndex ?? 0) + 1}`}{q.data ? ` · ${q.data.source === "hand-authored" ? "Josh's salvaged copy" : "engine render"}` : ""}</div>
           </div>
           <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={18} /></button>
         </div>
         <div className="p-3">
           {q.isLoading && <div className="flex h-40 items-center justify-center"><Loader2 className="animate-spin text-ops-text-muted" /></div>}
           {q.error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">{String((q.error as Error).message)}</div>}
-          {q.data && <iframe title="Email preview" sandbox="" srcDoc={q.data.html} className="h-[72vh] w-full rounded-lg border border-ops-border bg-white" />}
+          {q.data && (
+            <>
+              <div className="mb-2 rounded-lg border border-brand-blue-500/30 bg-brand-blue-500/10 px-3 py-1.5 text-[11px] text-brand-blue-300">
+                Preview uses sample values: <code>SAMPLE10</code> stands in for the contact's unique promo code (minted per person at opt-in), "Alex" for their first name. Real sends substitute each recipient's own values.
+              </div>
+              <iframe title="Email preview" sandbox="" srcDoc={q.data.html} className="h-[68vh] w-full rounded-lg border border-ops-border bg-white" />
+            </>
+          )}
         </div>
       </div>
     </div>

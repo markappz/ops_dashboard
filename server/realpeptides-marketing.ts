@@ -65,8 +65,8 @@ export function registerRealPeptidesMarketing(app: Express) {
   // One flow step rendered exactly as the engine would send it - the browser review gallery.
   app.post("/api/ops/realpeptides/marketing/render", async (req, res) => {
     try {
-      const { flowKey, stepIndex } = req.body ?? {};
-      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render", flowKey, stepIndex } }));
+      const { flowKey, stepIndex, instant } = req.body ?? {};
+      res.json(await bridge("/api/ops-marketing", { method: "PUT", body: { action: "render", flowKey, stepIndex, instant } }));
     } catch (e: any) {
       res.status(502).json({ error: e.message });
     }
