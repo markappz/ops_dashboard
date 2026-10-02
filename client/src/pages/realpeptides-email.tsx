@@ -283,6 +283,26 @@ function SegmentsCard() {
     staleTime: 5 * 60_000,
   });
   const [openSeg, setOpenSeg] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+
+  async function exportSegment(slug: string) {
+    setExporting(slug);
+    try {
+      const r = await fetch(`/api/ops/realpeptides/marketing/export?segment=${encodeURIComponent(slug)}`, { credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+      const csv = ["email,first_name,unsubscribed", ...j.rows.map((row: any) => [row.email, row.firstName, row.unsubscribed].map((v) => esc(String(v))).join(","))].join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      a.download = `rp-segment-${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+    setExporting(null);
+  }
+
   if (!q.data?.segments) return null;
   return (
     <div className="mb-6 rounded-2xl border border-ops-border bg-ops-surface shadow-card">
@@ -298,6 +318,7 @@ function SegmentsCard() {
                 <th className="px-4 py-2 font-medium">Segment</th>
                 <th className="px-4 py-2 font-medium">Contacts</th>
                 <th className="px-4 py-2 font-medium">Definition</th>
+                <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -306,6 +327,12 @@ function SegmentsCard() {
                   <td className="px-4 py-2 font-medium text-ops-text">{sg.name} <code className="ml-1 text-[10px] text-ops-text-muted">{sg.slug}</code></td>
                   <td className="px-4 py-2 text-ops-text">{sg.count.toLocaleString()}</td>
                   <td className="px-4 py-2 text-ops-text-muted">{sg.description}</td>
+                  <td className="px-4 py-2 text-right">
+                    <button type="button" onClick={() => exportSegment(sg.slug)} disabled={exporting !== null}
+                      className="rounded-lg border border-ops-border px-2.5 py-1 text-[11px] font-semibold text-ops-text hover:bg-ops-bg disabled:opacity-40">
+                      {exporting === sg.slug ? "…" : "Export CSV"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

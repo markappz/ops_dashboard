@@ -94,6 +94,29 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+  // Per-contact engagement timeline for the Activity view.
+  app.get("/api/ops/realpeptides/marketing/activity", async (req, res) => {
+    try {
+      const email = String(req.query.email || "").trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: "email is required" });
+      res.json(await bridge(`/api/ops-marketing?what=activity&email=${encodeURIComponent(email)}`));
+    } catch (e: any) {
+      res.status(e.message?.includes("no marketing contact") ? 404 : 502).json({ error: e.message });
+    }
+  });
+
+  // Segment rows for CSV export - the client assembles and downloads the file.
+  app.get("/api/ops/realpeptides/marketing/export", async (req: any, res) => {
+    try {
+      const slug = String(req.query.segment || "").trim();
+      const out = await bridge(`/api/ops-marketing?what=export${slug ? `&segment=${encodeURIComponent(slug)}` : ""}`);
+      console.log(`[OPS][RP-MARKETING] export ${out.segment} (${out.rows?.length} rows) by ${req.adminEmail}`);
+      res.json(out);
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   app.post("/api/ops/realpeptides/marketing/test", async (req: any, res) => {
     try {
       const { subject, html, to } = req.body ?? {};
