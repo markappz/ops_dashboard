@@ -50,6 +50,17 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - Cookie: `ops_session` httpOnly, signed JSON `{email, exp}` with HMAC-SHA256
 - Logout: `POST /api/ops/auth/logout` clears cookie
 
+## Facelift conventions (2026-10-02)
+- Stat tiles: ALWAYS `StatCard` from `client/src/components/stat.tsx` (count-up, delta pill,
+  sparkline, skeleton come free). Page-local stat cards are retired; new ones are a regression.
+- Nav: one section taxonomy per brand in `ops-layout.tsx`; FitScript routes exist under BOTH
+  `/` and `/fitscript/*` (keep both; aliases drive highlighting).
+- `/api/ops/version` + the layout's poll = stale-bundle refresh toast. Server bundle sha is the
+  build id — don't remove the endpoint.
+- RP flow builder: `flow-canvas.tsx` (map) + `flow-builder.tsx` (editor) over
+  `/api/ops/realpeptides/marketing/custom-flow*` proxies; engine truth lives in the
+  real-peptides repo (CustomFlow tables, drafts never send).
+
 ## Companies
 Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**. Adding one means a
 `Company` union member, a nav section + routes, and the `COMPANIES` set in `server/google-auth.ts`.

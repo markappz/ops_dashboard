@@ -620,3 +620,28 @@ re-crawl included), and every source shows an as-of time.
 **How to apply:** new RP read = one `/api/ops-*` route on the site + a thin cached proxy in ops.
 An overview tile must import the tab's helper, never re-derive the number. Anything cached gets
 a visible "as of" and a forced-refresh path.
+
+## 2026-10-02 — Dashboard facelift system (P0–P6)
+
+One navigation taxonomy for every brand (Overview · Sales · Customers · Email · Marketing ·
+SEO · brand-specific · System); FitScript pages live at /fitscript/* with the old root URLs
+kept routing forever (prefix-aware alias map handles highlighting). All stat tiles ride ONE
+component — client/src/components/stat.tsx StatCard (count-ups, delta pills, sparklines,
+entrance stagger, central "…"→skeleton) — never add a page-local stat card again. Tables
+always get an overflow-x-auto wrapper. /api/ops/version returns the server-bundle sha and
+ops-layout polls it: every deploy surfaces a "refresh" toast in open tabs, which closes the
+stale-bundle class of bugs. Touch targets are hardened centrally via a pointer:coarse
+::after hit-area inset in index.css. Email calendar has Month/List views (phones default
+List). Talk Dirt (⌘K) does voice round-trips: speak → auto-send on pause → spoken answer
+(browser speech stack; mute toggle persists).
+
+## 2026-10-02 — RP visual flow builder architecture
+
+Ops-built email sequences (CustomFlow/CustomFlowStep on the RP site DB) materialize into the
+exact FlowDefinition shape and ride the SAME engine sweep as code flows — never a parallel
+runner. That buys dedupe (FlowSend unique claim), suppression, unsubscribe headers,
+exit-on-purchase and the copy-editor override chain for free. Keys are always custom-<slug>.
+Drafts never send (engine-level: the sweep holds their enrollments). Segment enrollment is a
+server-enforced two-step (counts without confirm, nothing enrolls). Canvas UI = @xyflow/react
+(flow-canvas.tsx read-only map, flow-builder.tsx editor). All HTML browser→ops travels base64
+(Cloudflare WAF rejects raw HTML in JSON).
