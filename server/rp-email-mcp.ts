@@ -61,10 +61,11 @@ const TOOLS = [
         subject: { type: "string" },
         preheader: { type: "string" },
         html: { type: "string", description: "Full email body HTML from any builder. The engine adds brand chrome and the per-recipient unsubscribe footer at send time." },
+        html_base64: { type: "string", description: "The same HTML, base64-encoded. PREFER THIS: the dashboard sits behind a WAF that can reject raw HTML in JSON (403). Provide html or html_base64, not both." },
         segment: { type: "string", description: "Segment slug; omit for everyone mailable." },
         send_date: { type: "string", description: "Intended send date YYYY-MM-DD (calendar placement only; sending is still manual)." },
       },
-      required: ["title", "subject", "html"],
+      required: ["title", "subject"],
       additionalProperties: false,
     },
   },
@@ -76,7 +77,7 @@ const TOOLS = [
       properties: {
         plan_id: { type: "number" },
         title: { type: "string" }, subject: { type: "string" }, preheader: { type: "string" },
-        html: { type: "string" }, segment: { type: "string" }, send_date: { type: "string" },
+        html: { type: "string" }, html_base64: { type: "string", description: "Base64-encoded HTML; preferred over raw html (WAF)." }, segment: { type: "string" }, send_date: { type: "string" },
       },
       required: ["plan_id"],
       additionalProperties: false,
@@ -92,8 +93,8 @@ const TOOLS = [
     description: "Send ONE rendered test email to a named inbox (brand chrome applied), exactly as the campaign would look. Use before asking a human to send.",
     inputSchema: {
       type: "object",
-      properties: { subject: { type: "string" }, html: { type: "string" }, to: { type: "string", description: "The test inbox." } },
-      required: ["subject", "html", "to"],
+      properties: { subject: { type: "string" }, html: { type: "string" }, html_base64: { type: "string", description: "Base64-encoded HTML; preferred over raw html (WAF)." }, to: { type: "string", description: "The test inbox." } },
+      required: ["subject", "to"],
       additionalProperties: false,
     },
   },
@@ -104,6 +105,14 @@ const TOOLS = [
   },
 ];
 
+/** html_base64 wins over html when both appear - raw HTML in JSON can be eaten by the WAF. */
+function resolveHtml(args: Record<string, unknown>): string | undefined {
+  if (typeof args.html_base64 === "string" && args.html_base64) {
+    return Buffer.from(args.html_base64, "base64").toString("utf8");
+  }
+  return typeof args.html === "string" ? args.html : undefined;
+}
+
 async function callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "list_segments":
@@ -111,10 +120,12 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case "preview_audience":
       return bridge("/api/ops-marketing", { method: "POST", body: { action: "preview", segment: args.segment } });
     case "create_campaign": {
+      const html = resolveHtml(args);
+      if (!html) throw new Error("Provide html or html_base64.");
       const { rows } = await pool.query(
         `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, audience_id, html, created_by)
          VALUES ('realpeptides', $1, $2, $3, 'draft', $4, $5, $6, 'mcp:josh') RETURNING id`,
-        [String(args.title).trim(), String(args.subject), args.preheader ?? null, args.send_date ?? null, args.segment ?? null, String(args.html)],
+        [String(args.title).trim(), String(args.subject), args.preheader ?? null, args.send_date ?? null, args.segment ?? null, html],
       );
       return {
         plan_id: rows[0].id,
@@ -127,6 +138,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       const { rows } = await pool.query("SELECT status FROM ops_email_plans WHERE id = $1 AND company = 'realpeptides'", [id]);
       if (!rows[0]) throw new Error(`No Real Peptides campaign with plan_id ${id}.`);
       if (rows[0].status === "sent") throw new Error("That campaign already sent - create a new draft instead.");
+      if (args.html_base64) args = { ...args, html: resolveHtml(args) };
       const sets: string[] = []; const vals: unknown[] = [id];
       const map: Record<string, string> = { title: "title", subject: "subject", preheader: "preheader", html: "html", segment: "audience_id", send_date: "send_date" };
       for (const [k, col] of Object.entries(map)) {
@@ -145,8 +157,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       );
       return { campaigns: rows };
     }
-    case "test_send":
-      return bridge("/api/ops-marketing", { method: "POST", body: { action: "test", subject: args.subject, html: args.html, to: args.to } });
+    case "test_send": {
+      const html = resolveHtml(args);
+      if (!html) throw new Error("Provide html or html_base64.");
+      return bridge("/api/ops-marketing", { method: "POST", body: { action: "test", subject: args.subject, html, to: args.to } });
+    }
     case "campaign_stats": {
       const c = rpCfg();
       if (!c) throw new Error("RP bridge is not configured on ops.");
