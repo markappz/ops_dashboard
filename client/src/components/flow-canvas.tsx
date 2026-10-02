@@ -130,6 +130,12 @@ export function FlowCanvas({ flow, onPreview }: { flow: CanvasFlow; onPreview: (
         minZoom={0.3}
         maxZoom={1.4}
         nodesConnectable={false}
+        // Embedded in a scrolling page: the wheel must scroll the PAGE, never zoom the canvas
+        // (Paul, 10-02: scrolling "gets stuck in each flow's box"). Zoom lives in the +/-
+        // controls and pinch; panning stays on drag.
+        zoomOnScroll={false}
+        zoomOnDoubleClick={false}
+        preventScrolling={false}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={22} size={1.2} color="rgb(var(--ops-border))" />

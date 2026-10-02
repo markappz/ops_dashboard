@@ -140,7 +140,7 @@ export default function RealPeptidesFlows() {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-bold text-ops-text">{f.banner}</h2>
             <code className="rounded bg-ops-bg px-1.5 py-0.5 text-[11px] text-ops-text-muted">{f.key}</code>
-            <span className="ml-auto text-[11px] text-ops-text-muted">tap an email node to preview · drag to arrange · scroll to zoom</span>
+            <span className="ml-auto text-[11px] text-ops-text-muted">tap an email node to preview · drag to pan · zoom with the +/− controls</span>
           </div>
           <FlowCanvas
             flow={{
