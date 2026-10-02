@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FlowCanvas } from "../components/flow-canvas";
+import { GitBranch, Table2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Loader2, ShieldCheck, Upload, X } from "lucide-react";
 import { PageHero } from "../components/page-hero";
@@ -28,6 +30,7 @@ export default function RealPeptidesFlows() {
     staleTime: 5 * 60_000,
   });
   const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
+  const [view, setView] = useState<"table" | "canvas">("canvas");
   const overrides = useQuery({
     queryKey: ["rp-overrides"],
     queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/overrides", { credentials: "include" })).json() as
@@ -49,7 +52,19 @@ export default function RealPeptidesFlows() {
 
   return (
     <div className="space-y-6">
-      <PageHero title="Email Flows — Review" subtitle="Each step renders through the live engine, exactly as it would send. Flow sends are paused until this review is complete." />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHero title="Email Flows" subtitle="Each step renders through the live engine, exactly as it would send. Canvas = the visual flow map; Table = the dense review grid." />
+        <div className="flex items-center rounded-lg border border-ops-border p-0.5">
+          <button type="button" onClick={() => setView("canvas")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${view === "canvas" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+            <GitBranch size={13} /> Canvas
+          </button>
+          <button type="button" onClick={() => setView("table")}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${view === "table" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+            <Table2 size={13} /> Table
+          </button>
+        </div>
+      </div>
       <UnsubImport />
       {flows.isLoading && <Loader2 className="animate-spin text-ops-text-muted" />}
       {!!flows.data?.instant?.length && (
@@ -67,7 +82,27 @@ export default function RealPeptidesFlows() {
           ))}
         </div>
       )}
-      {flows.data?.flows?.map((f) => (
+      {view === "canvas" && flows.data?.flows?.map((f) => (
+        <div key={`c-${f.key}`} className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-bold text-ops-text">{f.banner}</h2>
+            <code className="rounded bg-ops-bg px-1.5 py-0.5 text-[11px] text-ops-text-muted">{f.key}</code>
+            <span className="ml-auto text-[11px] text-ops-text-muted">tap an email node to preview · drag to arrange · scroll to zoom</span>
+          </div>
+          <FlowCanvas
+            flow={{
+              key: f.key, banner: f.banner, exitOnPurchase: f.exitOnPurchase, revenueCents: flowRevenue(f.key),
+              steps: f.steps.map((s) => {
+                const st = stepStats(f.key, s.stepIndex);
+                const o = overrideState(`flow-${f.key}-${s.stepIndex + 1}`);
+                return { ...s, edited: o ? (o.enabled ? "live" as const : "draft" as const) : undefined, sends: st?.sends, openRate: st?.openRate, clickRate: st?.clickRate };
+              }),
+            }}
+            onPreview={(stepIndex, subject) => setOpen({ flowKey: f.key, stepIndex, subject })}
+          />
+        </div>
+      ))}
+      {view === "table" && flows.data?.flows?.map((f) => (
         <div key={f.key} className="rounded-2xl border border-ops-border bg-ops-surface p-4">
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-bold text-ops-text">{f.banner}</h2>
