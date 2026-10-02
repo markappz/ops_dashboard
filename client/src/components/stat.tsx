@@ -110,7 +110,9 @@ export function StatCard({ label, value, number, format, sub, delta, spark, acce
         {spark && <div className={`-mt-1 shrink-0 opacity-80 ${accent ? "text-brand-blue-500" : "text-ops-text-muted"}`}><Sparkline points={spark} /></div>}
       </div>
       <div className={`text-2xl font-bold tracking-tight ${color}`}>
-        {number !== undefined ? <CountUp value={number} format={format} /> : value}
+        {value === "…"
+          ? <span className="ops-skeleton inline-block h-7 w-24 rounded-md align-middle" aria-label="loading" />
+          : number !== undefined ? <CountUp value={number} format={format} /> : value}
         {delta && <DeltaPill {...delta} />}
       </div>
       {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
@@ -32,30 +33,13 @@ interface ActivityItem {
   timestamp: string | null;
 }
 
-function MetricCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <div className="text-[10.5px] text-ops-text-muted font-medium uppercase tracking-[0.1em] mb-2">
-        {label}
-      </div>
-      <div className={`text-2xl font-bold tracking-tight ${accent ? "text-brand-blue-500" : "text-ops-text"}`}>
-        {value}
-      </div>
-      {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
-    </div>
-  );
+// Facelift P3: both legacy tiles ride the shared StatCard.
+function MetricCard({ label, value, sub, accent, i }: { label: string; value: string | number; sub?: string; accent?: boolean; i?: number }) {
+  return <StatCard label={label} value={value} sub={sub} accent={accent} i={i} />;
 }
 
 function GrowthCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-4 shadow-card hover:border-brand-blue-400/40 hover:bg-ops-surface-hover transition-colors cursor-pointer h-full">
-      <div className="text-[10px] text-ops-text-subtle font-semibold uppercase tracking-[0.14em] mb-1.5">
-        {label}
-      </div>
-      <div className="text-xl font-bold tracking-tight text-ops-text tabular-nums">{value}</div>
-      {sub && <div className="text-[10.5px] text-ops-text-muted mt-0.5">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} />;
 }
 
 function ActivityFeed({ items }: { items: ActivityItem[] }) {

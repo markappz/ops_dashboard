@@ -28,18 +28,8 @@ function Delta({ cur, prev, invert }: { cur: number; prev: number; invert?: bool
   return <span className={`ml-1.5 text-xs font-medium ${cls}`}>{d > 0 ? "+" : ""}{d.toFixed(0)}%</span>;
 }
 
-type Tone = "warn" | "bad" | "good" | "info";
-function Card({ label, value, sub, accent, tone, to }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; tone?: Tone; to?: string }) {
-  const color = tone === "bad" ? "text-red-400" : tone === "warn" ? "text-yellow-500" : tone === "good" ? "text-fitscript-green" : tone === "info" ? "text-violet-400" : accent ? "text-brand-blue-500" : "text-ops-text";
-  const body = (
-    <div className="h-full rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card transition hover:border-ops-text-muted/40">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
-  return to ? <Link href={to} className="block">{body}</Link> : body;
-}
+// All stat tiles ride the shared StatCard (facelift P3) — same props the local Card took.
+const Card = StatCard;
 
 function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
