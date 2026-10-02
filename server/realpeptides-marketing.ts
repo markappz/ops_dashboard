@@ -72,6 +72,17 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+  // One-click import of the 388 bounce/complaint suppressions salvaged from Resend (bundled site-side).
+  app.post("/api/ops/realpeptides/marketing/import-salvaged-suppressions", async (req: any, res) => {
+    try {
+      const out = await bridge("/api/ops-marketing", { method: "PUT", body: { action: "import-salvaged-suppressions" } });
+      console.log(`[OPS][RP-MARKETING] salvaged suppression import by ${req.adminEmail}:`, JSON.stringify(out));
+      res.json(out);
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
+
   // Compliance import: unsubscribed addresses from the salvaged Resend export, chunked by the client.
   app.post("/api/ops/realpeptides/marketing/import-unsubscribes", async (req: any, res) => {
     try {

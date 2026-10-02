@@ -143,6 +143,16 @@ function UnsubImport() {
   const [progress, setProgress] = useState<{ sent: number; updated: number; matched: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [suppResult, setSuppResult] = useState<string | null>(null);
+
+  async function importSalvagedSuppressions() {
+    setBusy(true); setErr(null);
+    const r = await fetch("/api/ops/realpeptides/marketing/import-salvaged-suppressions", { method: "POST", credentials: "include" });
+    const j = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) return setErr(j.error || `HTTP ${r.status}`);
+    setSuppResult(`${j.listed} salvaged bounce/complaint addresses processed — ${j.newlySuppressed} newly suppressed (the rest were already flagged by our own webhooks).`);
+  }
   const done = useMemo(() => !!(parsed && progress && progress.sent >= parsed.unsubs.length && !busy), [parsed, progress, busy]);
 
   async function onFile(file: File) {
@@ -197,6 +207,13 @@ function UnsubImport() {
         )}
       </div>
       {parsed && <div className="mt-2 text-[11px] text-ops-text-muted">{parsed.fileName}: {parsed.unsubs.length.toLocaleString()} unsubscribed addresses found.</div>}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-amber-500/20 pt-3">
+        <button type="button" disabled={busy || !!suppResult} onClick={importSalvagedSuppressions}
+          className="rounded-lg border border-ops-border px-3 py-1.5 text-xs font-semibold text-ops-text hover:bg-ops-bg disabled:opacity-40">
+          Import salvaged bounce/complaint list (388)
+        </button>
+        {suppResult && <span className="text-[11px] text-emerald-400">{suppResult}</span>}
+      </div>
       {progress && (
         <div className={`mt-2 rounded-lg border px-3 py-2 text-xs ${done ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400" : "border-ops-border text-ops-text-muted"}`}>
           {progress.sent.toLocaleString()} processed · {progress.matched.toLocaleString()} matched contacts · {progress.updated.toLocaleString()} newly flagged{done ? " — done. The difference is addresses already unsubscribed here or not in our CRM." : "…"}
