@@ -3510,3 +3510,14 @@ skeletons, pawgen hero sparklines); P4 calendar v2 (Month/List views, Today, pol
 send machinery untouched); P5 Dirt voice chat (auto-send on pause + spoken answers + mute
 toggle); P6 coarse-pointer hit-area expansion. P2/P3 browser-verified live (all 4 brand navs,
 19-20 StatCards/page animating, pawgen sparks). P4-P6 awaiting the tip deploy, verify next.
+
+## 2026-10-02 (~10am PT) — Facelift P2–P6 COMPLETE, all verified live
+
+Final deploy (010698f) landed and the full browser sweep passed on bundle Dqhad1i9:
+every stat tile in the app now rides the one shared StatCard (rp-leads 8, rp-affiliates 4,
+fs-marketing 4, rp-pages 5, peptideu 20 + 2 sparks, fitscript command center 20,
+pawgen-marketing 4, email/blended 6, brand-email 5, rp-traffic 4 — zero errors).
+Calendar v2, Dirt voice chat, coarse-pointer hit areas, unified nav, stale-bundle toast:
+all live and browser-verified. Deploy-watch lesson encoded: watch runs by sha
+(`gh run list --commit`), never "newest run". Facelift backlog now: Paul's calibration
+feedback, drag-to-reschedule calendar, /chat retirement (Paul's call), true-390 device pass.
