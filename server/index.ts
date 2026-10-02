@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { startEmailSchedulerLoop } from "./email-scheduler";
 import { readFileSync } from "fs";
 import "dotenv/config";
 import express from "express";
@@ -220,6 +221,7 @@ async function start() {
     startDirtDailyReportLoop();
     startEmailReportWarmer();
     startRpInventorySyncLoop();
+    startEmailSchedulerLoop();
     startStockConsumeLoops();
     startRpImageSyncLoop();
     startTargetRefreshLoop();

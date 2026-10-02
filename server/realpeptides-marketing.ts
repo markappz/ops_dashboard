@@ -40,6 +40,26 @@ async function bridge(path: string, init?: { method?: string; body?: unknown }) 
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
+/**
+ * Fire one RP plan through the engine bridge — shared by the send-rp route (human click) and
+ * the scheduler (fires plans the human explicitly set to "scheduled" with a date/time/tz).
+ * The caller owns status transitions AROUND this; this does the send + marks sent.
+ */
+export async function fireRpPlan(p: { id: number; title: string | null; subject: string | null; html: string | null; audience_id: string | null }, by: string): Promise<{ sent: number; of: number; tag: string }> {
+  const segment = p.audience_id?.trim() || undefined;
+  const tag = `ops-${p.id}-${slugify(p.title || p.subject || "broadcast")}`;
+  const out = await bridge("/api/ops-marketing", {
+    method: "POST",
+    body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
+  });
+  await pool.query(
+    `UPDATE ops_email_plans SET resend_broadcast_id = $2, status = 'sent', updated_at = NOW() WHERE id = $1`,
+    [p.id, out.tag],
+  );
+  console.log(`[OPS][RP-MARKETING] plan ${p.id} "${p.title}" sent to ${out.sent}/${out.of} (${out.tag}) by ${by}`);
+  return out;
+}
+
 export function registerRealPeptidesMarketing(app: Express) {
   let segCache: { at: number; data: any } | null = null;
 
@@ -206,6 +226,7 @@ export function registerRealPeptidesMarketing(app: Express) {
     }
   });
 
+
   app.post("/api/ops/email-plans/:id/send-rp", async (req: any, res) => {
     try {
       const { rows } = await pool.query("SELECT * FROM ops_email_plans WHERE id = $1", [parseInt(req.params.id, 10)]);
@@ -222,16 +243,7 @@ export function registerRealPeptidesMarketing(app: Express) {
         return res.json({ preview: true, recipients: preview.recipients, segment: preview.segment });
       }
 
-      const tag = `ops-${p.id}-${slugify(p.title || p.subject)}`;
-      const out = await bridge("/api/ops-marketing", {
-        method: "POST",
-        body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
-      });
-      await pool.query(
-        `UPDATE ops_email_plans SET resend_broadcast_id = $2, status = 'sent', updated_at = NOW() WHERE id = $1`,
-        [p.id, out.tag],
-      );
-      console.log(`[OPS][RP-MARKETING] plan ${p.id} "${p.title}" sent to ${out.sent}/${out.of} (${out.tag}) by ${req.adminEmail}`);
+      const out = await fireRpPlan(p, req.adminEmail ?? "ops");
       res.json({ ok: true, ...out });
     } catch (e: any) {
       res.status(502).json({ error: e.message });

@@ -12,7 +12,7 @@ import type { Express } from "express";
 import { pool } from "./db";
 
 const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen"]);
-const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sent"]);
+const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sending", "sent", "send_failed", "missed"]);
 const RESEND = "https://api.resend.com";
 
 function resendKey(company: string): string | null {
@@ -145,6 +145,9 @@ async function ensureTable() {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Scheduler timezone (2026-10-02): which wall clock send_date+send_time mean. Default ET
+  // matches the UI's historical label; the calendar/builder now write it explicitly.
+  await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS send_tz TEXT`);
 }
 
 /** Rich HTML in JSON gets eaten by the Cloudflare WAF in front of ops, so clients send it
@@ -167,7 +170,7 @@ export function registerEmailPlannerRoutes(app: Express) {
         catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
       }
       const { rows } = await pool.query(
-        `SELECT id, company, title, subject, preheader, status, send_date, send_time,
+        `SELECT id, company, title, subject, preheader, status, send_date, send_time, send_tz,
                 from_address, audience_id, notes, resend_broadcast_id,
                 (html IS NOT NULL AND html != '') AS has_design,
                 created_by, created_at, updated_at
@@ -198,8 +201,8 @@ export function registerEmailPlannerRoutes(app: Express) {
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
       if (!title) return res.status(400).json({ error: "The email needs a working title" });
       const { rows } = await pool.query(
-        `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, from_address, audience_id, html, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, send_tz, from_address, audience_id, html, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [
           company, title,
           b.subject ? String(b.subject) : null,
@@ -207,6 +210,7 @@ export function registerEmailPlannerRoutes(app: Express) {
           STATUSES.has(b.status) ? b.status : "idea",
           b.send_date || null,
           b.send_time ? String(b.send_time) : null,
+          b.send_tz ? String(b.send_tz) : null,
           b.from_address ? String(b.from_address) : defaultFrom(company),
           b.audience_id ? String(b.audience_id) : null,
           bodyHtml(b),
@@ -236,6 +240,7 @@ export function registerEmailPlannerRoutes(app: Express) {
            audience_id  = CASE WHEN $14 THEN $15 ELSE audience_id END,
            html         = CASE WHEN $16 THEN $17 ELSE html END,
            notes        = CASE WHEN $18 THEN $19 ELSE notes END,
+           send_tz      = CASE WHEN $20 THEN $21 ELSE send_tz END,
            updated_at   = NOW()
          WHERE id = $1 RETURNING id`,
         [
@@ -250,6 +255,7 @@ export function registerEmailPlannerRoutes(app: Express) {
           b.audience_id !== undefined, b.audience_id ? String(b.audience_id) : null,
           b.html !== undefined || b.html_b64 !== undefined, bodyHtml(b),
           b.notes !== undefined, b.notes ? String(b.notes) : null,
+          b.send_tz !== undefined, b.send_tz ? String(b.send_tz) : null,
         ],
       );
       if (!rows[0]) return res.status(404).json({ error: "Plan not found" });

@@ -69,6 +69,11 @@ export default function RealPeptidesBroadcasts() {
   const [busy, setBusy] = useState<string | null>(null);
   const [testTo, setTestTo] = useState<string>(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
+  const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string } | null>(null);
+  // "Send later": date/time/zone for the server-side scheduler. Zone is the wall clock the
+  // time means — not per-recipient (tz segments exist for that targeting).
+  const [sched, setSched] = useState<{ on: boolean; date: string; time: string; tz: string; confirm: null | { recipients: number; segment: string } }>(
+    { on: false, date: "", time: "09:00", tz: "America/Los_Angeles", confirm: null });
   const set = (k: keyof typeof f, v: string) => { setF({ ...f, [k]: v }); setConfirmInfo(null); };
 
   const selectedSegment = segments.data?.segments.find((sg) => sg.slug === f.segment);
@@ -131,7 +136,42 @@ export default function RealPeptidesBroadcasts() {
     if (!r.ok) { setConfirmInfo(null); return setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); }
     if (j.preview) return setConfirmInfo({ recipients: j.recipients, segment: j.segment });
     setConfirmInfo(null);
-    setMsg({ tone: "ok", text: `Sent to ${j.sent.toLocaleString()} of ${j.of.toLocaleString()} recipients (${j.tag}).` });
+    // Clear the loaded email the moment it has sent (Paul 10-02: a sent blast must never sit
+    // in the builder looking one click from re-sending) and show the confirmation screen.
+    setSentInfo({ sent: j.sent, of: j.of, tag: j.tag, subject: f.subject });
+    setPlanId(null);
+    setF({ title: "", subject: "", preheader: "", segment: "", html: "" });
+    setMsg(null);
+    qc.invalidateQueries({ queryKey: ["rp-plans"] });
+  }
+
+  async function scheduleIt(confirmed: boolean) {
+    if (!sched.date || !sched.time) { setMsg({ tone: "bad", text: "Pick the date and time first." }); return; }
+    if (!confirmed) {
+      // Same server preview the send uses - the count shown is the count that fires.
+      const id = await save();
+      if (!id) return;
+      setBusy("schedule");
+      const r = await fetch(`/api/ops/email-plans/${id}/send-rp`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
+      const j = await r.json().catch(() => ({}));
+      setBusy(null);
+      if (!r.ok) return setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` });
+      setSched((x) => ({ ...x, confirm: { recipients: j.recipients, segment: j.segment } }));
+      return;
+    }
+    setBusy("schedule");
+    const r = await fetch(`/api/ops/email-plans/${planId}`, {
+      method: "PATCH", credentials: "include", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "scheduled", send_date: sched.date, send_time: sched.time, send_tz: sched.tz }),
+    });
+    const j = await r.json().catch(() => ({}));
+    setBusy(null);
+    if (!r.ok) { setSched((x) => ({ ...x, confirm: null })); return setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); }
+    const tzShort = sched.tz === "America/Los_Angeles" ? "PT" : sched.tz === "America/Denver" ? "MT" : sched.tz === "America/Chicago" ? "CT" : "ET";
+    setMsg({ tone: "ok", text: `Scheduled — fires automatically ${sched.date} at ${sched.time} ${tzShort}. It's in Drafts & scheduled below; set it back to draft to cancel.` });
+    setSched({ on: false, date: "", time: "09:00", tz: sched.tz, confirm: null });
+    setPlanId(null);
+    setF({ title: "", subject: "", preheader: "", segment: "", html: "" });
     qc.invalidateQueries({ queryKey: ["rp-plans"] });
   }
 
@@ -199,9 +239,22 @@ export default function RealPeptidesBroadcasts() {
             </div>
           )}
 
+          {sentInfo && (
+            <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-6 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20"><Check size={24} className="text-emerald-400" /></div>
+              <div className="text-lg font-bold text-ops-text">Sent to {sentInfo.sent.toLocaleString()} of {sentInfo.of.toLocaleString()} recipients</div>
+              <div className="mt-1 text-xs text-ops-text-muted">"{sentInfo.subject}" · tag <code className="rounded bg-ops-bg px-1.5 py-0.5">{sentInfo.tag}</code></div>
+              <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                <a href="/realpeptides/email" className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white">View analytics →</a>
+                <button type="button" onClick={() => setSentInfo(null)} className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-bg">Start a new email</button>
+              </div>
+              <div className="mt-3 text-[11px] text-ops-text-muted">Opens, clicks and any bounces land in the ledger as webhook events arrive — usually within minutes.</div>
+            </div>
+          )}
+
           {confirmInfo && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
-              <span className="text-xs text-amber-300">This sends <b>{confirmInfo.recipients.toLocaleString()}</b> real emails ({confirmInfo.segment === "all" ? "everyone" : `segment ${confirmInfo.segment}`}). No undo.</span>
+            <div className="ops-warn flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2.5">
+              <span className="text-xs">This sends <b>{confirmInfo.recipients.toLocaleString()}</b> real emails ({confirmInfo.segment === "all" ? "everyone" : `segment ${confirmInfo.segment}`}). No undo.</span>
               <span className="flex items-center gap-2">
                 <button type="button" onClick={() => setConfirmInfo(null)} className="text-xs text-ops-text-muted hover:text-ops-text">Cancel</button>
                 <button type="button" disabled={busy !== null} onClick={() => reviewOrSend(true)} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-black disabled:opacity-40">
@@ -211,7 +264,42 @@ export default function RealPeptidesBroadcasts() {
             </div>
           )}
 
+          {sched.confirm && (
+            <div className="ops-warn flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2.5">
+              <span className="text-xs">Schedule for <b>{sched.date} {sched.time}</b> ({sched.tz.split("/")[1]?.replace("_", " ")}) → will auto-send to <b>{sched.confirm.recipients.toLocaleString()}</b> recipients ({sched.confirm.segment === "all" ? "everyone" : `segment ${sched.confirm.segment}`}).</span>
+              <span className="flex items-center gap-2">
+                <button type="button" onClick={() => setSched((x) => ({ ...x, confirm: null }))} className="text-xs underline">Cancel</button>
+                <button type="button" disabled={busy !== null} onClick={() => scheduleIt(true)} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">
+                  {busy === "schedule" ? <Loader2 size={13} className="animate-spin" /> : "Confirm schedule"}
+                </button>
+              </span>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 border-t border-ops-border pt-3">
+            <label className="flex items-center gap-1.5 text-xs text-ops-text-muted">
+              <input type="checkbox" checked={sched.on} onChange={(e) => setSched((x) => ({ ...x, on: e.target.checked, confirm: null }))} className="h-3.5 w-3.5 accent-[#2E5BFF]" />
+              Send later
+            </label>
+            {sched.on && (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <input type="date" value={sched.date} onChange={(e) => setSched((x) => ({ ...x, date: e.target.value, confirm: null }))}
+                  className="rounded-lg border border-ops-border bg-ops-bg px-2 py-1.5 text-xs text-ops-text" />
+                <input type="time" value={sched.time} onChange={(e) => setSched((x) => ({ ...x, time: e.target.value, confirm: null }))}
+                  className="rounded-lg border border-ops-border bg-ops-bg px-2 py-1.5 text-xs text-ops-text" />
+                <select value={sched.tz} onChange={(e) => setSched((x) => ({ ...x, tz: e.target.value, confirm: null }))}
+                  className="rounded-lg border border-ops-border bg-ops-bg px-2 py-1.5 text-xs text-ops-text">
+                  <option value="America/Los_Angeles">Pacific</option>
+                  <option value="America/Denver">Mountain</option>
+                  <option value="America/Chicago">Central</option>
+                  <option value="America/New_York">Eastern</option>
+                </select>
+                <button type="button" disabled={busy !== null || !f.subject || !f.html || !sched.date || !!sched.confirm} onClick={() => scheduleIt(false)}
+                  className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3.5 py-2 text-xs font-semibold text-white disabled:opacity-40">
+                  {busy === "schedule" && !sched.confirm ? <Loader2 size={13} className="animate-spin" /> : "Schedule"}
+                </button>
+              </span>
+            )}
             <span className="mr-auto flex items-center gap-1.5">
               <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="your@inbox.com"
                 className="w-44 rounded-lg border border-ops-border bg-ops-bg px-2.5 py-2 text-xs text-ops-text placeholder:text-ops-text-muted focus:outline-none" />

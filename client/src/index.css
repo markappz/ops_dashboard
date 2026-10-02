@@ -302,3 +302,8 @@ body {
 /* Scrollable tab rows: the content IS the scroll affordance; the bar is noise. */
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Confirm/warning banners (Paul 10-02: the amber was invisible in light mode). */
+.ops-warn { background: #fef3c7; border: 1px solid #d97706; color: #92400e; }
+[data-theme="dark"] .ops-warn { background: rgb(245 158 11 / 0.12); border-color: rgb(245 158 11 / 0.45); color: #fcd34d; }
+.ops-warn b, .ops-warn .ops-warn-strong { color: inherit; font-weight: 800; }
