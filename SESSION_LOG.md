@@ -3521,3 +3521,16 @@ Calendar v2, Dirt voice chat, coarse-pointer hit areas, unified nav, stale-bundl
 all live and browser-verified. Deploy-watch lesson encoded: watch runs by sha
 (`gh run list --commit`), never "newest run". Facelift backlog now: Paul's calibration
 feedback, drag-to-reschedule calendar, /chat retirement (Paul's call), true-390 device pass.
+
+## 2026-10-02 (midday) — Klaviyo-style flow builder SHIPPED + E2E green
+
+Phase 1 (2bbcb9d): React Flow canvas view on /realpeptides/flows (44 nodes across engine flows,
+live stats, click-to-preview). Phase 2 (ops 2ec9b35 + RP 4b08e4d/0fde863): CustomFlow tables +
+custom flows ride the SAME engine sweep (dedupe/suppression/exit-on-purchase/copy-editor free);
+triggers optin + first-purchase + segment-oneshot (two-step, server-enforced); full-screen
+builder (trigger picker, add/reorder/delete steps, delay/subject/HTML, test sends,
+activate/pause). E2E on prod: created QA draft → saved → card correct → reopened w/ HTML
+round-trip → deleted. Caught pre-ship: list omitted step html → edit+save would wipe bodies
+(html_b64 added). Post-QA: delete button added to builder (inline confirm). Drafts never send —
+engine-level. Backlog: branch nodes, canvas drag-reorder, per-step stats on custom flows,
+subject personalization.
