@@ -78,7 +78,7 @@ export default function RealPeptidesFlows() {
   const flowRevenue = (flowKey: string) => stats.data?.flows?.find((f) => f.flowKey === flowKey)?.attributedRevenueCents ?? 0;
   const flowStats = (flowKey: string) => stats.data?.flows?.find((f) => f.flowKey === flowKey);
   const rangeTag = statsRange === "esp" ? `new ESP · ${espDays}d` : "90d";
-  const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
+  const pct = (v: number | null | undefined) => { if (v == null) return "—"; const x = v * 100; return `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`; };
 
   return (
     <div className="space-y-6">

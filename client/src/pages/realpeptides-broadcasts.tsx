@@ -364,7 +364,7 @@ export default function RealPeptidesBroadcasts() {
           {!sent.length && <div className="rounded-lg border border-dashed border-ops-border py-6 text-center text-xs text-ops-text-muted">Sends from the new engine land here with opens, clicks and revenue.</div>}
           {sent.map((p) => {
             const st = p.resend_broadcast_id ? statByTag.get(p.resend_broadcast_id) : undefined;
-            const rate = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
+            const rate = (n: number, d: number) => { if (d <= 0) return "—"; const x = (n / d) * 100; return `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`; };
             return (
               <div key={p.id} role={st ? "button" : undefined} tabIndex={st ? 0 : undefined}
                 onClick={() => st && setOpenCampaign({ ...st, prettyName: p.subject || p.title })}
