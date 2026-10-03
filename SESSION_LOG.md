@@ -3541,3 +3541,17 @@ Violet split node with YES/NO handles feeding two arm columns (green/red edges),
 picker (opened/clicked), one wait-before-checking on the split (arm-first steps show a note,
 not a delay input — both arms evaluate at that one moment), per-arm add/reorder, guards, and
 branch/splitOn round-tripping. Full prod E2E green incl. the new in-builder delete confirm.
+
+## 2026-10-02 (evening) — FIRST IN-HOUSE BROADCAST SENT + scheduler shipped
+
+Paul fired the first broadcast through the new engine: "The three everyone is researching
+right now" → warmup-a, 8,901/8,901 accepted, opens flowing within minutes (plan 72, tag
+ops-72-...). A "[TEST] in the subject" scare was Gmail threading the earlier test with the real
+send — plan row + HTML verified clean. Then shipped same evening: send_tz column + 60s
+scheduler loop (fires status=scheduled RP plans in their own wall clock; DST-safe string
+compare; atomic claim; >3h late = missed; failures = send_failed, no retries); fireRpPlan
+shared by click + clock; builder "Send later" (date/time/PT-MT-CT-ET) with server-counted
+two-step; post-send the builder CLEARS into a confirmation screen (count/tag/View analytics);
+.ops-warn high-contrast confirm bars. Email design: hero reworked fluid-hybrid (stacks without
+media queries — Gmail strips <style> in some contexts). Warm-up plan: B tomorrow 9am PT,
+C 4pm PT (Paul queues via Send later); gates opens >20%, complaints <0.1%.
