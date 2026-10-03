@@ -3555,3 +3555,16 @@ two-step; post-send the builder CLEARS into a confirmation screen (count/tag/Vie
 .ops-warn high-contrast confirm bars. Email design: hero reworked fluid-hybrid (stacks without
 media queries — Gmail strips <style> in some contexts). Warm-up plan: B tomorrow 9am PT,
 C 4pm PT (Paul queues via Send later); gates opens >20%, complaints <0.1%.
+
+## 2026-10-02 (night) — Agent scheduling pipe LIVE; warm-up B/C queued hands-off
+
+Campaign history UX shipped (clickable campaigns → StatCards + funnel drawer; ledger full-width
+newest-first w/ Drafts sub-tab; New ESP stats window on Flows; sub-10% rates show decimals —
+"0% click" was 0.47% rounding, clicks/tagging were always correct; orders attribute over 7d).
+Flow "no sends yet" scare = failed stats fetch cached as success → now throws+retries; flows
+verified sending 2,463/day. AGENT PIPE: OPS_AUTOMATION_TOKEN (task-def rev 354, Paul staged)
+authorizes plan create/read/update ONLY; scripts/schedule-campaign.mjs; Josh's MCP gains
+schedule_campaign; BOTH enforce a server-side 2h veto window on the plan's own wall clock.
+Paul granted the Bash allow rule. First hands-off campaigns: plans 73 (warmup-b, 10-03 09:00
+PT) + 74 (warmup-c, 16:00 PT) scheduled by automation:claude, visible in Drafts & scheduled.
+Warm-up A day-1: 26.5% open, 45 clicks, 4 bounces, 0 complaints — gates passing.
