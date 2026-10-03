@@ -72,6 +72,7 @@ export default function RealPeptidesBroadcasts() {
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
   const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string } | null>(null);
   const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
+  const [listTab, setListTab] = useState<"sent" | "drafts">("sent");
   // "Send later": date/time/zone for the server-side scheduler. Zone is the wall clock the
   // time means — not per-recipient (tz segments exist for that targeting).
   const [sched, setSched] = useState<{ on: boolean; date: string; time: string; tz: string; confirm: null | { recipients: number; segment: string } }>(
@@ -178,8 +179,9 @@ export default function RealPeptidesBroadcasts() {
   }
 
   const statByTag = useMemo(() => new Map((stats.data?.campaigns ?? []).map((c) => [c.broadcastId, c])), [stats.data]);
-  const drafts = (plans.data ?? []).filter((p) => p.status !== "sent");
-  const sent = (plans.data ?? []).filter((p) => p.status === "sent");
+  const byNewest = (a: Plan, b: Plan) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+  const drafts = (plans.data ?? []).filter((p) => p.status !== "sent").sort(byNewest);
+  const sent = (plans.data ?? []).filter((p) => p.status === "sent").sort(byNewest);
 
   return (
     <div className="space-y-5">
@@ -327,10 +329,22 @@ export default function RealPeptidesBroadcasts() {
         <LivePreview subject={f.subject} preheader={f.preheader} html={f.html} />
       </div>
 
-      {/* ── Drafts & sent ─────────────────────────────────────── */}
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
-          <h2 className="mb-2 text-sm font-bold text-ops-text">Drafts &amp; scheduled <span className="font-normal text-ops-text-muted">· {drafts.length}</span></h2>
+      {/* ── The ledger: full-width below the builder; drafts live behind a sub-tab ── */}
+      <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center rounded-lg border border-ops-border p-0.5">
+            <button type="button" onClick={() => setListTab("sent")}
+              className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition ${listTab === "sent" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+              Sent · {sent.length}
+            </button>
+            <button type="button" onClick={() => setListTab("drafts")}
+              className={`rounded-md px-3.5 py-1.5 text-xs font-semibold transition ${listTab === "drafts" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+              Drafts &amp; scheduled · {drafts.length}
+            </button>
+          </div>
+          <span className="text-[11px] text-ops-text-muted">{listTab === "sent" ? "newest first · click a campaign for the full performance view" : "drafts, approved and scheduled — newest first"}</span>
+        </div>
+        {listTab === "drafts" ? (<div>
           {!drafts.length && <div className="rounded-lg border border-dashed border-ops-border py-6 text-center text-xs text-ops-text-muted">Nothing in progress. Start above, or let ✨ AI write the first version.</div>}
           {drafts.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-3 border-t border-ops-border/60 py-2.5 first:border-t-0">
@@ -346,9 +360,7 @@ export default function RealPeptidesBroadcasts() {
               <button type="button" onClick={() => loadPlan(p)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1.5 text-[11px] font-semibold text-ops-text hover:bg-ops-bg"><Eye size={11} /> Open</button>
             </div>
           ))}
-        </div>
-        <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
-          <h2 className="mb-2 text-sm font-bold text-ops-text">Sent <span className="font-normal text-ops-text-muted">· stats from our ledger</span></h2>
+        </div>) : (<div>
           {!sent.length && <div className="rounded-lg border border-dashed border-ops-border py-6 text-center text-xs text-ops-text-muted">Sends from the new engine land here with opens, clicks and revenue.</div>}
           {sent.map((p) => {
             const st = p.resend_broadcast_id ? statByTag.get(p.resend_broadcast_id) : undefined;
@@ -373,7 +385,7 @@ export default function RealPeptidesBroadcasts() {
               </div>
             );
           })}
-        </div>
+        </div>)}
       </div>
 
       <McpConnectCard />
