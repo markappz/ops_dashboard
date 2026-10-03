@@ -55,15 +55,20 @@ export default function RealPeptidesFlows() {
     staleTime: 60_000,
   });
   const overrideState = (alias: string) => overrides.data?.overrides.find((o) => o.alias === alias);
-  // 90-day ledger stats joined onto each step - review and performance in one place.
+  // Stats window: "New ESP" = since the Mailgun cutover (2026-10-02 ~02:00 ET; Resend died the
+  // evening before and nothing sent in between, so days-since-Oct-2 IS the Mailgun era).
+  const MAILGUN_EPOCH = Date.parse("2026-10-02T06:00:00Z");
+  const espDays = Math.max(1, Math.ceil((Date.now() - MAILGUN_EPOCH) / 86_400_000));
+  const [statsRange, setStatsRange] = useState<"esp" | "90">("esp");
+  const rangeDaysN = statsRange === "esp" ? espDays : 90;
   const stats = useQuery({
-    queryKey: ["rp-email-90"],
+    queryKey: ["rp-email-flow-stats", rangeDaysN],
     queryFn: async () => {
-      const r = await fetch("/api/ops/realpeptides/email?range=90", { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/email?range=${rangeDaysN}`, { credentials: "include" });
       // A bridge 502 must THROW so react-query retries — resolving with an error body used to
       // get cached as "success" for 10 minutes and every flow read "no sends yet" (Paul, 10-02).
       if (!r.ok) throw new Error(`stats ${r.status}`);
-      return (await r.json()) as { flows?: { flowKey: string; attributedRevenueCents: number; steps: { stepIndex: number; sends: number; openRate: number | null; clickRate: number | null }[] }[] };
+      return (await r.json()) as { flows?: { flowKey: string; sends: number; openRate: number | null; clickRate: number | null; attributedRevenueCents: number; steps: { stepIndex: number; sends: number; openRate: number | null; clickRate: number | null }[] }[] };
     },
     staleTime: 10 * 60_000,
     retry: 3,
@@ -71,12 +76,26 @@ export default function RealPeptidesFlows() {
   const stepStats = (flowKey: string, stepIndex: number) =>
     stats.data?.flows?.find((f) => f.flowKey === flowKey)?.steps.find((st) => st.stepIndex === stepIndex);
   const flowRevenue = (flowKey: string) => stats.data?.flows?.find((f) => f.flowKey === flowKey)?.attributedRevenueCents ?? 0;
+  const flowStats = (flowKey: string) => stats.data?.flows?.find((f) => f.flowKey === flowKey);
+  const rangeTag = statsRange === "esp" ? `new ESP · ${espDays}d` : "90d";
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageHero title="Email Flows" subtitle="Each step renders through the live engine, exactly as it would send. Canvas = the visual flow map; Table = the dense review grid." />
+        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center rounded-lg border border-ops-border p-0.5">
+          <button type="button" onClick={() => setStatsRange("esp")}
+            title="Only sends through the in-house Mailgun engine (since Oct 2)"
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${statsRange === "esp" ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+            New ESP
+          </button>
+          <button type="button" onClick={() => setStatsRange("90")}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${statsRange === "90" ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+            90 days
+          </button>
+        </div>
         <div className="flex items-center rounded-lg border border-ops-border p-0.5">
           <button type="button" onClick={() => setView("canvas")}
             className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${view === "canvas" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
@@ -86,6 +105,7 @@ export default function RealPeptidesFlows() {
             className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${view === "table" ? "bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
             <Table2 size={13} /> Table
           </button>
+        </div>
         </div>
       </div>
       <UnsubImport />
@@ -146,7 +166,15 @@ export default function RealPeptidesFlows() {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-bold text-ops-text">{f.banner}</h2>
             <code className="rounded bg-ops-bg px-1.5 py-0.5 text-[11px] text-ops-text-muted">{f.key}</code>
-            <span className="ml-auto text-[11px] text-ops-text-muted">tap an email node to preview · drag to pan · zoom with the +/− controls</span>
+            {(() => { const fs = flowStats(f.key); return fs && fs.sends > 0 ? (
+              <span className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="rounded-full border border-ops-border px-2 py-0.5 font-semibold text-ops-text">{fs.sends.toLocaleString()} sends · {rangeTag}</span>
+                <span className="rounded-full border border-brand-blue-500/40 bg-brand-blue-500/10 px-2 py-0.5 font-semibold text-brand-blue-400">{pct(fs.openRate)} open</span>
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-400">{pct(fs.clickRate)} click</span>
+                {fs.attributedRevenueCents > 0 && <span className="rounded-full border border-ops-border px-2 py-0.5 font-semibold text-fitscript-green">${(fs.attributedRevenueCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>}
+              </span>
+            ) : <span className="rounded-full border border-ops-border px-2 py-0.5 text-[10px] text-ops-text-muted">{stats.data ? `no sends · ${rangeTag}` : "stats syncing…"}</span>; })()}
+            <span className="ml-auto text-[11px] text-ops-text-muted">tap an email node to preview · zoom with the +/− controls</span>
           </div>
           <FlowCanvas
             flow={{
@@ -172,11 +200,14 @@ export default function RealPeptidesFlows() {
                 <ShieldCheck size={11} /> exits on purchase
               </span>
             )}
-            {flowRevenue(f.key) > 0 && (
-              <span className="ml-auto rounded-full border border-ops-border px-2 py-0.5 text-[10px] font-semibold text-ops-text">
-                ${(flowRevenue(f.key) / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })} attributed · 90d
+            {(() => { const fs = flowStats(f.key); return fs && fs.sends > 0 ? (
+              <span className="ml-auto flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="rounded-full border border-ops-border px-2 py-0.5 font-semibold text-ops-text">{fs.sends.toLocaleString()} sends · {rangeTag}</span>
+                <span className="rounded-full border border-brand-blue-500/40 bg-brand-blue-500/10 px-2 py-0.5 font-semibold text-brand-blue-400">{pct(fs.openRate)} open</span>
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-400">{pct(fs.clickRate)} click</span>
+                {fs.attributedRevenueCents > 0 && <span className="rounded-full border border-ops-border px-2 py-0.5 font-semibold text-fitscript-green">${(fs.attributedRevenueCents / 100).toLocaleString(undefined, { maximumFractionDigits: 0 })} attributed</span>}
               </span>
-            )}
+            ) : null; })()}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -186,7 +217,7 @@ export default function RealPeptidesFlows() {
                   <th className="pb-1 pr-2 font-medium">Delay</th>
                   <th className="pb-1 pr-2 font-medium">Subject</th>
                   <th className="pb-1 pr-2 font-medium">Copy source</th>
-                  <th className="pb-1 pr-2 font-medium">Sends · 90d</th>
+                  <th className="pb-1 pr-2 font-medium">Sends</th>
                   <th className="pb-1 pr-2 font-medium">Open · click</th>
                   <th className="pb-1 font-medium" />
                 </tr>
