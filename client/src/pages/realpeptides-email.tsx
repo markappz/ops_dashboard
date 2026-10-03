@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
@@ -67,6 +68,19 @@ export default function RealPeptidesEmail() {
   const d = q.data;
   const t = d?.totals;
 
+  const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
+  const plansQ = useQuery({
+    queryKey: ["rp-plans-names"],
+    queryFn: async () => (await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" })).json() as Promise<{ plans?: { id: number; title: string; subject: string | null }[] }>,
+    staleTime: 5 * 60_000,
+  });
+  // ops-<planId>-<slug> tags map back to the plan's human title/subject.
+  const prettyName = (tag: string, fallback: string) => {
+    const m = /^ops-(\d+)-/.exec(tag);
+    const plan = m ? plansQ.data?.plans?.find((x) => x.id === Number(m[1])) : undefined;
+    return plan?.subject || plan?.title || fallback;
+  };
+
   return (
     <div>
       <PageHero
@@ -77,6 +91,7 @@ export default function RealPeptidesEmail() {
       />
 
       <EmailCalendar company="realpeptides" />
+      {openCampaign && <CampaignDetail c={openCampaign} onClose={() => setOpenCampaign(null)} />}
 
       <SegmentsCard />
 
@@ -149,9 +164,10 @@ export default function RealPeptidesEmail() {
               </thead>
               <tbody className="divide-y divide-ops-border/50">
                 {d.campaigns.map((c) => (
-                  <tr key={c.broadcastId}>
+                  <tr key={c.broadcastId} onClick={() => setOpenCampaign({ ...c, prettyName: prettyName(c.broadcastId, c.name) })}
+                    className="cursor-pointer transition-colors hover:bg-ops-bg/40">
                     <td className="max-w-[280px] px-4 py-3">
-                      <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
+                      <div className="truncate font-medium text-brand-blue-400" title={c.broadcastId}>{prettyName(c.broadcastId, c.name)}</div>
                       <div className="text-[11px] text-ops-text-muted">sent {new Date(c.sentAt ?? c.lastSeen).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">

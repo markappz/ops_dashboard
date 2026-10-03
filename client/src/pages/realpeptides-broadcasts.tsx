@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Eye, Loader2, Monitor, Pencil, Send, Smartphone, Sparkles, X } from "lucide-react";
 import { PageHero } from "../components/page-hero";
@@ -70,6 +71,7 @@ export default function RealPeptidesBroadcasts() {
   const [testTo, setTestTo] = useState<string>(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
   const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string } | null>(null);
+  const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
   // "Send later": date/time/zone for the server-side scheduler. Zone is the wall clock the
   // time means — not per-recipient (tz segments exist for that targeting).
   const [sched, setSched] = useState<{ on: boolean; date: string; time: string; tz: string; confirm: null | { recipients: number; segment: string } }>(
@@ -239,6 +241,7 @@ export default function RealPeptidesBroadcasts() {
             </div>
           )}
 
+          {openCampaign && <CampaignDetail c={openCampaign} onClose={() => setOpenCampaign(null)} />}
           {sentInfo && (
             <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-6 text-center">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20"><Check size={24} className="text-emerald-400" /></div>
@@ -351,9 +354,12 @@ export default function RealPeptidesBroadcasts() {
             const st = p.resend_broadcast_id ? statByTag.get(p.resend_broadcast_id) : undefined;
             const rate = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : "—");
             return (
-              <div key={p.id} className="border-t border-ops-border/60 py-2.5 first:border-t-0">
+              <div key={p.id} role={st ? "button" : undefined} tabIndex={st ? 0 : undefined}
+                onClick={() => st && setOpenCampaign({ ...st, prettyName: p.subject || p.title })}
+                onKeyDown={(e) => { if (e.key === "Enter" && st) setOpenCampaign({ ...st, prettyName: p.subject || p.title }); }}
+                className={`border-t border-ops-border/60 py-2.5 first:border-t-0 ${st ? "-mx-2 cursor-pointer rounded-lg px-2 transition-colors hover:bg-ops-bg/50" : ""}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs font-semibold text-ops-text">{p.title}</span>
+                  <span className={`truncate text-xs font-semibold ${st ? "text-brand-blue-400" : "text-ops-text"}`}>{p.title}</span>
                   <span className="shrink-0 text-[11px] text-ops-text-muted">{new Date(p.updated_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                 </div>
                 {st ? (
