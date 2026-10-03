@@ -9,6 +9,7 @@
  * the broadcast and schedules it for the plan's date, all from ops.
  */
 import type { Express } from "express";
+import { wallClock } from "./email-scheduler";
 import { pool } from "./db";
 
 const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen"]);
@@ -200,6 +201,19 @@ export function registerEmailPlannerRoutes(app: Express) {
       const title = String(b.title || "").trim();
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
       if (!title) return res.status(400).json({ error: "The email needs a working title" });
+      // Agent-scheduled sends get a mandatory human veto window: at least 2h between now and
+      // fire time IN THE PLAN'S OWN TIMEZONE (same wall-clock string compare the scheduler
+      // fires on, so guard and alarm can never disagree), keeping every agent campaign visible
+      // in Drafts & scheduled long before it can send.
+      if (req.adminEmail === "automation:claude" && b.status === "scheduled") {
+        if (!b.send_date || !b.send_time) return res.status(400).json({ error: "agent scheduling requires send_date and send_time" });
+        const tz = b.send_tz ? String(b.send_tz) : "America/New_York";
+        const schedAt = `${b.send_date} ${String(b.send_time).slice(0, 5)}`;
+        const vetoFloor = wallClock(tz, new Date(Date.now() + 2 * 3600_000));
+        if (schedAt < vetoFloor) {
+          return res.status(400).json({ error: `agent-scheduled campaigns need a 2h veto window — earliest allowed is ${vetoFloor} ${tz}` });
+        }
+      }
       const { rows } = await pool.query(
         `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, send_tz, from_address, audience_id, html, notes, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,

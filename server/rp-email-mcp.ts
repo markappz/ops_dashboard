@@ -16,6 +16,7 @@
  * finishes the job in the UI.
  */
 import type { Express, Request, Response } from "express";
+import { wallClock } from "./email-scheduler";
 import { pool } from "./db";
 
 const PROTOCOL = "2025-03-26";
@@ -84,6 +85,16 @@ const TOOLS = [
     },
   },
   {
+    name: "schedule_campaign",
+    description: "Schedule an EXISTING draft campaign to auto-send at a date/time/timezone. Guard rails: fire time must be at least 2 HOURS out (a human veto window — the campaign stays visible in Drafts & scheduled and can be set back to draft with one click until it fires). There is still no instant mass-send tool, by design.",
+    inputSchema: { type: "object", properties: {
+      id: { type: "number", description: "Draft campaign id (from create_campaign / list_campaigns)" },
+      date: { type: "string", description: "YYYY-MM-DD" },
+      time: { type: "string", description: "HH:MM, 24h, in the given timezone" },
+      tz: { type: "string", description: "IANA timezone the time means. Default America/Los_Angeles.", enum: ["America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York"] },
+    }, required: ["id", "date", "time"] },
+  },
+  {
     name: "list_campaigns",
     description: "Recent Real Peptides campaigns on the calendar with status (draft/approved/scheduled/sent) and, for sent ones, the analytics tag.",
     inputSchema: { type: "object", properties: { limit: { type: "number", description: "Default 20, max 100." } }, additionalProperties: false },
@@ -147,6 +158,24 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       if (!sets.length) throw new Error("Nothing to update.");
       await pool.query(`UPDATE ops_email_plans SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1`, vals);
       return { plan_id: id, updated: Object.keys(map).filter((k) => args[k] !== undefined) };
+    }
+    case "schedule_campaign": {
+      const id = Number(args?.id);
+      const date = String(args?.date ?? "");
+      const time = String(args?.time ?? "").slice(0, 5);
+      const tz = ["America/Los_Angeles", "America/Denver", "America/Chicago", "America/New_York"].includes(String(args?.tz)) ? String(args?.tz) : "America/Los_Angeles";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) throw new Error("date must be YYYY-MM-DD and time HH:MM");
+      const { rows } = await pool.query(`SELECT id, status, subject, html FROM ops_email_plans WHERE id = $1 AND company = 'realpeptides'`, [id]);
+      if (!rows[0]) throw new Error("campaign not found");
+      if (rows[0].status === "sent" || rows[0].status === "sending") throw new Error("that campaign already sent");
+      if (!rows[0].subject || !rows[0].html) throw new Error("the draft needs a subject and HTML before scheduling");
+      const vetoFloor = wallClock(tz, new Date(Date.now() + 2 * 3600_000));
+      if (`${date} ${time}` < vetoFloor) throw new Error(`needs a 2h human veto window — earliest allowed is ${vetoFloor} (${tz})`);
+      await pool.query(
+        `UPDATE ops_email_plans SET status = 'scheduled', send_date = $2::date, send_time = $3, send_tz = $4, updated_at = NOW() WHERE id = $1`,
+        [id, date, time, tz],
+      );
+      return { scheduled: true, id, firesAt: `${date} ${time} ${tz}`, veto: "Paul can set it back to draft in ops → Broadcasts → Drafts & scheduled any time before it fires." };
     }
     case "list_campaigns": {
       const limit = Math.min(Number(args.limit) || 20, 100);

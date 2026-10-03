@@ -24,7 +24,7 @@ import { fireRpPlan } from "./realpeptides-marketing";
 
 const DEFAULT_TZ = "America/New_York"; // the UI's historical "Time (ET)" label
 
-function wallClock(tz: string, d = new Date()): string {
+export function wallClock(tz: string, d = new Date()): string {
   try {
     return new Intl.DateTimeFormat("sv-SE", {
       timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",

@@ -446,6 +446,17 @@ export function requireAuth(
 export function opsGate(req: Request, res: Response, next: NextFunction) {
   if (!req.path.startsWith("/api/ops/")) return next();
   if (req.path.startsWith("/api/ops/auth/")) return next();
+  // Agent scheduling pipe (2026-10-02, Paul: "tell you to make the campaigns and schedule
+  // them"): OPS_AUTOMATION_TOKEN authorizes EXACTLY plan create/update — never send-rp, never
+  // test sends, never any other route. Campaigns it schedules are additionally throttled by a
+  // server-enforced 2-hour veto window (email-planner) and badge as agent-created in the UI.
+  const auto = process.env.OPS_AUTOMATION_TOKEN;
+  if (auto && (req.headers.authorization === `Bearer ${auto}`)
+      && (/^\/api\/ops\/email-plans\/?$/.test(req.path) && req.method === "POST"
+          || /^\/api\/ops\/email-plans\/\d+\/?$/.test(req.path) && (req.method === "PATCH" || req.method === "GET"))) {
+    (req as AdminRequest).adminEmail = "automation:claude";
+    return next();
+  }
   // The change-request GitHub job reports back with its own bearer token (checked in the route).
   if (/^\/api\/ops\/change-requests\/\d+\/result\/?$/.test(req.path) && req.method === "POST") return next();
   return requireAuth(req as AdminRequest, res, next);
