@@ -59,7 +59,7 @@ function TriggerNode({ data }: NodeProps) {
 }
 
 function EmailNode({ data }: NodeProps) {
-  const d = data as unknown as CanvasStep & { onPreview: () => void };
+  const d = data as unknown as CanvasStep & { onPreview: () => void; statsReady?: boolean };
   return (
     <div
       onClick={d.onPreview}
@@ -82,7 +82,7 @@ function EmailNode({ data }: NodeProps) {
           <span className="rounded-full border border-ops-border px-1.5 py-0.5 text-[9px] text-ops-text-muted">engine</span>
         )}
         <span className="ml-auto text-[10px] tabular-nums text-ops-text-muted">
-          {d.sends != null ? `${d.sends.toLocaleString()} sent · ${pct(d.openRate)} open · ${pct(d.clickRate)} click` : "no sends yet"}
+          {d.sends != null ? `${d.sends.toLocaleString()} sent · ${pct(d.openRate)} open · ${pct(d.clickRate)} click` : (d as { statsReady?: boolean }).statsReady ? "no sends yet" : "stats syncing…"}
         </span>
       </div>
       <Handle type="source" position={Position.Bottom} className="!h-2 !w-2 !border-0 !bg-ops-border" />
@@ -92,7 +92,7 @@ function EmailNode({ data }: NodeProps) {
 
 const nodeTypes = { trigger: TriggerNode, email: EmailNode };
 
-export function FlowCanvas({ flow, onPreview }: { flow: CanvasFlow; onPreview: (stepIndex: number, subject: string) => void }) {
+export function FlowCanvas({ flow, onPreview, statsReady = true }: { flow: CanvasFlow; onPreview: (stepIndex: number, subject: string) => void; statsReady?: boolean }) {
   const { nodes, edges } = useMemo(() => {
     const nodes: Node[] = [
       { id: "trigger", type: "trigger", position: { x: 0, y: 0 }, data: { banner: flow.banner, exitOnPurchase: flow.exitOnPurchase, revenueCents: flow.revenueCents }, draggable: true },
@@ -100,7 +100,7 @@ export function FlowCanvas({ flow, onPreview }: { flow: CanvasFlow; onPreview: (
         id: `step-${s.stepIndex}`,
         type: "email",
         position: { x: 30, y: 150 + i * 150 },
-        data: { ...s, onPreview: () => onPreview(s.stepIndex, s.subject) },
+        data: { ...s, statsReady, onPreview: () => onPreview(s.stepIndex, s.subject) },
         draggable: true,
       })),
     ];

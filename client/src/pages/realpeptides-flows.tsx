@@ -58,9 +58,15 @@ export default function RealPeptidesFlows() {
   // 90-day ledger stats joined onto each step - review and performance in one place.
   const stats = useQuery({
     queryKey: ["rp-email-90"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/email?range=90", { credentials: "include" })).json() as
-      Promise<{ flows?: { flowKey: string; attributedRevenueCents: number; steps: { stepIndex: number; sends: number; openRate: number | null; clickRate: number | null }[] }[] }>,
+    queryFn: async () => {
+      const r = await fetch("/api/ops/realpeptides/email?range=90", { credentials: "include" });
+      // A bridge 502 must THROW so react-query retries — resolving with an error body used to
+      // get cached as "success" for 10 minutes and every flow read "no sends yet" (Paul, 10-02).
+      if (!r.ok) throw new Error(`stats ${r.status}`);
+      return (await r.json()) as { flows?: { flowKey: string; attributedRevenueCents: number; steps: { stepIndex: number; sends: number; openRate: number | null; clickRate: number | null }[] }[] };
+    },
     staleTime: 10 * 60_000,
+    retry: 3,
   });
   const stepStats = (flowKey: string, stepIndex: number) =>
     stats.data?.flows?.find((f) => f.flowKey === flowKey)?.steps.find((st) => st.stepIndex === stepIndex);
@@ -151,6 +157,7 @@ export default function RealPeptidesFlows() {
                 return { ...s, edited: o ? (o.enabled ? "live" as const : "draft" as const) : undefined, sends: st?.sends, openRate: st?.openRate, clickRate: st?.clickRate };
               }),
             }}
+            statsReady={!!stats.data}
             onPreview={(stepIndex, subject) => setOpen({ flowKey: f.key, stepIndex, subject })}
           />
         </div>
