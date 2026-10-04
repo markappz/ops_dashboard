@@ -255,6 +255,7 @@ export function registerEmailPlannerRoutes(app: Express) {
            html         = CASE WHEN $16 THEN $17 ELSE html END,
            notes        = CASE WHEN $18 THEN $19 ELSE notes END,
            send_tz      = CASE WHEN $20 THEN $21 ELSE send_tz END,
+           resend_broadcast_id = CASE WHEN $22 THEN $23 ELSE resend_broadcast_id END,
            updated_at   = NOW()
          WHERE id = $1 RETURNING id`,
         [
@@ -270,6 +271,7 @@ export function registerEmailPlannerRoutes(app: Express) {
           b.html !== undefined || b.html_b64 !== undefined, bodyHtml(b),
           b.notes !== undefined, b.notes ? String(b.notes) : null,
           b.send_tz !== undefined, b.send_tz ? String(b.send_tz) : null,
+          b.resend_broadcast_id !== undefined, b.resend_broadcast_id ? String(b.resend_broadcast_id) : null,
         ],
       );
       if (!rows[0]) return res.status(404).json({ error: "Plan not found" });
