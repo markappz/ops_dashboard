@@ -3568,3 +3568,16 @@ schedule_campaign; BOTH enforce a server-side 2h veto window on the plan's own w
 Paul granted the Bash allow rule. First hands-off campaigns: plans 73 (warmup-b, 10-03 09:00
 PT) + 74 (warmup-c, 16:00 PT) scheduled by automation:claude, visible in Drafts & scheduled.
 Warm-up A day-1: 26.5% open, 45 clicks, 4 bounces, 0 complaints — gates passing.
+
+## 2026-10-04 — open-180d failure → chunk fix + never-again package
+
+Scheduled plan 76 (GH-axis pt2 → open-180d 33.3k) FAILED at 10:00 fire: Postgres 32,767
+bind-variable cap — resolveBroadcastAudience passed every member email as a bind var; 180d was
+the first segment over the cap (warm-ups 9k + open-60d 27k slid under). Rails worked: claim →
+instant fail → send_failed, ZERO sends (verified against raw Mailgun events). Fix: 20k-chunked
+IN queries (RP f64fdce); preview re-proved live at 33,592 in 2.9s. NEVER-AGAIN (ops): schedule-
+time preflight in the agent script + Josh's MCP (resolve the real audience at queue time;
+failures revert to draft); send_failed/missed plans EMAIL Paul a red alert through the engine
+pipe; red attention banner on Broadcasts; automation bearer = preview-only on send-rp (confirm
+→ 403). Paul fires plan 75 (re-pointed to open-180d) manually — human clicks have no veto rail.
+Warm-up ramp totals pre-rung-4: ~28k sends, 46-49% opens, 0 complaints, $6.3k/22 orders.
