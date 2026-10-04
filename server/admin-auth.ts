@@ -453,7 +453,10 @@ export function opsGate(req: Request, res: Response, next: NextFunction) {
   const auto = process.env.OPS_AUTOMATION_TOKEN;
   if (auto && (req.headers.authorization === `Bearer ${auto}`)
       && (/^\/api\/ops\/email-plans\/?$/.test(req.path) && req.method === "POST"
-          || /^\/api\/ops\/email-plans\/\d+\/?$/.test(req.path) && (req.method === "PATCH" || req.method === "GET"))) {
+          || /^\/api\/ops\/email-plans\/\d+\/?$/.test(req.path) && (req.method === "PATCH" || req.method === "GET")
+          // preview-only: the route refuses confirm:true from automation, so this is the
+          // schedule-time preflight (resolve the audience NOW, fail NOW — not at fire time).
+          || /^\/api\/ops\/email-plans\/\d+\/send-rp\/?$/.test(req.path) && req.method === "POST")) {
     (req as AdminRequest).adminEmail = "automation:claude";
     return next();
   }

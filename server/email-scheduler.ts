@@ -1,6 +1,20 @@
 import { pool } from "./db";
 import { fireRpPlan } from "./realpeptides-marketing";
 
+/** Loud failure alert straight to Paul's inbox (Paul 10-04, after the open-180d fire failed
+ * silently: "we need to fix this so it doesn't happen again"). Rides the bridge's test-send
+ * pipe; alert failures only log — they never mask the original error. */
+async function alertFailure(subject: string, lines: string[]): Promise<void> {
+  try {
+    const to = process.env.OPS_ALERT_EMAIL || "paulclotar@gmail.com";
+    const html = `<div style="font-family:Arial,sans-serif;padding:18px;border:3px solid #dc2626;border-radius:8px"><h2 style="color:#dc2626;margin:0 0 10px">⚠️ Scheduled send needs attention</h2>${lines.map((l) => `<p style="margin:4px 0;font-size:14px">${l}</p>`).join("")}<p style="margin:14px 0 0;font-size:13px">Fix or reschedule: ops → Real Peptides → Broadcasts → Drafts &amp; scheduled.</p></div>`;
+    const { sendOpsAlert } = await import("./realpeptides-marketing");
+    await sendOpsAlert(to, subject, html);
+  } catch (e: any) {
+    console.error(`[OPS][SCHEDULER] alert email failed too: ${e.message}`);
+  }
+}
+
 /**
  * Scheduled broadcast firing (2026-10-02, Paul: "get the scheduled sends ready and in queue").
  *
@@ -53,6 +67,7 @@ async function tick(): Promise<void> {
     if (schedAt < threeHoursAgo) {
       await pool.query(`UPDATE ops_email_plans SET status = 'missed', updated_at = NOW() WHERE id = $1 AND status = 'scheduled'`, [p.id]);
       console.error(`[OPS][SCHEDULER] plan ${p.id} "${p.title}" was due ${schedAt} ${p.send_tz} — >3h late, marked missed (never auto-fires stale)`);
+      await alertFailure(`Scheduled campaign MISSED: ${p.title}`, [`Plan ${p.id} was due ${schedAt} ${p.send_tz} but the scheduler was down past its window.`, `It did NOT send and will not auto-fire stale.`]);
       continue;
     }
 
@@ -74,6 +89,7 @@ async function tick(): Promise<void> {
     } catch (e: any) {
       await pool.query(`UPDATE ops_email_plans SET status = 'send_failed', updated_at = NOW() WHERE id = $1`, [p.id]);
       console.error(`[OPS][SCHEDULER] plan ${p.id} "${p.title}" FAILED: ${e.message} — marked send_failed, no auto-retry`);
+      await alertFailure(`Scheduled campaign FAILED: ${p.title}`, [`Plan ${p.id} ("${p.subject}") failed at fire time.`, `Error: ${String(e.message).slice(0, 300)}`, `Zero or partial sends possible — check the ledger before retrying.`]);
     }
   }
 }

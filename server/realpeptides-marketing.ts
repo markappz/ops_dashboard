@@ -60,6 +60,11 @@ export async function fireRpPlan(p: { id: number; title: string | null; subject:
   return out;
 }
 
+/** One alert email through the site's test-send pipe (full-doc aware, real transport). */
+export async function sendOpsAlert(to: string, subject: string, html: string): Promise<void> {
+  await bridge("/api/ops-marketing", { method: "POST", body: { action: "test", subject, html, to } });
+}
+
 export function registerRealPeptidesMarketing(app: Express) {
   let segCache: { at: number; data: any } | null = null;
 
@@ -237,6 +242,10 @@ export function registerRealPeptidesMarketing(app: Express) {
       if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });
       if (!p.html) return res.status(400).json({ error: "Add the email design (HTML) first." });
 
+      // The automation bearer may preflight (audience resolve + count) but never fire.
+      if (req.adminEmail === "automation:claude" && req.body?.confirm) {
+        return res.status(403).json({ error: "automation may preview, never send - scheduling is the only agent path to a send" });
+      }
       const segment = p.audience_id?.trim() || undefined;
       if (!req.body?.confirm) {
         const preview = await bridge("/api/ops-marketing", { method: "POST", body: { action: "preview", segment } });

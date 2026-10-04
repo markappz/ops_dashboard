@@ -171,11 +171,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       if (!rows[0].subject || !rows[0].html) throw new Error("the draft needs a subject and HTML before scheduling");
       const vetoFloor = wallClock(tz, new Date(Date.now() + 2 * 3600_000));
       if (`${date} ${time}` < vetoFloor) throw new Error(`needs a 2h human veto window — earliest allowed is ${vetoFloor} (${tz})`);
+      // Preflight the audience through the real engine NOW — a resolve that would fail at
+      // fire time refuses to schedule at all (lesson of the 10-04 open-180d failure).
+      const pre = await bridge("/api/ops-marketing", { method: "POST", body: { action: "preview", segment: rows[0].audience_id || undefined } }) as { recipients: number };
       await pool.query(
         `UPDATE ops_email_plans SET status = 'scheduled', send_date = $2::date, send_time = $3, send_tz = $4, updated_at = NOW() WHERE id = $1`,
         [id, date, time, tz],
       );
-      return { scheduled: true, id, firesAt: `${date} ${time} ${tz}`, veto: "Paul can set it back to draft in ops → Broadcasts → Drafts & scheduled any time before it fires." };
+      return { scheduled: true, id, recipients: pre.recipients, firesAt: `${date} ${time} ${tz}`, veto: "Paul can set it back to draft in ops → Broadcasts → Drafts & scheduled any time before it fires." };
     }
     case "list_campaigns": {
       const limit = Math.min(Number(args.limit) || 20, 100);

@@ -51,5 +51,22 @@ const r = await fetch(`${ops}/api/ops/email-plans`, {
 });
 const j = await r.json().catch(() => ({}));
 if (!r.ok) { console.error(`FAILED ${r.status}: ${j.error || JSON.stringify(j)}`); process.exit(1); }
+
+// Preflight NOW, not at fire time: resolve the real audience through the real engine
+// (the 10-04 open-180d failure would have surfaced here, hours early). On any error the
+// plan reverts to draft so a broken schedule can never sit armed.
+const pf = await fetch(`${ops}/api/ops/email-plans/${j.id}/send-rp`, {
+  method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}",
+});
+const pj = await pf.json().catch(() => ({}));
+if (!pf.ok || !pj.preview) {
+  await fetch(`${ops}/api/ops/email-plans/${j.id}`, {
+    method: "PATCH", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ status: "draft" }),
+  });
+  console.error(`PREFLIGHT FAILED — plan ${j.id} reverted to draft. Engine said: ${pj.error || `HTTP ${pf.status}`}`);
+  process.exit(1);
+}
+console.log(`preflight OK: audience resolves to ${pj.recipients.toLocaleString()} recipients (${pj.segment})`);
 console.log(`SCHEDULED plan ${j.id}: "${body.subject}" -> ${body.audience_id} at ${body.send_date} ${body.send_time} ${body.send_tz}`);
 console.log(`Veto anytime: ops -> RP -> Broadcasts -> Drafts & scheduled -> open -> set status to draft.`);

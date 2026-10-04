@@ -329,6 +329,13 @@ export default function RealPeptidesBroadcasts() {
         <LivePreview subject={f.subject} preheader={f.preheader} html={f.html} />
       </div>
 
+      {(plans.data ?? []).filter((p) => p.status === "send_failed" || p.status === "missed").map((p) => (
+        <div key={`fail-${p.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-red-500/60 bg-red-500/10 px-4 py-3">
+          <span className="text-sm font-semibold text-red-400">⚠️ "{p.title}" {p.status === "missed" ? "missed its window" : "failed at send time"} — nobody was emailed. Open it to fix and reschedule.</span>
+          <button type="button" onClick={() => loadPlan(p)} className="rounded-lg bg-red-500 px-3.5 py-2 text-xs font-bold text-white">Open</button>
+        </div>
+      ))}
+
       {/* ── The ledger: full-width below the builder; drafts live behind a sub-tab ── */}
       <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
