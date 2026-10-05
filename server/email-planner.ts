@@ -10,6 +10,7 @@
  */
 import type { Express } from "express";
 import { wallClock } from "./email-scheduler";
+import { hasEngine } from "./brand-engines";
 import { pool } from "./db";
 
 const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen"]);
@@ -165,8 +166,8 @@ export function registerEmailPlannerRoutes(app: Express) {
       await ensureTable();
       const company = String(req.query.company || "");
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
-      // Real Peptides left Resend 2026-10-01 (account suspended); its plans are born in ops now.
-      if (company !== "realpeptides") {
+      // Engine brands (brand-engines registry) left Resend; their plans are born in ops now.
+      if (!hasEngine(company)) {
         try { await pullFromResend(company); }
         catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
       }
@@ -315,6 +316,9 @@ export function registerEmailPlannerRoutes(app: Express) {
       const { rows } = await pool.query("SELECT * FROM ops_email_plans WHERE id = $1", [parseInt(req.params.id, 10)]);
       const p = rows[0];
       if (!p) return res.status(404).json({ error: "Plan not found" });
+      if (hasEngine(p.company)) {
+        return res.status(400).json({ error: `${p.company} sends through its own engine — use Review & send on the plan, not Push to Resend.` });
+      }
       const key = resendKey(p.company);
       if (!key) return res.status(503).json({ error: `Resend isn't connected for ${p.company} yet — set RESEND_API_KEY_${p.company.toUpperCase()} on ops.` });
       if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });

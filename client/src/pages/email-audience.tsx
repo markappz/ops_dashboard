@@ -6,9 +6,10 @@ import { PageHero } from "../components/page-hero";
 
 /**
  * Audience — the whole list, browsable (Paul, 2026-10-02: "an activity log for the entire
- * audience", the Resend contacts view but ours). Search anyone, see their segments and status
- * at a glance, click through to their full Activity timeline. Below it, the live engagement
- * feed: the latest opens/clicks/bounces across everyone, straight from the ledger.
+ * audience", the Resend contacts view but ours), per engine brand. Search anyone, see their
+ * segments and status at a glance, click through to their full Activity timeline. Below it,
+ * the live engagement feed: the latest opens/clicks/bounces across everyone, straight from
+ * the brand's own ledger.
  */
 
 interface Row { email: string; firstName: string | null; source: string; segments: string[]; createdAt: string; unsubscribed: boolean; suppressed: boolean; sends: number; opens: number; clicks: number }
@@ -23,16 +24,16 @@ const EV: Record<string, { label: string; tone: string }> = {
   "email.unsubscribed": { label: "unsubscribed", tone: "text-amber-400" },
 };
 
-export default function RealPeptidesAudience() {
+export default function EmailAudience({ company }: { company: string }) {
   const [, navigate] = useLocation();
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
 
   const contacts = useQuery({
-    queryKey: ["rp-audience", q, page],
+    queryKey: ["marketing-audience", company, q, page],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/marketing/contacts?q=${encodeURIComponent(q)}&page=${page}&pageSize=50`, { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/marketing/contacts?q=${encodeURIComponent(q)}&page=${page}&pageSize=50`, { credentials: "include" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       return j as { total: number; page: number; pageSize: number; rows: Row[] };
@@ -40,9 +41,9 @@ export default function RealPeptidesAudience() {
     retry: 1,
   });
   const feed = useQuery({
-    queryKey: ["rp-audience-feed"],
+    queryKey: ["marketing-audience-feed", company],
     queryFn: async () => {
-      const r = await fetch("/api/ops/realpeptides/marketing/recent-events?limit=60", { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/marketing/recent-events?limit=60`, { credentials: "include" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       return j as { events: Ev[] };
@@ -83,7 +84,7 @@ export default function RealPeptidesAudience() {
             </thead>
             <tbody>
               {(d?.rows ?? []).map((r) => (
-                <tr key={r.email} className="cursor-pointer border-t border-ops-border/60 hover:bg-ops-bg/50" onClick={() => navigate(`/realpeptides/activity?email=${encodeURIComponent(r.email)}`)}>
+                <tr key={r.email} className="cursor-pointer border-t border-ops-border/60 hover:bg-ops-bg/50" onClick={() => navigate(`/${company}/activity?email=${encodeURIComponent(r.email)}`)}>
                   <td className="px-4 py-2">
                     <span className="font-medium text-ops-text">{r.email}</span>
                     {r.firstName && <span className="text-ops-text-muted"> · {r.firstName}</span>}
@@ -124,7 +125,7 @@ export default function RealPeptidesAudience() {
             return (
               <li key={i} className="flex flex-wrap items-center gap-2 border-t border-ops-border/40 pt-1 text-xs first:border-t-0 first:pt-0">
                 <span className="w-28 shrink-0 text-[11px] text-ops-text-muted">{new Date(e.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
-                <button type="button" onClick={() => navigate(`/realpeptides/activity?email=${encodeURIComponent(e.email)}`)} className="font-medium text-ops-text hover:underline">{e.email}</button>
+                <button type="button" onClick={() => navigate(`/${company}/activity?email=${encodeURIComponent(e.email)}`)} className="font-medium text-ops-text hover:underline">{e.email}</button>
                 <span className={t.tone}>{t.label}</span>
                 {e.broadcastId && <span className="text-ops-text-muted">· {e.broadcastId}</span>}
               </li>

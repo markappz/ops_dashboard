@@ -3,8 +3,16 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { ModalPortal } from "../components/modal-portal";
+import { useEngines } from "../hooks/use-engines";
 
 type EmailStyle = "html" | "branded" | "plain-text";
+
+/** Auto-pick the brand's compose profile when composing from a brand's Email tab. */
+const PROFILE_MATCH: Record<string, RegExp> = {
+  realpeptides: /real\s*peptides|^rp\b/i,
+  pawgen: /pawgen/i,
+  peptideu: /peptide\s*u\b|peptideu/i,
+};
 
 interface BrandProfile {
   id: string;
@@ -243,15 +251,21 @@ export default function EmailCompose(props?: { company?: string }) {
   };
 
   const company = props?.company ?? new URLSearchParams(window.location.search).get("company");
-  const isRP = company === "realpeptides";
+  // Engine brands (brand-engines registry) save into the email calendar; the rest go to Klaviyo.
+  const engines = useEngines();
+  const engine = company ? engines[company] : undefined;
+  const isEngine = !!engine?.configured;
+  const brandLabel = engine?.label ?? company ?? "";
 
-  // Composing for Real Peptides: default to the RP brand profile when one exists, so the chat
+  // Composing for a brand: default to its brand profile when one exists, so the chat
   // writes in the right voice without Josh having to remember to switch.
   useEffect(() => {
-    if (!isRP || profileId) return;
-    const rp = profiles.find((pr) => /real\s*peptides|^rp\b/i.test(pr.name));
-    if (rp) setProfileId(rp.id);
-  }, [isRP, profileId, profiles]);
+    if (!company || profileId) return;
+    const re = PROFILE_MATCH[company];
+    if (!re) return;
+    const hit = profiles.find((pr) => re.test(pr.name));
+    if (hit) setProfileId(hit.id);
+  }, [company, profileId, profiles]);
 
   const reset = () => {
     abortRef.current?.abort();
@@ -301,8 +315,8 @@ export default function EmailCompose(props?: { company?: string }) {
   const continueToSend = () => {
     if (!saved) return;
     if (saved.plan) {
-      // RP drafts live in the email calendar; the Review & send door is on the plan editor there.
-      navigate("/realpeptides/email");
+      // Engine-brand drafts live in the email calendar; the Review & send door is on the plan editor there.
+      navigate(company ? `/${company}/email` : "/email");
       return;
     }
     const qs = new URLSearchParams({
@@ -329,7 +343,7 @@ export default function EmailCompose(props?: { company?: string }) {
         subtitle="Chat with Claude to write branded HTML or plain-text emails. Profile + style apply to every turn."
         actions={
           <button
-            onClick={() => navigate("/email")}
+            onClick={() => navigate(company ? `/${company}/email` : "/email")}
             className="text-xs text-ops-text-muted hover:text-ops-text px-3 py-1.5 rounded-lg border border-ops-border hover:bg-ops-surface-hover"
           >
             ← Back to Email
@@ -516,7 +530,7 @@ export default function EmailCompose(props?: { company?: string }) {
         <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5">
           {!saved ? (
             <>
-              <h3 className="text-sm font-semibold text-ops-text mb-3">{isRP ? "Save to the Real Peptides calendar" : "Save to Klaviyo"}</h3>
+              <h3 className="text-sm font-semibold text-ops-text mb-3">{isEngine ? `Save to the ${brandLabel} calendar` : "Save to Klaviyo"}</h3>
               {parsed.subject && (
                 <div className="mb-3">
                   <div className="text-[11px] font-semibold text-ops-text-muted uppercase tracking-wider mb-1">Subject</div>
@@ -537,7 +551,7 @@ export default function EmailCompose(props?: { company?: string }) {
                   disabled={saving || !templateName.trim()}
                   className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95"
                 >
-                  {saving ? "Saving…" : isRP ? "Save as RP draft" : "Save to Klaviyo"}
+                  {saving ? "Saving…" : isEngine ? "Save as draft" : "Save to Klaviyo"}
                 </button>
               </div>
               {saveMsg && (
@@ -553,7 +567,7 @@ export default function EmailCompose(props?: { company?: string }) {
                   <svg className="w-4 h-4 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-ops-text">{saved.plan ? "Saved to the RP email calendar" : "Saved to Klaviyo"}</div>
+                  <div className="text-sm font-semibold text-ops-text">{saved.plan ? `Saved to the ${brandLabel || "brand"} email calendar` : "Saved to Klaviyo"}</div>
                   <div className="text-[11px] text-ops-text-muted">{saved.plan ? "Plan" : "Template"} <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
                 </div>
               </div>

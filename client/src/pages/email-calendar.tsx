@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, X, Trash2, Loader2, Send, Eye, CalendarDays, List, LayoutGrid, Plus } from "lucide-react";
+import { useEngine } from "../hooks/use-engines";
 
 /**
  * Email content calendar — one per brand, mounted inside its Email tab.
  * Plan campaigns weeks ahead: each slot holds the copy, the pasted HTML
- * design (previewed inline), and — when Resend is connected for the brand —
- * a one-click push that creates the broadcast and schedules it for the slot.
+ * design (previewed inline), and the send door: engine brands (brand-engines
+ * registry) get segments + Send test + two-step Review & send; the rest keep
+ * the one-click Push to Resend that schedules the broadcast for the slot.
  */
 
 interface Plan {
@@ -15,14 +17,16 @@ interface Plan {
   title: string;
   subject: string | null;
   preheader: string | null;
-  status: "idea" | "draft" | "approved" | "scheduled" | "sent";
+  status: "idea" | "draft" | "approved" | "scheduled" | "sending" | "sent" | "send_failed" | "missed";
   send_date: string | null;
   send_time: string | null;
+  send_tz: string | null;
   from_address: string | null;
   audience_id: string | null;
   notes: string | null;
   resend_broadcast_id: string | null;
   has_design: boolean;
+  created_by: string | null;
 }
 
 const STATUS_CHIP: Record<string, string> = {
@@ -30,14 +34,30 @@ const STATUS_CHIP: Record<string, string> = {
   draft: "bg-amber-500/15 text-amber-500",
   approved: "bg-brand-blue-500/15 text-brand-blue-400",
   scheduled: "bg-emerald-500/15 text-emerald-400",
+  sending: "bg-brand-blue-500/25 text-brand-blue-300",
   sent: "bg-emerald-500/25 text-emerald-300",
+  send_failed: "bg-red-500/20 text-red-400",
+  missed: "bg-orange-500/20 text-orange-400",
 };
+
+const TZ_OPTIONS = [
+  { value: "America/Los_Angeles", label: "PT" },
+  { value: "America/Denver", label: "MT" },
+  { value: "America/Chicago", label: "CT" },
+  { value: "America/New_York", label: "ET" },
+];
+const DEFAULT_TZ = "America/New_York";
+
+/** Agent-created plans (automation bearer / the MCP) get a visible badge. */
+const isAgentPlan = (p: Plan) => !!p.created_by && (/^automation:/.test(p.created_by) || /^mcp:/.test(p.created_by));
 
 const input = "w-full rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text focus:border-brand-blue-500 focus:outline-none";
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export function EmailCalendar({ company }: { company: string }) {
   const qc = useQueryClient();
+  const engine = useEngine(company);
+  const engineOn = !!engine?.configured;
   const today = new Date();
   const [month, setMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [openId, setOpenId] = useState<number | "new" | null>(null);
@@ -87,7 +107,7 @@ export function EmailCalendar({ company }: { company: string }) {
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-ops-text"><CalendarDays size={15} /> Email calendar</h3>
           <p className="text-[11px] text-ops-text-muted">
-            Plan the month, paste the design, {q.data?.resendConnected ? "push straight to Resend." : "and push to Resend once it's connected for this brand."}
+            Plan the month, paste the design, {engineOn ? "review & send through our own engine." : q.data?.resendConnected ? "push straight to Resend." : "and push to Resend once it's connected for this brand."}
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
@@ -136,8 +156,9 @@ export function EmailCalendar({ company }: { company: string }) {
                       <span key={p.id} role="button" tabIndex={0}
                         onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}
                         onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); setOpenId(p.id); } }}
-                        className={`block truncate rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_CHIP[p.status]} transition hover:opacity-80`}>
-                        {p.send_time ? `${p.send_time} · ` : ""}{p.title}
+                        className={`block truncate rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_CHIP[p.status]} transition hover:opacity-80`}
+                        title={isAgentPlan(p) ? `Created by agent (${p.created_by})` : undefined}>
+                        {isAgentPlan(p) ? "🤖 " : ""}{p.send_time ? `${p.send_time} · ` : ""}{p.title}
                       </span>
                     ))}
                   </div>
@@ -159,8 +180,9 @@ export function EmailCalendar({ company }: { company: string }) {
               <div className="flex flex-col gap-1">
                 {(byDay.get(k) ?? []).map((p) => (
                   <button key={p.id} type="button" onClick={() => setOpenId(p.id)}
+                    title={isAgentPlan(p) ? `Created by agent (${p.created_by})` : undefined}
                     className={`flex min-h-[40px] items-center justify-between gap-2 rounded-lg px-2.5 text-left text-xs font-semibold ${STATUS_CHIP[p.status]} transition hover:opacity-80`}>
-                    <span className="truncate">{p.title}</span>
+                    <span className="truncate">{isAgentPlan(p) ? "🤖 " : ""}{p.title}</span>
                     <span className="shrink-0 text-[10px] opacity-80">{p.send_time ?? ""}</span>
                   </button>
                 ))}
@@ -180,8 +202,9 @@ export function EmailCalendar({ company }: { company: string }) {
           <span className="text-[11px] text-ops-text-muted">No date yet:</span>
           {unscheduled.map((p) => (
             <button key={p.id} type="button" onClick={() => setOpenId(p.id)}
+              title={isAgentPlan(p) ? `Created by agent (${p.created_by})` : undefined}
               className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${STATUS_CHIP[p.status]} hover:opacity-80`}>
-              {p.title}
+              {isAgentPlan(p) ? "🤖 " : ""}{p.title}
             </button>
           ))}
         </div>
@@ -207,9 +230,10 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   resendConnected: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const isNew = planId === null;
-  // Real Peptides sends through the in-house engine (Resend deactivated the account 2026-10-01):
+  // Engine brands send through their own in-house engine (brand-engines registry):
   // audience = engine segments with live counts, send = two-step preview -> confirm via send-rp.
-  const isRP = company === "realpeptides";
+  const engine = useEngine(company);
+  const engineOn = !!engine?.configured;
   const full = useQuery({
     queryKey: ["email-plan", planId],
     queryFn: async () => (await fetch(`/api/ops/email-plans/${planId}`, { credentials: "include" })).json(),
@@ -219,14 +243,14 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
     queryKey: ["resend-audiences", company],
     queryFn: async () => (await fetch(`/api/ops/email-plans/resend/audiences?company=${company}`, { credentials: "include" })).json() as
       Promise<{ connected: boolean; audiences: { id: string; name: string }[] }>,
-    enabled: resendConnected && !isRP,
+    enabled: resendConnected && !engineOn,
     staleTime: 10 * 60_000,
   });
-  const rpSegments = useQuery({
-    queryKey: ["rp-marketing-segments"],
-    queryFn: async () => (await fetch(`/api/ops/realpeptides/marketing/segments`, { credentials: "include" })).json() as
-      Promise<{ all: number; segments: { slug: string; count: number }[] }>,
-    enabled: isRP,
+  const segments = useQuery({
+    queryKey: ["marketing-segments", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" })).json() as
+      Promise<{ all: number; segments: { slug: string; name?: string; description?: string; count: number }[] }>,
+    enabled: engineOn,
     staleTime: 5 * 60_000,
   });
 
@@ -245,13 +269,14 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
       status: p.status ?? "idea",
       send_date: p.send_date ? String(p.send_date).slice(0, 10) : "",
       send_time: p.send_time ?? "",
+      send_tz: p.send_tz ?? DEFAULT_TZ,
       from_address: p.from_address ?? defaultFrom ?? "",
       audience_id: p.audience_id ?? "",
       html: p.html ?? "", notes: p.notes ?? "",
     });
   }
   if (isNew && f === null) {
-    setF({ title: "", subject: "", preheader: "", status: "idea", send_date: defaultDate ?? "", send_time: "", from_address: defaultFrom ?? "", audience_id: "", html: "", notes: "" });
+    setF({ title: "", subject: "", preheader: "", status: "idea", send_date: defaultDate ?? "", send_time: "", send_tz: DEFAULT_TZ, from_address: defaultFrom ?? "", audience_id: "", html: "", notes: "" });
   }
   if (f === null) {
     return (
@@ -267,6 +292,7 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
     const body = {
       company, title: f.title, subject: f.subject || null, preheader: f.preheader || null,
       status: f.status, send_date: f.send_date || null, send_time: f.send_time || null,
+      send_tz: f.send_tz || null,
       from_address: f.from_address || null, audience_id: f.audience_id || null,
       html: f.html || null, notes: f.notes || null,
     };
@@ -307,7 +333,7 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   async function sendTest() {
     if (!testTo.trim()) return;
     setBusy("test"); setMsg(null);
-    const r = await fetch(`/api/ops/realpeptides/marketing/test`, {
+    const r = await fetch(`/api/ops/${company}/marketing/test`, {
       method: "POST", credentials: "include", headers: { "content-type": "application/json" },
       body: JSON.stringify({ subject: f.subject, html: f.html, to: testTo.trim() }),
     });
@@ -356,25 +382,34 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
               <label className="text-xs text-ops-text-muted">Send date
                 <input type="date" value={f.send_date} onChange={(e) => set("send_date", e.target.value)} className={`${input} mt-1`} />
               </label>
-              <label className="text-xs text-ops-text-muted">Time (ET)
-                <input type="time" value={f.send_time} onChange={(e) => set("send_time", e.target.value)} className={`${input} mt-1`} />
+              <label className="text-xs text-ops-text-muted">Time
+                <span className="mt-1 flex gap-1.5">
+                  <input type="time" value={f.send_time} onChange={(e) => set("send_time", e.target.value)} className={input} />
+                  <select value={f.send_tz} onChange={(e) => set("send_tz", e.target.value)} aria-label="Timezone"
+                    className="w-20 rounded-lg border border-ops-border bg-ops-bg px-2 py-2 text-sm text-ops-text focus:border-brand-blue-500 focus:outline-none">
+                    {TZ_OPTIONS.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                  </select>
+                </span>
               </label>
             </div>
             <label className="text-xs text-ops-text-muted">Status
               <select value={f.status} onChange={(e) => set("status", e.target.value)} className={`${input} mt-1`}>
                 <option value="idea">Idea</option><option value="draft">Draft</option>
                 <option value="approved">Approved</option><option value="scheduled">Scheduled</option>
+                <option value="sending" disabled>Sending…</option>
                 <option value="sent">Sent</option>
+                <option value="send_failed" disabled>Send failed</option>
+                <option value="missed" disabled>Missed</option>
               </select>
             </label>
             <label className="text-xs text-ops-text-muted">From
               <input value={f.from_address} onChange={(e) => set("from_address", e.target.value)} placeholder="Real Peptides <hello@realpeptides.co>" className={`${input} mt-1`} />
             </label>
-            {isRP ? (
+            {engineOn ? (
               <label className="text-xs text-ops-text-muted">Audience (live counts, suppressions excluded)
                 <select value={f.audience_id} onChange={(e) => { set("audience_id", e.target.value); setSendPreview(null); }} className={`${input} mt-1`}>
-                  <option value="">Everyone{rpSegments.data ? ` (${rpSegments.data.all.toLocaleString()})` : ""}</option>
-                  {(rpSegments.data?.segments ?? []).map((s) => (
+                  <option value="">Everyone{segments.data ? ` (${segments.data.all.toLocaleString()})` : ""}</option>
+                  {(segments.data?.segments ?? []).map((s) => (
                     <option key={s.slug} value={s.slug}>{s.slug} ({s.count.toLocaleString()})</option>
                   ))}
                 </select>
@@ -424,10 +459,10 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
             </div>
           )}
           {p?.resend_broadcast_id && (
-            <div className="text-[11px] text-ops-text-muted">{isRP ? "Campaign tag" : "Resend broadcast"}: <code>{p.resend_broadcast_id}</code></div>
+            <div className="text-[11px] text-ops-text-muted">{engineOn ? "Campaign tag" : "Resend broadcast"}: <code>{p.resend_broadcast_id}</code></div>
           )}
 
-          {isRP && sendPreview && (
+          {engineOn && sendPreview && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
               <div className="text-xs text-amber-300">
                 This sends <span className="font-bold">{sendPreview.recipients.toLocaleString()}</span> real emails
@@ -449,7 +484,7 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
               <Trash2 size={13} /> Delete
             </button>
             <div className="flex flex-wrap items-center gap-2">
-              {isRP && (
+              {engineOn && (
                 <div className="flex items-center gap-1.5">
                   <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="test inbox…"
                     className="w-40 rounded-lg border border-ops-border bg-ops-bg px-2.5 py-2 text-xs text-ops-text placeholder:text-ops-text-muted focus:outline-none" />
@@ -464,7 +499,7 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
                 className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-bg disabled:opacity-40">
                 {busy === "save" ? <Loader2 size={15} className="animate-spin" /> : "Save"}
               </button>
-              {isRP ? (
+              {engineOn ? (
                 <button type="button" disabled={busy !== null || !f.title.trim() || p?.status === "sent" || !!sendPreview} onClick={() => sendRP(false)}
                   title={p?.status === "sent" ? "Already sent — duplicate a new plan to re-run it" : "Shows the live recipient count first; nothing sends until you confirm"}
                   className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">

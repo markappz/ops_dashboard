@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { StatCard } from "../components/stat";
+import { StatCard, type Tone } from "../components/stat";
 import { Link } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { PageHero } from "../components/page-hero";

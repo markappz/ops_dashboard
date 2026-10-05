@@ -40,6 +40,7 @@ import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpepti
 import { startStockConsumeLoops } from "./stock-consume";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
 import { registerRealPeptidesMarketing } from "./realpeptides-marketing";
+import { registerEngineRoutes } from "./brand-engines";
 import { registerRpEmailMcp } from "./rp-email-mcp";
 import { registerBrandEmail } from "./brand-email";
 import { registerRealPeptidesContacts } from "./realpeptides-contacts";
@@ -126,6 +127,7 @@ registerRpContentLive(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
 registerRealPeptidesMarketing(app);
+registerEngineRoutes(app);
 registerRpEmailMcp(app);
 
 // Build identity for the client's stale-bundle toast (facelift P2): the running server

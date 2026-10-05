@@ -5,8 +5,10 @@ import { PageHero } from "../components/page-hero";
 
 /**
  * Contact activity — the per-person engagement timeline ("user A opened welcome #2, clicked the
- * EOS broadcast"). Every row comes from our own ledger via the site bridge; this view is why the
- * webhook writes EmailEvent for every open and click.
+ * EOS broadcast"), per engine brand. Every row comes from the brand's own ledger via its engine
+ * bridge; this view is why the webhook writes EmailEvent for every open and click. flowSends is
+ * optional in the contract — v1 engines (pawgen, PeptideU) don't serve flows yet, so that card
+ * only renders when the payload carries it.
  */
 
 interface Contact {
@@ -30,25 +32,26 @@ const TYPE_LABEL: Record<string, { label: string; tone: string }> = {
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-export default function RealPeptidesActivity() {
+export default function EmailActivity({ company }: { company: string }) {
   // Deep-linkable: the Audience table and engagement feed land here with ?email=…
   const fromUrl = new URLSearchParams(window.location.search).get("email");
   const [input, setInput] = useState(fromUrl ?? "");
   const [email, setEmail] = useState<string | null>(fromUrl);
   const q = useQuery({
-    queryKey: ["rp-activity", email],
+    queryKey: ["marketing-activity", company, email],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/marketing/activity?email=${encodeURIComponent(email!)}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/marketing/activity?email=${encodeURIComponent(email!)}`, { credentials: "include" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      return j as { contact: Contact; events: Ev[]; flowSends: FlowSend[] };
+      return j as { contact: Contact; events: Ev[]; flowSends?: FlowSend[] };
     },
     enabled: !!email,
     retry: false,
   });
 
   const d = q.data;
-  const flowByMsg = new Map((d?.flowSends ?? []).filter((f) => f.resendId).map((f) => [f.resendId!, f]));
+  const flowSends = d?.flowSends;
+  const flowByMsg = new Map((flowSends ?? []).filter((f) => f.resendId).map((f) => [f.resendId!, f]));
   const describe = (e: Ev) => {
     if (e.broadcastId) return `broadcast · ${e.broadcastId}`;
     const f = e.resendId ? flowByMsg.get(e.resendId) : null;
@@ -103,30 +106,32 @@ export default function RealPeptidesActivity() {
             </ol>
           </div>
 
-          <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
-            <h2 className="mb-2 text-sm font-bold text-ops-text">Flow sends <span className="font-normal text-ops-text-muted">· {d.flowSends.length}</span></h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead><tr className="text-[10px] uppercase tracking-wide text-ops-text-muted"><th className="pb-1 pr-2 font-medium">Sent</th><th className="pb-1 pr-2 font-medium">Flow · step</th><th className="pb-1 pr-2 font-medium">Subject</th><th className="pb-1 font-medium">Result</th></tr></thead>
-                <tbody>
-                  {d.flowSends.map((f, i) => (
-                    <tr key={i} className="border-t border-ops-border/60">
-                      <td className="py-1.5 pr-2 text-ops-text-muted">{when(f.sentAt)}</td>
-                      <td className="py-1.5 pr-2 text-ops-text">{f.enrollment.flowKey} · {f.stepIndex + 1}</td>
-                      <td className="py-1.5 pr-2 text-ops-text">{f.subject}</td>
-                      <td className="py-1.5">
-                        {f.bouncedAt ? <span className="text-red-400">bounced</span>
-                          : f.clickedAt ? <span className="text-emerald-400">clicked {when(f.clickedAt)}</span>
-                          : f.openedAt ? <span className="text-brand-blue-400">opened {when(f.openedAt)}</span>
-                          : <span className="text-ops-text-muted">delivered</span>}
-                      </td>
-                    </tr>
-                  ))}
-                  {!d.flowSends.length && <tr><td colSpan={4} className="py-4 text-center text-ops-text-muted">No flow sends yet.</td></tr>}
-                </tbody>
-              </table>
+          {Array.isArray(flowSends) && (
+            <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
+              <h2 className="mb-2 text-sm font-bold text-ops-text">Flow sends <span className="font-normal text-ops-text-muted">· {flowSends.length}</span></h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead><tr className="text-[10px] uppercase tracking-wide text-ops-text-muted"><th className="pb-1 pr-2 font-medium">Sent</th><th className="pb-1 pr-2 font-medium">Flow · step</th><th className="pb-1 pr-2 font-medium">Subject</th><th className="pb-1 font-medium">Result</th></tr></thead>
+                  <tbody>
+                    {flowSends.map((f, i) => (
+                      <tr key={i} className="border-t border-ops-border/60">
+                        <td className="py-1.5 pr-2 text-ops-text-muted">{when(f.sentAt)}</td>
+                        <td className="py-1.5 pr-2 text-ops-text">{f.enrollment.flowKey} · {f.stepIndex + 1}</td>
+                        <td className="py-1.5 pr-2 text-ops-text">{f.subject}</td>
+                        <td className="py-1.5">
+                          {f.bouncedAt ? <span className="text-red-400">bounced</span>
+                            : f.clickedAt ? <span className="text-emerald-400">clicked {when(f.clickedAt)}</span>
+                            : f.openedAt ? <span className="text-brand-blue-400">opened {when(f.openedAt)}</span>
+                            : <span className="text-ops-text-muted">delivered</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {!flowSends.length && <tr><td colSpan={4} className="py-4 text-center text-ops-text-muted">No flow sends yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
     </div>

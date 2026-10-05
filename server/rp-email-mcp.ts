@@ -17,14 +17,15 @@
  */
 import type { Express, Request, Response } from "express";
 import { wallClock } from "./email-scheduler";
+import { ENGINES } from "./brand-engines";
 import { pool } from "./db";
 
 const PROTOCOL = "2025-03-26";
 
+// Same credentials as the marketing bridge — one registry entry per brand, no second source.
 function rpCfg() {
-  const base = process.env.RP_SITE_API_URL;
-  const token = process.env.RP_SITE_OPS_TOKEN;
-  return base && token ? { base: base.replace(/\/$/, ""), token } : null;
+  const e = ENGINES.realpeptides;
+  return e?.base && e.token ? { base: e.base.replace(/\/$/, ""), token: e.token } : null;
 }
 
 async function bridge(path: string, init?: { method?: string; body?: unknown }) {

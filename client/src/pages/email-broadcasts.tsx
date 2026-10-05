@@ -6,20 +6,20 @@ import { PageHero } from "../components/page-hero";
 
 /**
  * The broadcast builder — the daily driver for Josh and the team (Paul, 2026-10-02: "make it
- * special, a beautiful UX, easy for staff"). One screen, left to right like sending an email:
- * write it, pick who gets it, watch the REAL rendered email (brand shell + unsubscribe footer)
- * update as you type — desktop or phone width — test it to your own inbox, then Review & send
- * with the live recipient count standing between you and the audience.
+ * special, a beautiful UX, easy for staff"), generalized to every brand with its own engine
+ * (brand-engines registry): write it, pick who gets it, watch the rendered email update as you
+ * type, test it to your own inbox, then Review & send with the live recipient count standing
+ * between you and the audience.
  *
  * Plumbing rules that must not regress:
  *  - Every html payload from this page ships base64 (html_b64): the WAF in front of ops eats
  *    raw email HTML in JSON. The ops server decodes; the ops→site leg is direct ALB.
  *  - Sending is two-step SERVER-side (send-rp): no confirm, no send - a UI bug cannot skip it.
- *  - Drafts are ops_email_plans rows, shared with the calendar and the rp-email MCP.
+ *  - Drafts are ops_email_plans rows, shared with the calendar (and, for RP, the rp-email MCP).
  */
 
 interface Plan { id: number; title: string; subject: string | null; preheader: string | null; status: string; send_date: string | null; audience_id: string | null; html: string | null; resend_broadcast_id: string | null; updated_at: string; created_by?: string }
-interface Campaign { broadcastId: string; name: string; sentAt?: string; sends: number; uniqueOpens: number; uniqueClicks: number; bounces: number; complaints: number; attributedOrders: number; attributedRevenueCents: number }
+interface Campaign { broadcastId: string; name: string; sentAt?: string; sends: number; uniqueOpens: number; uniqueClicks: number; openRate: number | null; clickRate: number | null; bounces: number; complaints: number; attributedOrders: number; attributedRevenueCents: number }
 interface Segment { slug: string; name: string; description: string; count: number }
 
 const input = "w-full rounded-lg border border-ops-border bg-ops-bg px-3 py-2 text-sm text-ops-text placeholder:text-ops-text-muted focus:border-brand-blue-500 focus:outline-none";
@@ -40,27 +40,27 @@ function CharCount({ value, ideal, max }: { value: string; ideal: number; max: n
   return <span className={`text-[10px] tabular-nums ${tone}`}>{n}{n > ideal ? `/${max}` : ""}</span>;
 }
 
-export default function RealPeptidesBroadcasts() {
+export default function EmailBroadcasts({ company, label }: { company: string; label: string }) {
   const qc = useQueryClient();
   const plans = useQuery({
-    queryKey: ["rp-plans"],
+    queryKey: ["email-plans-list", company],
     // The planner answers { plans, resendConnected, defaultFrom } - unwrap to the rows.
     queryFn: async () => {
-      const r = await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" });
+      const r = await fetch(`/api/ops/email-plans?company=${company}`, { credentials: "include" });
       const j = (await r.json()) as { plans?: Plan[]; error?: string };
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       return j.plans ?? [];
     },
   });
   const segments = useQuery({
-    queryKey: ["rp-marketing-segments-full"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/segments", { credentials: "include" })).json() as
+    queryKey: ["marketing-segments", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" })).json() as
       Promise<{ all: number; segments: Segment[] }>,
     staleTime: 5 * 60_000,
   });
   const stats = useQuery({
-    queryKey: ["rp-email-90"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/email?range=90", { credentials: "include" })).json() as Promise<{ campaigns?: Campaign[] }>,
+    queryKey: ["brand-email-90", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/email?range=90`, { credentials: "include" })).json() as Promise<{ campaigns?: Campaign[] }>,
     staleTime: 10 * 60_000,
   });
 
@@ -68,7 +68,13 @@ export default function RealPeptidesBroadcasts() {
   const [f, setF] = useState({ title: "", subject: "", preheader: "", segment: "", html: "" });
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [testTo, setTestTo] = useState<string>(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
+  const [testTo, setTestTo] = useState<string>(() => {
+    try {
+      return localStorage.getItem(`ops-test-inbox-${company}`)
+        ?? (company === "realpeptides" ? localStorage.getItem("rp-test-inbox") : null)
+        ?? "";
+    } catch { return ""; }
+  });
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
   const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string } | null>(null);
   const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
@@ -99,7 +105,7 @@ export default function RealPeptidesBroadcasts() {
 
   async function save(): Promise<number | null> {
     setBusy("save"); setMsg(null);
-    const body = { company: "realpeptides", title: f.title || f.subject || "Untitled broadcast", subject: f.subject || null, preheader: f.preheader || null, audience_id: f.segment || null, html_b64: f.html ? b64(f.html) : null, status: "draft" };
+    const body = { company, title: f.title || f.subject || "Untitled broadcast", subject: f.subject || null, preheader: f.preheader || null, audience_id: f.segment || null, html_b64: f.html ? b64(f.html) : null, status: "draft" };
     const r = await fetch(planId ? `/api/ops/email-plans/${planId}` : "/api/ops/email-plans", {
       method: planId ? "PATCH" : "POST", credentials: "include",
       headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -109,15 +115,15 @@ export default function RealPeptidesBroadcasts() {
     if (!r.ok) { setMsg({ tone: "bad", text: j.error || `HTTP ${r.status}` }); return null; }
     const id = planId ?? j.id;
     setPlanId(id);
-    qc.invalidateQueries({ queryKey: ["rp-plans"] });
+    qc.invalidateQueries({ queryKey: ["email-plans-list", company] });
     return id;
   }
 
   async function sendTest() {
     if (!(await save())) return;
     setBusy("test");
-    try { localStorage.setItem("rp-test-inbox", testTo.trim()); } catch { /* convenience only */ }
-    const r = await fetch("/api/ops/realpeptides/marketing/test", {
+    try { localStorage.setItem(`ops-test-inbox-${company}`, testTo.trim()); } catch { /* convenience only */ }
+    const r = await fetch(`/api/ops/${company}/marketing/test`, {
       method: "POST", credentials: "include", headers: { "content-type": "application/json" },
       body: JSON.stringify({ subject: f.subject, html_b64: b64(f.html), to: testTo.trim() }),
     });
@@ -145,7 +151,7 @@ export default function RealPeptidesBroadcasts() {
     setPlanId(null);
     setF({ title: "", subject: "", preheader: "", segment: "", html: "" });
     setMsg(null);
-    qc.invalidateQueries({ queryKey: ["rp-plans"] });
+    qc.invalidateQueries({ queryKey: ["email-plans-list", company] });
   }
 
   async function scheduleIt(confirmed: boolean) {
@@ -175,7 +181,7 @@ export default function RealPeptidesBroadcasts() {
     setSched({ on: false, date: "", time: "09:00", tz: sched.tz, confirm: null });
     setPlanId(null);
     setF({ title: "", subject: "", preheader: "", segment: "", html: "" });
-    qc.invalidateQueries({ queryKey: ["rp-plans"] });
+    qc.invalidateQueries({ queryKey: ["email-plans-list", company] });
   }
 
   const statByTag = useMemo(() => new Map((stats.data?.campaigns ?? []).map((c) => [c.broadcastId, c])), [stats.data]);
@@ -187,7 +193,7 @@ export default function RealPeptidesBroadcasts() {
     <div className="space-y-5">
       <PageHero title="Broadcasts" subtitle="Write it, watch the real email render as you type, test it, send it — all from our own engine and audience."
         actions={<div className="flex items-center gap-2">
-          <a href="/realpeptides/compose" className="inline-flex items-center gap-1.5 rounded-lg border border-ops-border px-3 py-2 text-xs font-semibold text-ops-text hover:bg-ops-bg"><Sparkles size={13} /> Compose with AI</a>
+          <a href={`/${company}/compose`} className="inline-flex items-center gap-1.5 rounded-lg border border-ops-border px-3 py-2 text-xs font-semibold text-ops-text hover:bg-ops-bg"><Sparkles size={13} /> Compose with AI</a>
           <button type="button" onClick={newDraft} className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-95">New broadcast</button>
         </div>} />
 
@@ -250,7 +256,7 @@ export default function RealPeptidesBroadcasts() {
               <div className="text-lg font-bold text-ops-text">Sent to {sentInfo.sent.toLocaleString()} of {sentInfo.of.toLocaleString()} recipients</div>
               <div className="mt-1 text-xs text-ops-text-muted">"{sentInfo.subject}" · tag <code className="rounded bg-ops-bg px-1.5 py-0.5">{sentInfo.tag}</code></div>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-                <a href="/realpeptides/email" className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white">View analytics →</a>
+                <a href={`/${company}/email`} className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white">View analytics →</a>
                 <button type="button" onClick={() => setSentInfo(null)} className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-bg">Start a new email</button>
               </div>
               <div className="mt-3 text-[11px] text-ops-text-muted">Opens, clicks and any bounces land in the ledger as webhook events arrive — usually within minutes.</div>
@@ -326,7 +332,7 @@ export default function RealPeptidesBroadcasts() {
         </div>
 
         {/* ── Inbox preview ───────────────────────────────────── */}
-        <LivePreview subject={f.subject} preheader={f.preheader} html={f.html} />
+        <LivePreview company={company} label={label} subject={f.subject} preheader={f.preheader} html={f.html} />
       </div>
 
       {(plans.data ?? []).filter((p) => p.status === "send_failed" || p.status === "missed").map((p) => (
@@ -361,14 +367,14 @@ export default function RealPeptidesBroadcasts() {
                 <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-ops-text-muted">
                   <span className={`rounded-full border px-1.5 py-px font-semibold ${p.status === "draft" ? "border-ops-border" : "border-brand-blue-500/40 bg-brand-blue-500/10 text-brand-blue-400"}`}>{p.status}</span>
                   <span>{p.audience_id || "everyone"}</span>
-                  {p.created_by?.startsWith("mcp:") && <span className="rounded-full border border-purple-500/40 bg-purple-500/10 px-1.5 py-px font-semibold text-purple-400">🤖 agent</span>}
+                  {(p.created_by?.startsWith("mcp:") || p.created_by?.startsWith("automation:")) && <span className="rounded-full border border-purple-500/40 bg-purple-500/10 px-1.5 py-px font-semibold text-purple-400">🤖 agent</span>}
                 </span>
               </span>
               <button type="button" onClick={() => loadPlan(p)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-ops-border px-2.5 py-1.5 text-[11px] font-semibold text-ops-text hover:bg-ops-bg"><Eye size={11} /> Open</button>
             </div>
           ))}
         </div>) : (<div>
-          {!sent.length && <div className="rounded-lg border border-dashed border-ops-border py-6 text-center text-xs text-ops-text-muted">Sends from the new engine land here with opens, clicks and revenue.</div>}
+          {!sent.length && <div className="rounded-lg border border-dashed border-ops-border py-6 text-center text-xs text-ops-text-muted">Sends from the engine land here with opens, clicks and revenue.</div>}
           {sent.map((p) => {
             const st = p.resend_broadcast_id ? statByTag.get(p.resend_broadcast_id) : undefined;
             const rate = (n: number, d: number) => { if (d <= 0) return "—"; const x = (n / d) * 100; return `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`; };
@@ -395,12 +401,12 @@ export default function RealPeptidesBroadcasts() {
         </div>)}
       </div>
 
-      <McpConnectCard />
+      {company === "realpeptides" && <McpConnectCard />}
     </div>
   );
 }
 
-function LivePreview({ subject, preheader, html }: { subject: string; preheader: string; html: string }) {
+function LivePreview({ company, label, subject, preheader, html }: { company: string; label: string; subject: string; preheader: string; html: string }) {
   const [doc, setDoc] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -411,16 +417,21 @@ function LivePreview({ subject, preheader, html }: { subject: string; preheader:
     timer.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const r = await fetch("/api/ops/realpeptides/marketing/render-broadcast", {
+        const r = await fetch(`/api/ops/${company}/marketing/render-broadcast`, {
           method: "POST", credentials: "include", headers: { "content-type": "application/json" },
           body: JSON.stringify({ html_b64: b64(html) }),
         });
-        const j = await r.json();
-        if (r.ok) setDoc(j.html);
+        const j = await r.json().catch(() => ({}));
+        // An engine without the render action still gets a useful preview: the raw HTML
+        // (the engine adds its brand shell + unsubscribe footer at send time regardless).
+        setDoc(r.ok && j.html ? j.html : html);
+      } catch {
+        setDoc(html);
       } finally { setLoading(false); }
     }, 600);
     return () => clearTimeout(timer.current);
-  }, [html]);
+  }, [html, company]);
+  const initials = label.replace(/[^A-Za-z ]/g, "").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "✉";
   return (
     <div className="rounded-2xl border border-ops-border bg-ops-surface p-4 sm:p-5 xl:sticky xl:top-4 xl:self-start">
       <div className="mb-3 flex items-center justify-between">
@@ -437,10 +448,10 @@ function LivePreview({ subject, preheader, html }: { subject: string; preheader:
 
       {/* the inbox row, as Gmail would show it */}
       <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-ops-border bg-ops-bg px-3 py-2.5">
-        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ops-text text-[11px] font-bold text-ops-surface">RP</span>
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ops-text text-[11px] font-bold text-ops-surface">{initials}</span>
         <span className="min-w-0">
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-xs font-semibold text-ops-text">RIPP at Real Peptides</span>
+            <span className="truncate text-xs font-semibold text-ops-text">{label}</span>
             <span className="shrink-0 text-[10px] text-ops-text-muted">just now</span>
           </span>
           <span className="block truncate text-xs font-semibold text-ops-text">{subject || <span className="font-normal text-ops-text-muted">Subject line…</span>}</span>
@@ -467,8 +478,8 @@ function LivePreview({ subject, preheader, html }: { subject: string; preheader:
 
 /**
  * Agent access — the "simple MCP UX": everything an agent builder needs to connect, in one card
- * with copy buttons. The token itself is never displayed (it lives with Paul); the card explains
- * exactly what an agent can and cannot do.
+ * with copy buttons. RP-only (the MCP endpoint is RP-scoped). The token itself is never displayed
+ * (it lives with Paul); the card explains exactly what an agent can and cannot do.
  */
 function McpConnectCard() {
   const [open, setOpen] = useState(false);

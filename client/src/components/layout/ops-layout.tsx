@@ -22,6 +22,13 @@ for (const b of ["realpeptides", "pawgen"]) {
 for (const sub of ["flows", "broadcasts", "compose"]) {
   NAV_ALIASES[`/realpeptides/${sub}`] = "/realpeptides/email";
 }
+// pawgen/PeptideU email suites (engine generalization): everything highlights their one
+// Email nav entry — these brands have no separate Audience/Activity sidebar items.
+for (const b of ["pawgen", "peptideu"]) {
+  for (const sub of ["broadcasts", "audience", "activity", "compose"]) {
+    NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
+  }
+}
 
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   { label: "Overview", items: [{ path: "/peptideu", label: "Overview", icon: "grid" }] },
@@ -406,7 +413,9 @@ export function OpsLayout({
           {staleBuild && (
         <div className="ops-rise fixed inset-x-4 bottom-4 z-[70] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl border border-ops-border bg-ops-surface-raised px-4 py-3 shadow-card-lg">
           <span className="text-sm text-ops-text">Ops was updated — refresh for the latest version.</span>
-          <button type="button" onClick={() => location.reload()}
+          {/* window. is load-bearing: bare `location` here is wouter's path STRING, and
+              calling .reload() on it threw at click time — the toast's button did nothing. */}
+          <button type="button" onClick={() => window.location.reload()}
             className="shrink-0 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-1.5 text-xs font-semibold text-white">
             Refresh
           </button>

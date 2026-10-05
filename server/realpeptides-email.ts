@@ -7,14 +7,15 @@
  */
 import type { Express } from "express";
 import { windowOf } from "./lib/window";
+import { ENGINES } from "./brand-engines";
 
 const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 10 * 60_000;
 
+// Same credentials as the marketing bridge — one registry entry per brand, no second source.
 function cfg() {
-  const base = process.env.RP_SITE_API_URL;
-  const token = process.env.RP_SITE_OPS_TOKEN;
-  return base && token ? { base: base.replace(/\/$/, ""), token } : null;
+  const e = ENGINES.realpeptides;
+  return e?.base && e.token ? { base: e.base.replace(/\/$/, ""), token: e.token } : null;
 }
 
 export function registerRealPeptidesEmail(app: Express) {

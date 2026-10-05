@@ -75,7 +75,7 @@ export function Sparkline({ points, className }: { points: number[]; className?:
   );
 }
 
-type Tone = "good" | "warn" | "bad" | "info";
+export type Tone = "good" | "warn" | "bad" | "info";
 
 export function StatCard({ label, icon, value, number, format, sub, delta, spark, accent, tone, to, i = 0 }: {
   label: string;

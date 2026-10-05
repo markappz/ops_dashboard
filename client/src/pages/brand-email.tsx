@@ -5,6 +5,9 @@ import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePo
 import { Link } from "wouter";
 import { PageHero } from "../components/page-hero";
 import { EmailCalendar } from "./email-calendar";
+import { SegmentsCard } from "../components/segments-card";
+import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
+import { useEngine } from "../hooks/use-engines";
 
 /**
  * Generic brand email analytics page — identical layout to the Real Peptides
@@ -21,7 +24,7 @@ interface Flow {
   attributedOrders: number; attributedRevenueCents: number; steps: Step[];
 }
 interface Campaign {
-  broadcastId: string; name: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
+  broadcastId: string; name: string; sentAt?: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
   attributedOrders: number; attributedRevenueCents: number;
 }
@@ -52,6 +55,23 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
   const d = q.data;
   const t = d?.totals;
 
+  // Engine brands get the segments card + the campaign performance drawer, same as RP.
+  const engine = useEngine(slug);
+  const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
+  const plansQ = useQuery({
+    queryKey: ["email-plans-names", slug],
+    queryFn: async () => (await fetch(`/api/ops/email-plans?company=${slug}`, { credentials: "include" })).json() as
+      Promise<{ plans?: { id: number; title: string; subject: string | null }[] }>,
+    enabled: !!engine?.configured,
+    staleTime: 5 * 60_000,
+  });
+  // ops-<planId>-<slug> tags map back to the plan's human title/subject.
+  const prettyName = (tag: string, fallback: string) => {
+    const m = /^ops-(\d+)-/.exec(tag);
+    const plan = m ? plansQ.data?.plans?.find((x) => x.id === Number(m[1])) : undefined;
+    return plan?.subject || plan?.title || fallback;
+  };
+
   return (
     <div>
       <PageHero
@@ -74,6 +94,8 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
       />
 
       <EmailCalendar company={slug} />
+      {engine?.configured && <SegmentsCard company={slug} />}
+      {openCampaign && <CampaignDetail c={openCampaign} onClose={() => setOpenCampaign(null)} />}
 
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading email analytics…</div>}
       {q.error && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.error as Error).message}</div>}
@@ -138,10 +160,12 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
               </thead>
               <tbody className="divide-y divide-ops-border/50">
                 {d.campaigns.map((c) => (
-                  <tr key={c.broadcastId}>
+                  <tr key={c.broadcastId}
+                    onClick={() => setOpenCampaign({ ...c, prettyName: prettyName(c.broadcastId, c.name) })}
+                    className="cursor-pointer transition-colors hover:bg-ops-bg/40">
                     <td className="max-w-[280px] px-4 py-3">
-                      <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
-                      <div className="text-[11px] text-ops-text-muted">{new Date(c.lastSeen).toLocaleDateString()}</div>
+                      <div className="truncate font-medium text-brand-blue-400" title={c.broadcastId}>{prettyName(c.broadcastId, c.name)}</div>
+                      <div className="text-[11px] text-ops-text-muted">{new Date(c.sentAt ?? c.lastSeen).toLocaleDateString()}</div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">{c.sends.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{c.uniqueOpens.toLocaleString()}</td>
