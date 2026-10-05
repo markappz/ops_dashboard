@@ -7,6 +7,7 @@ import { PageHero } from "../components/page-hero";
 import { EmailCalendar } from "./email-calendar";
 import { SegmentsCard } from "../components/segments-card";
 import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
+import { EmailHealthCard, type EmailHealthData } from "../components/email-health-card";
 import { useEngine } from "../hooks/use-engines";
 
 /**
@@ -36,6 +37,7 @@ interface Payload {
     lifetime: { sends: number; opens: number; clicks: number };
   };
   flows: Flow[]; campaigns: Campaign[];
+  health?: EmailHealthData | null;
 }
 
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -107,6 +109,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
 
       {d?.configured && t && (
         <>
+          <EmailHealthCard health={d.health} rangeLabel={`${range}d`} />
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <Stat icon={<Users size={16} />} label="Marketable contacts" value={t.marketableContacts.toLocaleString()} />
             <Stat icon={<UserMinus size={16} />} label="Unsubscribed" value={t.unsubscribed.toLocaleString()} />

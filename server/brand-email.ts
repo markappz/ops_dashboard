@@ -6,6 +6,7 @@
  *   PAWGEN_EMAIL_API_URL   / PAWGEN_EMAIL_TOKEN
  */
 import type { Express } from "express";
+import { computeEmailHealth } from "./email-health";
 
 const CACHE_MS = 10 * 60_000;
 
@@ -25,7 +26,8 @@ function register(app: Express, slug: string, envPrefix: string, hint: string) {
       });
       const text = await r.text();
       if (!r.ok) throw new Error(`${slug} email summary ${r.status}: ${text.slice(0, 160)}`);
-      const data = { configured: true, ...JSON.parse(text) };
+      const summary = JSON.parse(text);
+      const data = { configured: true, ...summary, health: computeEmailHealth(summary) };
       cache.set(days, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
@@ -69,7 +71,7 @@ function registerBlended(app: Express) {
       if (!base || !token) return { slug: b.slug, label: b.label, configured: false as const };
       try {
         const s = await fetchSummary(base, token, days);
-        return { slug: b.slug, label: b.label, configured: true as const, totals: s.totals, flows: s.flows ?? [], campaigns: s.campaigns ?? [] };
+        return { slug: b.slug, label: b.label, configured: true as const, totals: s.totals, flows: s.flows ?? [], campaigns: s.campaigns ?? [], health: computeEmailHealth(s) };
       } catch (e: any) {
         console.error(`[OPS][blended] ${b.slug}:`, e.message);
         return { slug: b.slug, label: b.label, configured: false as const, error: e.message };

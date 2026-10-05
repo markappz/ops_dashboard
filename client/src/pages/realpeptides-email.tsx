@@ -6,6 +6,7 @@ import { PageHero } from "../components/page-hero";
 import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { EmailCalendar } from "./email-calendar";
 import { SegmentsCard } from "../components/segments-card";
+import { EmailHealthCard, type EmailHealthData } from "../components/email-health-card";
 import { ui } from "./coa/api";
 
 /**
@@ -38,6 +39,7 @@ interface Payload {
     lifetime: { sends: number; opens: number; clicks: number };
   };
   flows: Flow[]; campaigns: Campaign[];
+  health?: EmailHealthData | null;
 }
 
 const FLOW_LABEL: Record<string, string> = {
@@ -106,6 +108,7 @@ export default function RealPeptidesEmail() {
 
       {d?.configured && t && (
         <>
+          <EmailHealthCard health={d.health} rangeLabel={rlabel} />
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Stat icon={<Users size={16} />} label="Marketable contacts" value={t.marketableContacts.toLocaleString()} />
             <Stat icon={<UserMinus size={16} />} label="Unsubscribed" value={t.unsubscribed.toLocaleString()} />

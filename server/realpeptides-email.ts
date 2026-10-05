@@ -8,6 +8,7 @@
 import type { Express } from "express";
 import { windowOf } from "./lib/window";
 import { ENGINES } from "./brand-engines";
+import { computeEmailHealth } from "./email-health";
 
 const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 10 * 60_000;
@@ -38,7 +39,8 @@ export function registerRealPeptidesEmail(app: Express) {
       }
       const text = await r.text();
       if (!r.ok) throw new Error(`ops-email-summary ${r.status}: ${text.slice(0, 160)}`);
-      const data = { configured: true, ...JSON.parse(text) };
+      const summary = JSON.parse(text);
+      const data = { configured: true, ...summary, health: computeEmailHealth(summary) };
       cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
