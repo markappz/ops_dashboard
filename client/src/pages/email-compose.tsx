@@ -155,8 +155,16 @@ export default function EmailCompose(props?: { company?: string }) {
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!profileId && defaultProfile) setProfileId(defaultProfile.id);
-  }, [defaultProfile, profileId]);
+    if (profileId || !profiles.length) return;
+    // Brand profile first (composing from a brand tab), THEN the global default —
+    // one effect, so the default can never race ahead of the brand match.
+    const c = props?.company ?? new URLSearchParams(window.location.search).get("company");
+    const re = c ? PROFILE_MATCH[c] : undefined;
+    const hit = re ? profiles.find((pr) => re.test(pr.name)) : undefined;
+    const pick = hit ?? defaultProfile;
+    if (pick) setProfileId(pick.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultProfile, profileId, profiles]);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -256,16 +264,6 @@ export default function EmailCompose(props?: { company?: string }) {
   const engine = company ? engines[company] : undefined;
   const isEngine = !!engine?.configured;
   const brandLabel = engine?.label ?? company ?? "";
-
-  // Composing for a brand: default to its brand profile when one exists, so the chat
-  // writes in the right voice without Josh having to remember to switch.
-  useEffect(() => {
-    if (!company || profileId) return;
-    const re = PROFILE_MATCH[company];
-    if (!re) return;
-    const hit = profiles.find((pr) => re.test(pr.name));
-    if (hit) setProfileId(hit.id);
-  }, [company, profileId, profiles]);
 
   const reset = () => {
     abortRef.current?.abort();
