@@ -3581,3 +3581,16 @@ failures revert to draft); send_failed/missed plans EMAIL Paul a red alert throu
 pipe; red attention banner on Broadcasts; automation bearer = preview-only on send-rp (confirm
 → 403). Paul fires plan 75 (re-pointed to open-180d) manually — human clicks have no veto rail.
 Warm-up ramp totals pre-rung-4: ~28k sends, 46-49% opens, 0 complaints, $6.3k/22 orders.
+
+## 2026-10-05 — Full email-suite sweep + fixes (Autom)
+Paul: "all of them need to have no glitches." Swept all 17 surfaces (pawgen/PU/RP email,
+broadcasts, audience, activity, compose, RP flows, both Leads, blended) in-browser. Found+fixed:
+(1) audience/activity crashed on engine brands — brand engines didn't emit the RP contact-row
+contract; pawgen (3818fbb) + PU fn now emit {firstName, segments[], createdAt, counters}, client
+nullish-guarded (459796b). (2) /peptideu/leads built (f4ec302): guide_leads via peptidePool,
+converted = has profiles row; Leads page parameterized per brand. (3) compose brand-profile
+auto-pick raced the global default (b027f9e) — and the real gap was data: only FitScript existed.
+Created pawgen/PeptideU/Real Peptides brand profiles in ops (colors/voice/footer from the real
+brand tokens; pawgen voice encodes the HEAL15 15% standing offer). Verified: auto-pick works both
+brands; blended renders grades RP A·99 / PU C·75 / pawgen C·73 over $323K attributed revenue.
+Lesson re-learned: "load every page in the browser before handover" means EVERY page.
