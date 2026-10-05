@@ -167,11 +167,21 @@ export function PawgenMarketing() {
   );
 }
 
-export function PawgenLeads() {
+interface LeadsCopy { company: string; eyebrow: string; subtitle: string; convertedLabel: string; convertedHint: string; boughtColumn: string; showRevenue: boolean }
+const LEADS_COPY: Record<string, LeadsCopy> = {
+  pawgen: { company: "pawgen", eyebrow: "pawgen", subtitle: "Dosing-guide signups, and how many became customers.", convertedLabel: "Became customers", convertedHint: "leads who placed a paid order", boughtColumn: "Bought", showRevenue: true },
+  peptideu: { company: "peptideu", eyebrow: "PeptideU", subtitle: "Guide-funnel opt-ins, and how many created an app account.", convertedLabel: "Became app users", convertedHint: "leads who created a PeptideU account", boughtColumn: "Joined app", showRevenue: false },
+};
+
+export function PawgenLeads() { return <BrandLeads company="pawgen" />; }
+export function PeptideuLeads() { return <BrandLeads company="peptideu" />; }
+
+function BrandLeads({ company }: { company: string }) {
+  const copy = LEADS_COPY[company] ?? LEADS_COPY.pawgen;
   const { data, isLoading } = useQuery<Leads>({
-    queryKey: ["pawgen-leads"],
+    queryKey: [`${company}-leads`],
     queryFn: async () => {
-      const r = await fetch("/api/ops/pawgen/leads", { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/leads`, { credentials: "include" });
       try { return await r.json(); } catch { return { error: `Request failed (HTTP ${r.status})` }; }
     },
   });
@@ -180,7 +190,7 @@ export function PawgenLeads() {
 
   return (
     <div>
-      <PageHero eyebrow="pawgen" title="Leads" subtitle="Dosing-guide signups, and how many became customers." />
+      <PageHero eyebrow={copy.eyebrow} title="Leads" subtitle={copy.subtitle} />
 
       {data?.error && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{data.error}</div>}
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
@@ -189,9 +199,9 @@ export function PawgenLeads() {
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Stat label="Total leads" value={num(t.leads)} />
-            <Stat label="Became customers" value={num(t.converted)} tone={t.converted > 0 ? "good" : undefined} />
-            <Stat label="Conversion rate" value={`${t.conversionRate}%`} hint="leads who placed a paid order" />
-            <Stat label="Revenue from leads" value={usd(t.revenueFromLeads)} />
+            <Stat label={copy.convertedLabel} value={num(t.converted)} tone={t.converted > 0 ? "good" : undefined} />
+            <Stat label="Conversion rate" value={`${t.conversionRate}%`} hint={copy.convertedHint} />
+            {copy.showRevenue && <Stat label="Revenue from leads" value={usd(t.revenueFromLeads)} />}
           </div>
 
           <div className="mb-4 grid gap-4 lg:grid-cols-3">
@@ -225,7 +235,7 @@ export function PawgenLeads() {
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Source</th>
                   <th className="px-4 py-3 font-medium">Guide sent</th>
-                  <th className="px-4 py-3 font-medium">Bought</th>
+                  <th className="px-4 py-3 font-medium">{copy.boughtColumn}</th>
                   <th className="px-4 py-3 font-medium">Date</th>
                 </tr>
               </thead>
@@ -238,7 +248,7 @@ export function PawgenLeads() {
                     <td className="px-4 py-2.5">
                       {l.converted ? (
                         <span className="rounded bg-fitscript-green/15 px-2 py-0.5 text-xs font-medium text-fitscript-green">
-                          {usd(l.revenue)}
+                          {copy.showRevenue ? usd(l.revenue) : "yes"}
                         </span>
                       ) : (
                         <span className="text-ops-text-muted">—</span>

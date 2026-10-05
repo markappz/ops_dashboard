@@ -29,6 +29,8 @@ for (const b of ["pawgen", "peptideu"]) {
     NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
   }
 }
+// PeptideU's Leads lives under Email too (pawgen has its own sidebar entry).
+NAV_ALIASES['/peptideu/leads'] = '/peptideu/email';
 
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
   { label: "Overview", items: [{ path: "/peptideu", label: "Overview", icon: "grid" }] },

@@ -52,7 +52,7 @@ import CompanyIntegrations from "./pages/company-integrations";
 import RealPeptidesPaid from "./pages/realpeptides-paid";
 import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
-import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
+import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
@@ -105,8 +105,7 @@ const subTabs = (prefix: string) => ({
           { path: `/${prefix}/compose`, label: "Compose" },
         ]
       : []),
-    // PeptideU has no Leads page; the tab would 404 there.
-    ...(prefix !== "peptideu" ? [{ path: `/${prefix}/leads`, label: "Leads" }] : []),
+    { path: `/${prefix}/leads`, label: "Leads" },
   ],
 });
 const RP_TABS = subTabs("realpeptides");
@@ -281,6 +280,7 @@ export default function App() {
           <Route path="/peptideu/audience">{() => <><SubTabs tabs={PU_TABS.email} /><EmailAudience company="peptideu" /></>}</Route>
           <Route path="/peptideu/activity">{() => <><SubTabs tabs={PU_TABS.email} /><EmailActivity company="peptideu" /></>}</Route>
           <Route path="/peptideu/compose">{() => <><SubTabs tabs={PU_TABS.email} /><EmailCompose company="peptideu" /></>}</Route>
+          <Route path="/peptideu/leads">{() => <><SubTabs tabs={PU_TABS.email} /><PeptideuLeads /></>}</Route>
           <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/requests" component={PeptideuRequests} />
           <Route path="/peptideu/moderation" component={PeptideuModeration} />

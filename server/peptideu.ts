@@ -179,6 +179,54 @@ export function registerPeptideURoutes(app: Express) {
     }
   });
 
+  // ── Guide leads (email funnel opt-ins) — pawgen Leads-tab parity ──────────
+  app.get("/api/ops/peptideu/leads", async (_req: Request, res: Response) => {
+    if (!ensurePool(res)) return;
+    try {
+      const [leadsQ, profilesQ] = await Promise.all([
+        peptidePool!.query(`SELECT email, first_name, guide_slug, emailed_at, created_at FROM guide_leads ORDER BY created_at DESC`),
+        peptidePool!.query(`SELECT lower(trim(email)) AS email FROM profiles WHERE email IS NOT NULL`),
+      ]);
+      const members = new Set(profilesQ.rows.map((r: any) => r.email));
+      const rows = leadsQ.rows.map((l: any) => {
+        const e = String(l.email ?? "").trim().toLowerCase();
+        return {
+          email: l.email,
+          source: l.guide_slug || "guide",
+          created_at: l.created_at,
+          guide_sent: Boolean(l.emailed_at),
+          converted: members.has(e),
+          revenue: 0,
+        };
+      });
+      const converted = rows.filter((r: any) => r.converted);
+      const bySource: Record<string, number> = {};
+      for (const l of rows) bySource[l.source] = (bySource[l.source] ?? 0) + 1;
+      const byDay = new Map<string, number>();
+      for (let i = 29; i >= 0; i--) byDay.set(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10), 0);
+      for (const l of rows) {
+        const k = String(l.created_at instanceof Date ? l.created_at.toISOString() : l.created_at).slice(0, 10);
+        if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + 1);
+      }
+      res.json({
+        totals: {
+          leads: rows.length,
+          converted: converted.length,
+          conversionRate: rows.length ? Math.round((converted.length / rows.length) * 1000) / 10 : 0,
+          revenueFromLeads: 0,
+        },
+        bySource,
+        byRef: {},
+        byCampaign: {},
+        series: [...byDay.entries()].map(([date, n]) => ({ date, leads: n })),
+        recent: rows.slice(0, 100),
+      });
+    } catch (error: any) {
+      console.error("[PEPTIDEU] leads", error);
+      res.status(500).json({ error: "Failed to load guide leads" });
+    }
+  });
+
   // Rank distribution (Freshman → Graduate)
   app.get("/api/ops/peptideu/ranks", async (_req: Request, res: Response) => {
     if (!ensurePool(res)) return;
