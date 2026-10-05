@@ -82,10 +82,10 @@ export default function EmailActivity({ company }: { company: string }) {
               {d.contact.suppressed && <span className="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400"><ShieldAlert size={10} /> suppressed{d.contact.complainedAt ? " (spam)" : d.contact.bouncedAt ? " (bounce)" : ""}</span>}
             </div>
             <div className="grid grid-cols-2 gap-3 text-xs text-ops-text-muted sm:grid-cols-4">
-              <div><Mail size={12} className="mb-0.5 inline" /> {d.contact.sends.toLocaleString()} sends · since {new Date(d.contact.createdAt).toLocaleDateString()}</div>
-              <div><MousePointerClick size={12} className="mb-0.5 inline" /> {d.contact.opens.toLocaleString()} opens · {d.contact.clicks.toLocaleString()} clicks</div>
+              <div><Mail size={12} className="mb-0.5 inline" /> {(d.contact.sends ?? 0).toLocaleString()} sends{d.contact.createdAt ? ` · since ${new Date(d.contact.createdAt).toLocaleDateString()}` : ""}</div>
+              <div><MousePointerClick size={12} className="mb-0.5 inline" /> {(d.contact.opens ?? 0).toLocaleString()} opens · {(d.contact.clicks ?? 0).toLocaleString()} clicks</div>
               <div>source: <code className="text-[10px]">{d.contact.source}</code></div>
-              <div className="truncate">segments: {d.contact.segments.length ? d.contact.segments.join(", ") : "—"}</div>
+              <div className="truncate">segments: {(d.contact.segments ?? []).length ? (d.contact.segments ?? []).join(", ") : "—"}</div>
             </div>
           </div>
 

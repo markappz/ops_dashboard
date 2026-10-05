@@ -91,17 +91,17 @@ export default function EmailAudience({ company }: { company: string }) {
                   </td>
                   <td className="max-w-64 px-4 py-2">
                     <span className="flex flex-wrap gap-1">
-                      {r.segments.slice(0, 3).map((sg) => <span key={sg} className="rounded-full border border-ops-border px-1.5 py-0.5 text-[10px] text-ops-text-muted">{sg}</span>)}
-                      {r.segments.length > 3 && <span className="text-[10px] text-ops-text-muted">+{r.segments.length - 3}</span>}
+                      {(r.segments ?? []).slice(0, 3).map((sg) => <span key={sg} className="rounded-full border border-ops-border px-1.5 py-0.5 text-[10px] text-ops-text-muted">{sg}</span>)}
+                      {(r.segments ?? []).length > 3 && <span className="text-[10px] text-ops-text-muted">+{(r.segments ?? []).length - 3}</span>}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-ops-text-muted">{r.sends} sent · {r.opens} opens · {r.clicks} clicks</td>
+                  <td className="px-4 py-2 text-ops-text-muted">{r.sends ?? 0} sent · {r.opens ?? 0} opens · {r.clicks ?? 0} clicks</td>
                   <td className="px-4 py-2">
                     {r.suppressed ? <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">Suppressed</span>
                       : r.unsubscribed ? <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">Unsubscribed</span>
                       : <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">Subscribed</span>}
                   </td>
-                  <td className="px-4 py-2 text-ops-text-muted">{new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
+                  <td className="px-4 py-2 text-ops-text-muted">{r.createdAt ? new Date(r.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
                 </tr>
               ))}
               {d && !d.rows.length && <tr><td colSpan={5} className="px-4 py-8 text-center text-ops-text-muted">No contacts match.</td></tr>}
