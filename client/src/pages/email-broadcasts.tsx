@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEngine } from "@/hooks/use-engines";
 import { Check, Eye, Loader2, Monitor, Pencil, Send, Smartphone, Sparkles, X } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 
@@ -42,6 +43,7 @@ function CharCount({ value, ideal, max }: { value: string; ideal: number; max: n
 
 export default function EmailBroadcasts({ company, label }: { company: string; label: string }) {
   const qc = useQueryClient();
+  const engine = useEngine(company);
   const plans = useQuery({
     queryKey: ["email-plans-list", company],
     // The planner answers { plans, resendConnected, defaultFrom } - unwrap to the rows.
@@ -54,8 +56,12 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
   });
   const segments = useQuery({
     queryKey: ["marketing-segments", company],
-    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" })).json() as
-      Promise<{ all: number; segments: Segment[] }>,
+    queryFn: async () => {
+      const r = await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return j as { all: number; segments: Segment[] };
+    },
     staleTime: 5 * 60_000,
   });
   const stats = useQuery({
@@ -85,7 +91,7 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
     { on: false, date: "", time: "09:00", tz: "America/Los_Angeles", confirm: null });
   const set = (k: keyof typeof f, v: string) => { setF({ ...f, [k]: v }); setConfirmInfo(null); };
 
-  const selectedSegment = segments.data?.segments.find((sg) => sg.slug === f.segment);
+  const selectedSegment = segments.data?.segments?.find((sg) => sg.slug === f.segment);
   const reach = f.segment ? selectedSegment?.count : segments.data?.all;
 
   async function loadPlan(p: Plan) {
@@ -197,6 +203,11 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
           <button type="button" onClick={newDraft} className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-95">New broadcast</button>
         </div>} />
 
+      {engine && !engine.configured && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+          {label}&rsquo;s email engine isn&rsquo;t connected to ops yet (env pending) &mdash; drafts save fine, but segments, tests and sends light up once it&rsquo;s staged.
+        </div>
+      )}
       {plans.error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{String((plans.error as Error).message)}</div>}
 
       <div className="grid gap-4 xl:grid-cols-2">

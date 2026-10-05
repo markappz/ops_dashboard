@@ -248,8 +248,12 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   });
   const segments = useQuery({
     queryKey: ["marketing-segments", company],
-    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" })).json() as
-      Promise<{ all: number; segments: { slug: string; name?: string; description?: string; count: number }[] }>,
+    queryFn: async () => {
+      const r = await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return j as { all: number; segments: { slug: string; name?: string; description?: string; count: number }[] };
+    },
     enabled: engineOn,
     staleTime: 5 * 60_000,
   });
