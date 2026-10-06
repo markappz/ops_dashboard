@@ -3713,3 +3713,18 @@ phone port + publish routing, SMS, dialer. Log entry committed locally, rides ne
 - Interim workaround on current prod bundle: refreshing the tab re-resolves the preset correctly.
 - Dev-boot note: `npm run dev` hung pre-listen in this sandbox (RDS connect) — verification = tsc, prod build, and a date-fns simulation of old vs new window resolution. Browser-verify on the live bundle post-deploy per standing rule.
 - Deploy: rides the next ops deploy together with the pawgen dropper stock-consume fix (a461f80/6147e17, other seat, time-sensitive).
+
+### 2026-10-06 — agent_swap handoff 403 fix (Josh's RP-WHOLESALE-403-FIX doc) — committed, awaiting push go
+BIG CONTEXT CHANGE: +1 833-698-6936 is LIVE in Retell, agents PUBLISHED (FD V3, wholesale V1) —
+Josh is phone-testing. Root cause VERIFIED from Retell get-call on both failing calls
+(call_798ca0ff… wholesale intake, call_68e534ce… support verification): Retell keeps one call
+across agent_swap and the signed custom-function envelope carries the call's ORIGINAL agent_id —
+the wholesale LLM invoked ops_cc_create_wholesale_inquiry (only its engine registers it) while
+the envelope still said front desk → my per-agent capability check 403'd. NOT the email adapter.
+Fix: effectiveCapabilities() = entry agent's tools ∪ swap-reachable agents' (server-side
+HANDOFF_GRAPH mirroring the voice agent_swap tools; chat agents never swap, so chat scoping is
+unchanged; unknown agents + spoofed args still 403; send-requested-resource still granted to no
+one). Tests 28/28 incl. both live-call reproductions. retell-sync confirmed safe for Josh's
+tuning: it only writes general_tools/general_prompt/webhook_url, preserves agent_swap version
+pins verbatim, never touches model/voice/speech. NOTE health phone tile flips to connected
+automatically (listPhoneNumbers is live).

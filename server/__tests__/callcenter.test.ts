@@ -216,14 +216,35 @@ describe("agent tools: auth, allowlist, idempotency, verification", () => {
     expect(r.status).toBe(401);
   });
 
-  it("enforces the server-side capability allowlist (education agent ≠ order data; unknown agent ≠ anything)", async () => {
-    const r1 = await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(EDUCATION, "call_t1", {}));
+  const EDUCATION_CHAT = "agent_0bc0cf30289731847b7c9e6655"; // chat agents never swap
+
+  it("enforces the server-side capability allowlist (chat education ≠ order data; unknown agent ≠ anything)", async () => {
+    const r1 = await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(EDUCATION_CHAT, "call_t1", {}));
     expect(r1.status).toBe(403);
     const r2 = await signedPost("/api/integrations/retell/tools/search-products", toolPayload("agent_unknown", "call_t2", { query: "bpc" }));
     expect(r2.status).toBe(403);
     // model args can't spoof authority — the signed envelope's agent wins
-    const r3 = await signedPost("/api/integrations/retell/tools/get-order-status", { ...toolPayload(EDUCATION, "call_t3", {}), args: { agent_id: SUPPORT } });
+    const r3 = await signedPost("/api/integrations/retell/tools/get-order-status", { ...toolPayload(EDUCATION_CHAT, "call_t3", {}), args: { agent_id: SUPPORT } });
     expect(r3.status).toBe(403);
+  });
+
+  it("agent_swap regression (Josh's live 403s): the call keeps its entry agent id, so handoff-reachable tools authorize", async () => {
+    // Retell envelope after front desk → wholesale still says front desk;
+    // wholesale intake must save (call_798ca0ff… reproduction).
+    const r = await (await signedPost("/api/integrations/retell/tools/create-wholesale-inquiry",
+      toolPayload(FRONT_DESK, "call_swap1", { business_name: "Swap Test Labs", email: "swap@example.com", items: [{ product: "BPC-157", qty: 20 }] }))).json();
+    expect(r.status).toBe("ok");
+    expect(r.receipt_id ?? r.data?.request_id).toBeTruthy();
+    // and front desk → support unlocks verification tools (call_68e534ce… reproduction)
+    const v = await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(FRONT_DESK, "call_swap2", {}));
+    expect(v.status).toBe(200);
+    expect((await v.json()).status).toBe("verification_required");
+    // voice EDUCATION reaches support/wholesale via the graph too — by design
+    const e = await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(EDUCATION, "call_swap3", {}));
+    expect(e.status).toBe(200);
+    // but nothing grants the unregistered tool — union still excludes it
+    const s = await signedPost("/api/integrations/retell/tools/send-requested-resource", toolPayload(FRONT_DESK, "call_swap4", {}));
+    expect(s.status).toBe(403);
   });
 
   it("order status requires a real verification grant on this conversation", async () => {

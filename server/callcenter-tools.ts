@@ -49,6 +49,42 @@ export const AGENT_CAPABILITIES: Record<string, ToolName[]> = {
   agent_0bc0cf30289731847b7c9e6655: EDUCATION, // Education chat — Sloane
 };
 
+/**
+ * Server-controlled handoff topology — mirrors the agent_swap tools on the
+ * voice LLMs (preserved verbatim by retell-sync; chat agents never swap).
+ *
+ * Why this exists (2026-10-06, Josh's live-call 403s, call_798ca0ff… and
+ * call_68e534ce…): Retell keeps ONE call across agent_swap handoffs, and the
+ * signed custom-function envelope carries the call's ORIGINAL agent_id — not
+ * the specialist now speaking. Verified empirically: after front desk →
+ * wholesale, the wholesale LLM invoked ops_cc_create_wholesale_inquiry (only
+ * its engine registers that tool) while the envelope still said front desk →
+ * 403. So a call is authorized for the tools of its entry agent PLUS every
+ * agent reachable through OUR configured swap graph — never from anything the
+ * model claims in args, and never from brittle version numbers.
+ */
+const HANDOFF_GRAPH: Record<string, string[]> = {
+  agent_067b4ec911fad52c81d22a0535: ["agent_aa811252242b2dca1907ff78ea", "agent_dbff7019c07d8782878ec50373", "agent_934983123a41ba27f58830f6df"],
+  agent_aa811252242b2dca1907ff78ea: ["agent_dbff7019c07d8782878ec50373", "agent_934983123a41ba27f58830f6df"],
+  agent_dbff7019c07d8782878ec50373: ["agent_aa811252242b2dca1907ff78ea", "agent_934983123a41ba27f58830f6df"],
+  agent_934983123a41ba27f58830f6df: ["agent_aa811252242b2dca1907ff78ea", "agent_dbff7019c07d8782878ec50373"],
+};
+
+/** Own capabilities ∪ those of every agent reachable via configured handoffs. */
+export function effectiveCapabilities(agentId: string): Set<ToolName> {
+  const out = new Set<ToolName>();
+  const seen = new Set<string>();
+  const queue = [agentId];
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const t of AGENT_CAPABILITIES[id] ?? []) out.add(t);
+    for (const next of HANDOFF_GRAPH[id] ?? []) queue.push(next);
+  }
+  return out;
+}
+
 interface ToolContext {
   conversationExternalId: string | null;
   conversationId: number | null;
@@ -536,9 +572,10 @@ export function registerCallCenterTools(app: Express, pool: Pool) {
         const agentId = entity?.agent_id ? String(entity.agent_id) : null;
 
         // Capability check against the SIGNED envelope's agent — model args
-        // can never widen access (and an unknown agent gets nothing).
-        const allowed = agentId ? AGENT_CAPABILITIES[agentId] ?? [] : [];
-        if (!agentId || !allowed.includes(tool)) {
+        // can never widen access (and an unknown agent gets nothing). The
+        // envelope carries the call's ORIGINAL agent across agent_swap
+        // handoffs, so authorization covers the configured handoff graph.
+        if (!agentId || !(agentId in AGENT_CAPABILITIES) || !effectiveCapabilities(agentId).has(tool)) {
           console.warn(`[OPS][CC] tool ${tool} denied for agent ${agentId ?? "(none)"}`);
           return res.status(403).json({ status: "rejected", customer_message: "That isn't available on this line." });
         }
