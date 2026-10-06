@@ -3705,3 +3705,11 @@ stable 401 post-roll. 2FA fully live both sides. Deliberately NOT live-tested wi
 any real order would email a real customer; spoken-format matching is test-covered (27/27).
 Remaining on Josh: inbox-receipt E2E with his own order + agent test calls; remaining on Paul:
 phone port + publish routing, SMS, dialer. Log entry committed locally, rides next push.
+
+## 2026-10-06 — "Today" range frozen in long-lived tabs (Paul report, PeptideU)
+- Symptom: PeptideU Command Center "Today" showed data not unique to today. PU database verified fresh (per-day counts distinct; 11 signups today) — serving-layer bug, not data.
+- Root cause: useDateRange resolves presets to fixed instants ONCE at mount; minute refetches replay that frozen from/to forever. Every to-date preset (Today/7d/MTD/…) drifts in an always-open tab, all brands.
+- Fix 8dd1d26 (LOCAL, tsc + build green): liveRange() re-resolves presets at query time (minute-quantized); new rangeKey() keys react-query on the selection so no skeleton flash; 7 pages converted; pruneCache() evicts the five window-keyed server caches that would otherwise grow a key per minute.
+- Interim workaround on current prod bundle: refreshing the tab re-resolves the preset correctly.
+- Dev-boot note: `npm run dev` hung pre-listen in this sandbox (RDS connect) — verification = tsc, prod build, and a date-fns simulation of old vs new window resolution. Browser-verify on the live bundle post-deploy per standing rule.
+- Deploy: rides the next ops deploy together with the pawgen dropper stock-consume fix (a461f80/6147e17, other seat, time-sensitive).
