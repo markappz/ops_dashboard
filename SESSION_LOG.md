@@ -3642,3 +3642,16 @@ BLOCKED FOR CLAUDE (classifier: Secret-Store Writes + Production Deploy): mergin
 OPS_PUBLIC_BASE_URL into prod/ops-secrets and adding the task-def secret ref/env. Paul does this
 (console or `!`), then roll the service; webhook flips 503→401. Then:
 npx tsx scripts/retell-sync.ts diff → apply; test-call agents; backfill.
+
+## 2026-10-06 — Flows tab generalized to pawgen + PeptideU (commit 2911eee, LOCAL — not pushed)
+
+realpeptides-flows.tsx → email-flows.tsx with a company prop; FlowBuilder posts to
+/api/ops/:company/marketing/custom-flow; query keys carry the company; RP's
+rp-test-inbox localStorage key kept (other brands get ops-test-inbox-<company>).
+UnsubImport (Resend salvage tooling) stays RP-only. brand-engines.ts: pawgen+peptideu
+declare flows/overrides/custom-flows (their engines serve the contract as of today —
+pawgen 4eb91c7, peptideu 0f295d0). Flows subtab + routes for both brands; flows added
+to the pawgen/PU nav alias list. Server proxy routes were ALREADY company-generic with
+capGate — zero server route changes. ⚠️ render stays gated by custom-flows (both brands
+declare it, so no behavior gap). tsc clean, build green. Push only after both brand
+engines are deployed, or the tab 501s/404s against live engines.
