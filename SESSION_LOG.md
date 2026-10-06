@@ -3728,3 +3728,9 @@ one). Tests 28/28 incl. both live-call reproductions. retell-sync confirmed safe
 tuning: it only writes general_tools/general_prompt/webhook_url, preserves agent_swap version
 pins verbatim, never touches model/voice/speech. NOTE health phone tile flips to connected
 automatically (listPhoneNumbers is live).
+**Handoff fix deployed 2026-10-06 23:30Z (Paul: "push"):** fcb0e33 live. ⚠️ GH run 37546563002
+shows FAILED but that's a false negative — two deploys raced, the action lost its deployment id
+("not found after stabilization"); ECS PRIMARY completed with image fcb0e33… (task-def rev 377),
+behaviorally verified: signed front-desk envelope on get-order-status → 200 verification_required
+(was 403). Do NOT redeploy to "fix" the red run. Josh unblocked: FD→wholesale intake + FD→support
+verification both authorize; he retests by phone and flags sessions as tests.
