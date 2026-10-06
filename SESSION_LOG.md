@@ -3700,3 +3700,8 @@ real refs are RP-XXXXXXXX hex. Matcher fixed (cfa477d, 27/27 tests): alphanumeri
 RP prefix, exact-equality only. Awaiting push-go for cfa477d. Inbox-receipt E2E = Josh's ask #1:
 verify one of his own orders on a test call, confirm the code lands, flag session as test. No staff
 orders exist in the 365d feed to do it without him.
+**Matcher fix deployed 2026-10-06 22:2xZ (Paul: "push"):** 8fca4be, run 37540235362 green, webhook
+stable 401 post-roll. 2FA fully live both sides. Deliberately NOT live-tested with a real ref —
+any real order would email a real customer; spoken-format matching is test-covered (27/27).
+Remaining on Josh: inbox-receipt E2E with his own order + agent test calls; remaining on Paul:
+phone port + publish routing, SMS, dialer. Log entry committed locally, rides next push.
