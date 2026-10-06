@@ -41,6 +41,7 @@ const BRAND_TONE: Record<string, string> = {
   realpeptides: "bg-blue-500/15 text-blue-400",
   peptideu: "bg-amber-500/15 text-amber-400",
   pawgen: "bg-orange-500/15 text-orange-400",
+  northblu: "bg-cyan-500/15 text-cyan-400",
 };
 
 export default function EmailBlended() {

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type Company = "fitscript" | "peptideu" | "pawgen" | "realpeptides";
+export type Company = "fitscript" | "peptideu" | "pawgen" | "realpeptides" | "northblu";
 
 interface CompanyState {
   company: Company;

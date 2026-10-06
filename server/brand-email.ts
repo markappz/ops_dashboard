@@ -52,6 +52,7 @@ const BLENDED_BRANDS: Array<{ slug: string; label: string; env: () => { base?: s
   { slug: "realpeptides", label: "Real Peptides", env: () => ({ base: process.env.RP_SITE_API_URL ? `${process.env.RP_SITE_API_URL.replace(/\/$/, "")}/api/ops-email-summary` : undefined, token: process.env.RP_SITE_OPS_TOKEN }) },
   { slug: "peptideu", label: "PeptideU", env: () => ({ base: process.env.PEPTIDEU_EMAIL_API_URL, token: process.env.PEPTIDEU_EMAIL_TOKEN }) },
   { slug: "pawgen", label: "pawgen", env: () => ({ base: process.env.PAWGEN_EMAIL_API_URL, token: process.env.PAWGEN_EMAIL_TOKEN }) },
+  { slug: "northblu", label: "North Blu", env: () => ({ base: process.env.NORTHBLU_EMAIL_API_URL, token: process.env.NORTHBLU_EMAIL_TOKEN }) },
 ];
 
 /**
@@ -115,4 +116,6 @@ export function registerBrandEmail(app: Express) {
     "Set PEPTIDEU_EMAIL_API_URL + PEPTIDEU_EMAIL_TOKEN (the ops-email-summary edge function) to light this up.");
   register(app, "pawgen", "PAWGEN",
     "Ops is wired and waiting — pawgen's /api/ops-email-summary isn't deployed yet. Analytics appear automatically once the pawgen repo ships its email instrumentation.");
+  register(app, "northblu", "NORTHBLU",
+    "Set NORTHBLU_EMAIL_API_URL + NORTHBLU_EMAIL_TOKEN (the site's /api/ops-email-summary) to light this up.");
 }

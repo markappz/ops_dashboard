@@ -59,6 +59,16 @@ export const ENGINES: Record<string, BrandEngine | undefined> = {
     capabilities: ["flows", "overrides", "custom-flows"],
     alertFrom: "peptideu",
   },
+  northblu: {
+    slug: "northblu",
+    label: "North Blu",
+    base: process.env.NORTHBLU_SITE_API_URL,
+    token: process.env.NORTHBLU_SITE_OPS_TOKEN,
+    path: "/api/ops-marketing",
+    // Base contract only (2026-10-06 waitlist launch) — no flows yet.
+    capabilities: [],
+    alertFrom: "northblu",
+  },
 };
 
 export const hasEngine = (c: string) => {
@@ -76,6 +86,7 @@ const ENV_HINT: Record<string, string> = {
   realpeptides: "RP_SITE_API_URL + RP_SITE_OPS_TOKEN",
   pawgen: "PAWGEN_SITE_API_URL + PAWGEN_SITE_OPS_TOKEN",
   peptideu: "PEPTIDEU_ENGINE_URL + PEPTIDEU_ENGINE_TOKEN",
+  northblu: "NORTHBLU_SITE_API_URL + NORTHBLU_SITE_OPS_TOKEN",
 };
 
 /**

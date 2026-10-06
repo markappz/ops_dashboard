@@ -12,6 +12,7 @@ const PROFILE_MATCH: Record<string, RegExp> = {
   realpeptides: /real\s*peptides|^rp\b/i,
   pawgen: /pawgen/i,
   peptideu: /peptide\s*u\b|peptideu/i,
+  northblu: /north\s*blu\b/i,
 };
 
 interface BrandProfile {

@@ -8,7 +8,7 @@ import { Dirt } from "../dirt/Dirt";
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
-const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides"]);
+const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides", "/northblu"]);
 let ALL_ALIASES: Record<string, string> = {};
 
 // Consolidated nav (2026-09-16): these URLs still route, but live as sub-tabs
@@ -33,6 +33,11 @@ for (const b of ["pawgen", "peptideu"]) {
     NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
   }
 }
+// North Blu (waitlist brand, 2026-10-06): base email engine only — no flows.
+for (const sub of ["broadcasts", "audience", "activity", "compose"]) {
+  NAV_ALIASES[`/northblu/${sub}`] = "/northblu/email";
+}
+NAV_ALIASES["/northblu/pages"] = "/northblu/seo";
 // PeptideU's Leads lives under Email too (pawgen has its own sidebar entry).
 NAV_ALIASES['/peptideu/leads'] = '/peptideu/email';
 
@@ -79,6 +84,14 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
   },
   { label: "SEO", items: [{ path: "/pawgen/seo", label: "SEO", icon: "file-text" }] },
   { label: "System", items: [{ path: "/pawgen/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const NORTHBLU_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/northblu", label: "Overview", icon: "grid" }] },
+  { label: "Email", items: [{ path: "/northblu/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/northblu/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/northblu/seo", label: "SEO", icon: "file-text" }] },
+  { label: "System", items: [{ path: "/northblu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
@@ -241,7 +254,9 @@ export function OpsLayout({
       ? "pawgen"
       : location.startsWith("/realpeptides")
         ? "realpeptides"
-        : "fitscript";
+        : location.startsWith("/northblu")
+          ? "northblu"
+          : "fitscript";
   const sections =
     activeCompany === "peptideu"
       ? PEPTIDEU_NAV_SECTIONS
@@ -249,12 +264,14 @@ export function OpsLayout({
         ? PAWGEN_NAV_SECTIONS
         : activeCompany === "realpeptides"
           ? REALPEPTIDES_NAV_SECTIONS
-          : NAV_SECTIONS;
+          : activeCompany === "northblu"
+            ? NORTHBLU_NAV_SECTIONS
+            : NAV_SECTIONS;
 
   // Every brand lands on its Overview — the top tab (RP's Leads-as-home era
   // ended when its Overview got real order data).
   const companyHome = (c: Company) =>
-    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : "/fitscript";
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : c === "northblu" ? "/northblu" : "/fitscript";
 
   // On first load, honor the remembered company preference ("/" now always forwards to a home).
   const didRedirect = useRef(false);
@@ -331,6 +348,7 @@ export function OpsLayout({
               { key: "peptideu" as Company, label: "PeptideU" },
               { key: "pawgen" as Company, label: "pawgen" },
               { key: "realpeptides" as Company, label: "Real Peptides" },
+              { key: "northblu" as Company, label: "North Blu" },
             ]).map((o) => (
               <button
                 key={o.key}

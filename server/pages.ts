@@ -23,6 +23,7 @@ const SITE_ROOTS: Record<string, string | null> = {
   pawgen: "https://pawgen.com",
   realpeptides: "https://www.realpeptides.co",
   peptideu: "https://peptideu.com",
+  northblu: "https://northblu.com",
 };
 
 const CACHE_HOURS = 1;

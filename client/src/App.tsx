@@ -53,7 +53,7 @@ import RealPeptidesPaid from "./pages/realpeptides-paid";
 import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
-import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
+import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
@@ -123,6 +123,19 @@ const CC_TABS = [
   { path: "/realpeptides/call-center/settings", label: "Settings & health" },
 ] as const;
 const PAWGEN_TABS = subTabs("pawgen");
+// North Blu (2026-10-06): waitlist brand — base email engine (no flows), no leads page, no Clomark content yet.
+const NB = { company: "northblu", label: "North Blu", domain: "northblu.com" } as const;
+const NB_EMAIL_TABS = [
+  { path: "/northblu/email", label: "Email" },
+  { path: "/northblu/broadcasts", label: "Broadcasts" },
+  { path: "/northblu/audience", label: "Audience" },
+  { path: "/northblu/activity", label: "Activity" },
+  { path: "/northblu/compose", label: "Compose" },
+];
+const NB_SEO_TABS = [
+  { path: "/northblu/seo", label: "SEO" },
+  { path: "/northblu/pages", label: "Pages" },
+];
 const PU_TABS = subTabs("peptideu");
 const PU_SEO_TABS = PU_TABS.seo;
 const PU = { company: "peptideu", label: "PeptideU", domain: "peptideu.com" } as const;
@@ -323,6 +336,18 @@ export default function App() {
           <Route path="/pawgen/content">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanyContent company="pawgen" label="pawgen" /></>}</Route>
           <Route path="/pawgen/seo">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" /></>}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
+
+          {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
+          <Route path="/northblu" component={NorthbluEmail} />
+          <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
+          <Route path="/northblu/broadcasts">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailBroadcasts company="northblu" label="North Blu" /></>}</Route>
+          <Route path="/northblu/audience">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailAudience company="northblu" /></>}</Route>
+          <Route path="/northblu/activity">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailActivity company="northblu" /></>}</Route>
+          <Route path="/northblu/compose">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailCompose company="northblu" /></>}</Route>
+          <Route path="/northblu/traffic">{() => <CompanyTraffic {...NB} />}</Route>
+          <Route path="/northblu/seo">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanySeo {...NB} /></>}</Route>
+          <Route path="/northblu/pages">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanyPages company="northblu" label="North Blu" /></>}</Route>
+          <Route path="/northblu/integrations">{() => <CompanyIntegrations company="northblu" label="North Blu" />}</Route>
           <Route path="/peptideu/traffic">{() => <CompanyTraffic {...PU} />}</Route>
           <Route path="/peptideu/seo">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanySeo {...PU} /></>}</Route>
           <Route path="/peptideu/pages">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanyPages company="peptideu" label="PeptideU" /></>}</Route>

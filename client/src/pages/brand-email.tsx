@@ -242,6 +242,16 @@ export function PeptideuEmail() {
   );
 }
 
+export function NorthbluEmail() {
+  return (
+    <BrandEmail
+      slug="northblu"
+      brand="North Blu"
+      subtitle="Founding-list growth and campaign email from the northblu.com site's own send instrumentation — same tracking as every other brand."
+    />
+  );
+}
+
 export function PawgenEmail() {
   return (
     <BrandEmail
