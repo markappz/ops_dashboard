@@ -3670,3 +3670,8 @@ terminal's 2911eee (my earlier SESSION_LOG commit had swept their uncommitted lo
 checkout); resolved by restoring their paragraph as its own commit (33bf0df). REMAINING (Paul):
 publish agent versions + phone porting, CC_VERIFY_WEBHOOK_URL when RP email engine ships, SMS
 provider, Twilio dialer. This log entry committed locally — push with next deploy go.
+
+## 2026-10-06 (later) — Flows generalization LIVE
+My 2911eee was rebased into the call-center seat's stack (content verified intact, zero
+diff) and deployed 18:14Z; my push 9346091 was just the log commit. Prod JS verified
+carrying the pawgen/flows route. Both brand engines + crons live before ops — order held.
