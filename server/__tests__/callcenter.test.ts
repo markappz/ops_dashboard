@@ -253,6 +253,7 @@ describe("agent tools: auth, allowlist, idempotency, verification", () => {
           return new Response(JSON.stringify({ orders: [
             { id: "o1", number: "1001", createdAt: "2026-10-01", status: "PAID", items: [{ name: "BPC-157", qty: 2 }], email: "buyer@example.com", trackingNumber: "1Z999", trackingCarrier: "UPS" },
             { id: "o2", number: "1002", createdAt: "2026-10-02", status: "PAID", items: [], email: "buyer@example.com" },
+            { id: "o3", number: "RP-ABCD1234", createdAt: "2026-10-03", status: "PAID", items: [], email: "hexbuyer@example.com" },
           ] }), { status: 200 });
         }
         if (u.includes("site.test/api/ops-transactional")) {
@@ -290,6 +291,18 @@ describe("agent tools: auth, allowlist, idempotency, verification", () => {
         const status = await (await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(SUPPORT, "call_v1", {}))).json();
         expect(status.status).toBe("ok");
         expect(status.data.reference).toBe("1001");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("matches real RP-hex refs as spoken (spaces, missing prefix) — exact only", async () => {
+      stubEngine();
+      try {
+        const r = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v8", { order_reference: "abcd 1234" }))).json();
+        expect(r.status).toBe("ok");
+        expect(sentCodes.length).toBe(1);
+        expect(sentCodes[0].to).toBe("hexbuyer@example.com");
       } finally {
         vi.unstubAllGlobals();
       }

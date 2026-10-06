@@ -197,11 +197,15 @@ export interface OrderLookup {
  *  route a verification challenge and is never spoken). */
 export async function findOrder(ref: string | null, email?: string | null): Promise<OrderLookup> {
   const orders = await siteOrders();
-  const wanted = String(ref ?? "").replace(/[^a-z0-9#-]/gi, "").toLowerCase();
+  // Real refs look like RP-698C3DCB; callers say them with spaces, dashes or
+  // without the RP prefix, so compare on alphanumerics with the prefix made
+  // optional. Exact-equality only — never a fuzzy/suffix match on order ids.
+  const alnum = (s: unknown) => String(s ?? "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  const wanted = alnum(ref);
   const mail = email?.toLowerCase() ?? null;
   const match = orders.find((o) => {
-    const num = String(o.number ?? o.id ?? "").toLowerCase();
-    if (wanted && (num === wanted || num === wanted.replace(/^#/, ""))) return true;
+    const num = alnum(o.number ?? o.id);
+    if (wanted && num && (num === wanted || num === `rp${wanted}` || `rp${num}` === wanted)) return true;
     if (!wanted && mail && String(o.email ?? "").toLowerCase() === mail) return true;
     return false;
   });

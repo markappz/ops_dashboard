@@ -3692,3 +3692,11 @@ transit, enumeration, cooldown+supersede, attempt lock, provider failure, per-or
 network; CI gates it). DEPLOY ORDER: site FIRST, then ops. Retell NOT touched (agents published
 10-06 by Josh; no prompt change needed — tool messages carry the new wording). E2E after deploys:
 code to a staff test order inbox (order 112 = josh), verify receipt, flag session as test.
+**2FA live E2E 2026-10-06 evening:** site 28e3a28 deployed (run 37537242450 green; /api/ops-transactional
+404→401 unauth = live + token-gated); ops health verification {configured:true, reachable:true} —
+authenticated ping green. Live support-chat test: Grace triggered start-order-verification for
+"order 112" → correct generic no-enumeration reply; lastSend stayed null because 112 doesn't exist —
+real refs are RP-XXXXXXXX hex. Matcher fixed (cfa477d, 27/27 tests): alphanumeric compare, optional
+RP prefix, exact-equality only. Awaiting push-go for cfa477d. Inbox-receipt E2E = Josh's ask #1:
+verify one of his own orders on a test call, confirm the code lands, flag session as test. No staff
+orders exist in the 365d feed to do it without him.
