@@ -3635,3 +3635,10 @@ prod/ops-secrets AND task-def secrets list; (2) after live: npx tsx scripts/rete
 test-call each agent, flag tests, run backfill; (3) decisions: phone port into Retell (nothing
 automated), CC_VERIFY_WEBHOOK_URL once RP email engine ships transactional hook, SMS provider,
 Twilio for browser dialer. Hades doesn't exist anywhere — sales_recovery queue stands in.
+**Deployed 2026-10-06 (Paul: "push go"):** 404534b pushed, Deploy run 37502473761 green 17:22Z;
+live-verified: served bundle index-CY13zztA.js carries Call Center, webhook/tools answer 503
+(Retell not configured — correct until key injected), callcenter health 401 unauth.
+BLOCKED FOR CLAUDE (classifier: Secret-Store Writes + Production Deploy): merging RETELL_API_KEY +
+OPS_PUBLIC_BASE_URL into prod/ops-secrets and adding the task-def secret ref/env. Paul does this
+(console or `!`), then roll the service; webhook flips 503→401. Then:
+npx tsx scripts/retell-sync.ts diff → apply; test-call agents; backfill.
