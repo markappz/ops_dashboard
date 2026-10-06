@@ -3655,3 +3655,18 @@ to the pawgen/PU nav alias list. Server proxy routes were ALREADY company-generi
 capGate — zero server route changes. ⚠️ render stays gated by custom-flows (both brands
 declare it, so no behavior gap). tsc clean, build green. Push only after both brand
 engines are deployed, or the tab 501s/404s against live engines.
+**Enablement completed 2026-10-06 ~18:30Z (Paul ran the gated steps):** Paul merged-via-Claude
+RETELL_API_KEY + OPS_PUBLIC_BASE_URL into prod/ops-secrets (49 keys) and ran the task-def
+register+roll via `!` (revision 371). Webhook flipped 503→401 (5 consecutive checks). Schema-copy
+bug found live (prod image ships dist/ only → cc_ tables never created; "relation does not exist"
+in UI) → build now cps both .sql files into dist (a2be748, run 37509750667 green; fresh-DB boot
+test printed "Call Center tables verified", 11 tables). retell-sync APPLIED + verified: all 8 LLMs
+carry ops_cc_ tools + prompt block (end_call/agent_swap intact), all 8 agents webhook'd; snapshots
+pre/post in scripts/retell-snapshots/. LIVE E2E: API test chat with the chat desk → agent called
+ops_cc_search_products on prod and quoted Bromantane $120/100mg from the live catalog; chat ended;
+reconcile imported it + Joshua's Oct-5 test calls (med-spa decline etc.) with summaries; flagged my
+test chat as test session in prod UI. Cross-terminal note: pull --rebase collided with the Flows
+terminal's 2911eee (my earlier SESSION_LOG commit had swept their uncommitted log text — shared
+checkout); resolved by restoring their paragraph as its own commit (33bf0df). REMAINING (Paul):
+publish agent versions + phone porting, CC_VERIFY_WEBHOOK_URL when RP email engine ships, SMS
+provider, Twilio dialer. This log entry committed locally — push with next deploy go.
