@@ -11,3 +11,5 @@ delete process.env.RETELL_TOOL_AUTH_SECRET;
 delete process.env.CC_VERIFY_WEBHOOK_URL;
 process.env.RP_SITE_API_URL = "https://site.test";
 process.env.RP_SITE_OPS_TOKEN = "test-token";
+process.env.OPS_SESSION_SECRET = "test-session-secret-at-least-32-chars!!";
+process.env.CC_VERIFY_HASH_SECRET = "test-verify-hash-secret";

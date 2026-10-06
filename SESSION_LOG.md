@@ -3675,3 +3675,20 @@ provider, Twilio dialer. This log entry committed locally — push with next dep
 My 2911eee was rebased into the call-center seat's stack (content verified intact, zero
 diff) and deployed 18:14Z; my push 9346091 was just the log commit. Prod JS verified
 carrying the pawgen/flows route. Both brand engines + crons live before ops — order held.
+
+### 2026-10-06 — Order-verification email 2FA wired to the RP engine (Josh's handoff) — COMMITTED, awaiting push go
+Josh's RP-CALL-CENTER-EMAIL-HANDOFF-FOR-PAUL.md. Ops side: keyed-HMAC code hashes
+(CC_VERIFY_HASH_SECRET→OPS_SESSION_SECRET fallback), single-use atomic consumption, supersede,
+60s cooldown, 3/hr per order+recipient caps, delivery_status/provider_message_id on
+cc_verifications, generic no-enumeration replies (masked hint removed from agent responses),
+adapter+ping default to {RP_SITE_API_URL}/api/ops-transactional with RP_SITE_OPS_TOKEN — ZERO new
+prod secrets. Health now separates configured/reachable/lastSend/lastConfirmedDelivery. Site side
+(real-peptides repo, committed there): /api/ops-transactional route (authoriseOps, ping + strict
+validation, no caller-chosen content), sendOrderVerificationCodeEmail sender (override-aware,
+returns messageId; transport files untouched — SES WIP frozen by other terminal), alias
+order-verification-code + catalog/sample rows. Tests: ops 26/26 (happy path w/ code captured in
+transit, enumeration, cooldown+supersede, attempt lock, provider failure, per-order cap); site
+1013/1013 + tsc clean (local next build fails only on storefront static export — no DB from this
+network; CI gates it). DEPLOY ORDER: site FIRST, then ops. Retell NOT touched (agents published
+10-06 by Josh; no prompt change needed — tool messages carry the new wording). E2E after deploys:
+code to a staff test order inbox (order 112 = josh), verify receipt, flag session as test.

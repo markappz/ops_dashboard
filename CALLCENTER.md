@@ -57,11 +57,44 @@ Built 2026-10-06. The communication/follow-up layer over the existing Retell age
    point phone routing at published versions, port/purchase the number in Retell.
    Zero numbers are attached today — +18133300290 still rings Google Voice.
 
+## Order-verification email (2FA) — wired 2026-10-06 (Josh's handoff)
+**Architecture**: ops generates + stores the challenge; the RP site sends it.
+- Challenge store: `cc_verifications` — keyed HMAC-SHA256 verifier
+  (`CC_VERIFY_HASH_SECRET`, falls back to `OPS_SESSION_SECRET`), 10-min expiry,
+  single-use atomic consumption, superseded-on-reissue, 60s resend cooldown,
+  ≤3 sends/hour per order AND per recipient (HMAC'd keys, no plaintext),
+  ≤5 wrong attempts per challenge, delivery_status + provider_message_id.
+- Delivery: `POST {RP site}/api/ops-transactional` (route in the real-peptides
+  repo, `src/app/api/ops-transactional/route.ts`), standard `authoriseOps`
+  bearer. Ops defaults the endpoint from `RP_SITE_API_URL` +
+  `RP_SITE_OPS_TOKEN` — **no new secrets**; `CC_VERIFY_WEBHOOK_URL/TOKEN`
+  override if ever needed. Contract: `{ping:true}` → `{ok,pong}` health probe;
+  `{kind:"order-verification", to, code, expiresInMinutes, idempotencyKey}` →
+  `{ok, status:"accepted", messageId}`. Idempotency is owned by ops (one send
+  per challenge row; tool retries return the stored receipt).
+- Template: sender `sendOrderVerificationCodeEmail` in the RP repo's
+  `lib/server/email.ts`, alias `order-verification-code` — editable in the ops
+  email editor via EmailOverride, listed in the site-email catalog (Account
+  group) with a preview sample. From `RESEND_FROM_EMAIL`, reply-to
+  support@realpeptides.co, no unsubscribe footer (transactional), code never
+  in the subject. HTML only — the Mailgun transport has no text part and the
+  transport files were frozen by in-flight SES work; documented deviation.
+- Honesty: identical generic reply whether the order exists or not (no
+  enumeration, no masked-recipient hint to callers); "accepted" means provider
+  acceptance, not inbox receipt — the agent wording says "may take a moment",
+  and Settings & health separates configured / reachable (ping) / last send /
+  last confirmed delivery (stays null: the engine doesn't store delivered
+  events; inbox receipt is checked manually in the E2E).
+- Failure paths: provider failure → agent says it couldn't send and offers a
+  saved follow-up; locked/expired codes → callback path; access failures never
+  fall through to an unverified lookup (tested).
+- Rollback: revert the ops commit (verification returns to honest
+  unavailable); the site route is additive and inert if unused.
+- E2E check (after both deploys): call Grace's support line/chat, give an
+  isolated staff test order (e.g. Josh's order 112), confirm the code lands in
+  that inbox, read it back, get order status. Flag the session as a test.
+
 ## Still disconnected (honest states, shown in Settings & health)
-- **Order-verification delivery** — needs the RP in-house email engine's
-  transactional hook: set `CC_VERIFY_WEBHOOK_URL` + `CC_VERIFY_WEBHOOK_TOKEN`
-  (POST {to, template, code}). Until then agents collect a follow-up instead;
-  order details are never given unverified.
 - **Two-way SMS** — needs a Retell-connected messaging number (Google Voice does
   not forward SMS). UI shows SMS unavailable until configured AND tested.
 - **Staff browser dialer** — needs a telephony provider (Twilio Voice JS SDK

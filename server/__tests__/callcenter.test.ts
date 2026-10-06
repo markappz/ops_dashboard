@@ -5,7 +5,7 @@
  *   createdb ops_callcenter_dev   (or set CC_TEST_DATABASE_URL)
  *   npm test
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import express from "express";
 import pg from "pg";
 import type { AddressInfo } from "net";
@@ -233,30 +233,149 @@ describe("agent tools: auth, allowlist, idempotency, verification", () => {
     expect(j.status).toBe("verification_required");
   });
 
-  it("verification stays honest when no delivery channel exists, and wrong codes rate-limit", async () => {
-    // findOrder would hit the site feed; stub fetch so no external call happens
+  describe("order verification email 2FA", () => {
+    // Mock engine: the site orders feed + the /api/ops-transactional contract.
+    // Captures every code it is asked to deliver, so tests can verify success
+    // paths without ever reading a hash.
+    const sentCodes: Array<{ to: string; code: string; idempotencyKey: string }> = [];
+    let transactionalMode: "accepted" | "fail" = "accepted";
     const realFetch = global.fetch;
-    vi.stubGlobal("fetch", (async (url: any, init?: any) => {
-      if (String(url).includes("site.test")) return new Response(JSON.stringify({ orders: [{ id: "o1", number: "1001", createdAt: "2026-10-01", status: "PAID", items: [], email: "buyer@example.com" }] }), { status: 200 });
-      return realFetch(url, init);
-    }) as any);
-    try {
-      const start = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_t5", { order_reference: "1001" }))).json();
-      expect(start.status).toBe("unavailable"); // no CC_VERIFY_WEBHOOK_URL → never fabricate a send
-      const v = await pool.query(`SELECT * FROM cc_verifications WHERE conversation_external_id = 'call_t5'`);
-      expect(v.rows.length).toBe(1);
-      // guessing codes burns attempts and never verifies
-      for (let i = 0; i < 5; i++) {
-        const g = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_t5", { code: "000000" }))).json();
-        expect(g.status).toBe("rejected");
-      }
-      const g6 = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_t5", { code: "000000" }))).json();
-      expect(g6.customer_message).toContain("Too many");
-      const status = await (await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(SUPPORT, "call_t5", {}))).json();
-      expect(status.status).toBe("verification_required");
-    } finally {
-      vi.unstubAllGlobals();
+
+    // rate-limit counters live in cc_verifications — isolate each case
+    beforeEach(() => pool.query(`DELETE FROM cc_verifications`));
+
+    function stubEngine() {
+      sentCodes.length = 0;
+      transactionalMode = "accepted";
+      vi.stubGlobal("fetch", (async (url: any, init?: any) => {
+        const u = String(url);
+        if (u.includes("site.test/api/ops-orders")) {
+          return new Response(JSON.stringify({ orders: [
+            { id: "o1", number: "1001", createdAt: "2026-10-01", status: "PAID", items: [{ name: "BPC-157", qty: 2 }], email: "buyer@example.com", trackingNumber: "1Z999", trackingCarrier: "UPS" },
+            { id: "o2", number: "1002", createdAt: "2026-10-02", status: "PAID", items: [], email: "buyer@example.com" },
+          ] }), { status: 200 });
+        }
+        if (u.includes("site.test/api/ops-transactional")) {
+          const body = JSON.parse(init?.body ?? "{}");
+          if (body.ping) return new Response(JSON.stringify({ ok: true, pong: true }), { status: 200 });
+          if (transactionalMode === "fail") return new Response(JSON.stringify({ ok: false, error: "send failed" }), { status: 502 });
+          sentCodes.push({ to: body.to, code: body.code, idempotencyKey: body.idempotencyKey });
+          return new Response(JSON.stringify({ ok: true, status: "accepted", messageId: `mg-${sentCodes.length}` }), { status: 200 });
+        }
+        return realFetch(url, init);
+      }) as any);
     }
+
+    it("full happy path: code sent only to the email on the order, verified once, status unlocked", async () => {
+      stubEngine();
+      try {
+        const start = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v1", { order_reference: "1001" }))).json();
+        expect(start.status).toBe("ok");
+        expect(start.data?.destination_hint).toBeUndefined(); // no existence/recipient leak to the caller
+        expect(sentCodes.length).toBe(1);
+        expect(sentCodes[0].to).toBe("buyer@example.com"); // the order's email, never caller-supplied
+
+        const row = (await pool.query(`SELECT * FROM cc_verifications WHERE conversation_external_id = 'call_v1'`)).rows[0];
+        expect(row.delivery_status).toBe("accepted");
+        expect(row.provider_message_id).toBe("mg-1");
+        expect(row.sent_at).not.toBeNull();
+        expect(row.code_hash).not.toContain(sentCodes[0].code); // keyed hash, never plaintext
+
+        const ok = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v1", { code: sentCodes[0].code }))).json();
+        expect(ok.status).toBe("ok");
+        // single-use: the same correct code cannot be consumed twice
+        const again = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v1", { code: sentCodes[0].code }))).json();
+        expect(again.status).toBe("rejected");
+
+        const status = await (await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(SUPPORT, "call_v1", {}))).json();
+        expect(status.status).toBe("ok");
+        expect(status.data.reference).toBe("1001");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("unknown order: byte-identical generic reply, nothing sent — no enumeration", async () => {
+      stubEngine();
+      try {
+        const known = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v2", { order_reference: "1002" }))).json();
+        const unknown = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v3", { order_reference: "999999" }))).json();
+        expect(unknown.status).toBe("ok");
+        expect(unknown.customer_message).toBe(known.customer_message);
+        expect(sentCodes.some((s) => s.idempotencyKey.includes("v3"))).toBe(false);
+        const row = (await pool.query(`SELECT delivery_status, sent_at FROM cc_verifications WHERE conversation_external_id = 'call_v3'`)).rows[0];
+        expect(row.delivery_status).toBe("none");
+        expect(row.sent_at).toBeNull();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("60s resend cooldown on the same order, and a new code supersedes the old one", async () => {
+      stubEngine();
+      try {
+        await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v4", { order_reference: "1001" }));
+        const tooSoon = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v4", { order_reference: "1001" }))).json();
+        expect(tooSoon.status).toBe("rejected");
+        expect(tooSoon.customer_message).toContain("just sent");
+
+        // different order on the same call → allowed, and it supersedes code #1
+        await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v4", { order_reference: "1002" }));
+        expect(sentCodes.length).toBe(2);
+        const old = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v4", { code: sentCodes[0].code }))).json();
+        expect(old.status).toBe("rejected"); // superseded code is dead even if correct
+        const fresh = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v4", { code: sentCodes[1].code }))).json();
+        expect(fresh.status).toBe("ok");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("wrong codes burn attempts and lock the challenge after 5", async () => {
+      stubEngine();
+      try {
+        await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v5", { order_reference: "1001" }));
+        for (let i = 0; i < 5; i++) {
+          const g = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v5", { code: "000000" }))).json();
+          expect(g.status).toBe("rejected");
+        }
+        const locked = await (await signedPost("/api/integrations/retell/tools/verify-order-access", toolPayload(SUPPORT, "call_v5", { code: sentCodes[0].code }))).json();
+        expect(locked.customer_message).toContain("Too many"); // even the right code is dead now
+        const status = await (await signedPost("/api/integrations/retell/tools/get-order-status", toolPayload(SUPPORT, "call_v5", {}))).json();
+        expect(status.status).toBe("verification_required"); // no fall-through to unverified lookup
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("provider failure is reported honestly — the agent never claims a code was sent", async () => {
+      stubEngine();
+      transactionalMode = "fail";
+      try {
+        const r = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v6", { order_reference: "1001" }))).json();
+        expect(r.status).toBe("unavailable");
+        expect(r.customer_message).toContain("couldn't send");
+        const row = (await pool.query(`SELECT delivery_status FROM cc_verifications WHERE conversation_external_id = 'call_v6'`)).rows[0];
+        expect(row.delivery_status).toBe("failed");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("per-order hourly send cap holds across different calls", async () => {
+      stubEngine();
+      try {
+        for (const conv of ["call_v7a", "call_v7b", "call_v7c"]) {
+          const r = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, conv, { order_reference: "1001" }))).json();
+          expect(r.status).toBe("ok");
+        }
+        const fourth = await (await signedPost("/api/integrations/retell/tools/start-order-verification", toolPayload(SUPPORT, "call_v7d", { order_reference: "1001" }))).json();
+        expect(fourth.status).toBe("rejected");
+        expect(fourth.customer_message).toContain("limit");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   });
 
   it("create-followup is idempotent: a provider retry returns the ORIGINAL receipt", async () => {

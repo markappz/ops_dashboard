@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS cc_verifications (
   purpose       TEXT NOT NULL DEFAULT 'order_status',
   channel       TEXT,                            -- email | sms (established channel on file)
   destination_masked TEXT,                       -- e.g. p***@g***.com — never the raw destination
-  code_hash     TEXT NOT NULL,
+  code_hash     TEXT NOT NULL,                   -- keyed HMAC-SHA256, never plaintext/unkeyed
   attempts      INTEGER NOT NULL DEFAULT 0,
   max_attempts  INTEGER NOT NULL DEFAULT 5,
   expires_at    TIMESTAMPTZ NOT NULL,
@@ -173,6 +173,17 @@ CREATE TABLE IF NOT EXISTS cc_verifications (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS cc_verifications_conv_idx ON cc_verifications (conversation_external_id, expires_at);
+-- 2026-10-06 (email 2FA handoff): delivery-state tracking, single-use consumption,
+-- supersede semantics and per-recipient/per-order rate limiting.
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS delivery_status TEXT NOT NULL DEFAULT 'none'; -- none | queued | accepted | delivered | failed
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS provider_message_id TEXT;
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ;
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS recipient_key TEXT;                           -- keyed HMAC of the recipient, for rate limits only
+ALTER TABLE cc_verifications ADD COLUMN IF NOT EXISTS order_key TEXT;                               -- keyed HMAC of the order ref, for rate limits only
+CREATE INDEX IF NOT EXISTS cc_verifications_recipient_idx ON cc_verifications (recipient_key, created_at);
+CREATE INDEX IF NOT EXISTS cc_verifications_order_idx ON cc_verifications (order_key, created_at);
 
 -- Human callback attempts: attempted | no_answer | voicemail | connected | failed.
 CREATE TABLE IF NOT EXISTS cc_call_attempts (

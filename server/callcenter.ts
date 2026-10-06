@@ -12,6 +12,7 @@ import {
 import { processInboxOnce, reconcileOnce } from "./callcenter-worker";
 import { retellCfg, retell, RP_VOICE_AGENTS, RP_CHAT_AGENTS } from "./callcenter-retell";
 import { commerceHealth } from "./callcenter-commerce";
+import { verifyChannelPing } from "./callcenter-tools";
 
 const BUSINESS_TZ = "America/New_York";
 
@@ -324,11 +325,14 @@ export function registerCallCenterRoutes(app: Express) {
 
   app.get("/api/ops/realpeptides/callcenter/health", async (_req, res) => {
     try {
-      const [inbox, lastHook, watermarks, dests] = await Promise.all([
+      const [inbox, lastHook, watermarks, dests, verifyPing, verifyLast, verifyDelivered] = await Promise.all([
         pool.query(`SELECT status, COUNT(*)::int AS n FROM cc_webhook_inbox GROUP BY status`),
         pool.query(`SELECT MAX(received_at) AS at FROM cc_webhook_inbox`),
         pool.query(`SELECT key, value, updated_at FROM cc_sync_state WHERE key IN ('reconcile_watermark','backfill_watermark')`),
         getSyncState(pool, "handoff_destinations"),
+        verifyChannelPing(),
+        getSyncState(pool, "verify_last_send"),
+        pool.query(`SELECT MAX(sent_at) AS at FROM cc_verifications WHERE delivery_status = 'delivered'`),
       ]);
       let phone: any = { connected: false, note: "No phone number is attached in Retell — the public line still rings Google Voice. Porting/purchase is a Paul decision, not automated here." };
       if (retellCfg()) {
@@ -348,7 +352,20 @@ export function registerCallCenterRoutes(app: Express) {
         phone,
         sms: { connected: false, note: "Two-way SMS needs a connected messaging number/provider (Google Voice does not forward SMS into Retell). Shows here once configured and tested." },
         dialer: { connected: false, note: "Human browser dialer needs a telephony provider (e.g. Twilio Voice JS SDK) + approved caller ID. Until then Call buttons offer a labeled tel: fallback and log attempts manually." },
-        verification: { connected: !!(process.env.CC_VERIFY_WEBHOOK_URL && process.env.CC_VERIFY_WEBHOOK_TOKEN), note: "Order-verification codes need the RP transactional email engine hook (CC_VERIFY_WEBHOOK_URL/TOKEN)." },
+        // Three distinct truths, never conflated: env present, endpoint
+        // answering, and a real send actually accepted/delivered.
+        verification: {
+          connected: verifyPing.configured && verifyPing.reachable,
+          configured: verifyPing.configured,
+          reachable: verifyPing.reachable,
+          lastSend: verifyLast ?? null,
+          lastConfirmedDelivery: verifyDelivered.rows[0].at,
+          note: !verifyPing.configured
+            ? "Order-verification codes ride the RP site's /api/ops-transactional (defaults from RP_SITE_API_URL + RP_SITE_OPS_TOKEN; CC_VERIFY_WEBHOOK_URL/TOKEN override)."
+            : !verifyPing.reachable
+              ? `Configured but the endpoint isn't answering${verifyPing.detail ? ` (${verifyPing.detail})` : ""} — has the RP site build with /api/ops-transactional deployed?`
+              : "Endpoint reachable. Send status tracks to provider-accepted; inbox receipt is confirmed manually in the E2E check (the engine doesn't store delivered events).",
+        },
         sendResource: { connected: false, note: "send-requested-resource stays disabled until an approved SMS/email channel is connected." },
         commerce: commerceHealth(),
         handoffDestinations: dests ?? [],

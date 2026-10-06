@@ -14,11 +14,11 @@
  * customer_message and minimal data.
  */
 import express, { type Express, type Request, type Response } from "express";
-import { createHash, randomInt, timingSafeEqual } from "crypto";
+import { createHmac, randomInt, timingSafeEqual } from "crypto";
 import type { Pool } from "pg";
 import { verifyRetellSignature, retellCfg, RP_VOICE_AGENTS, RP_CHAT_AGENTS } from "./callcenter-retell";
 import {
-  createRequest, logCcEvent, suggestContact, toolReceipt, getSyncState,
+  createRequest, logCcEvent, suggestContact, toolReceipt, getSyncState, setSyncState,
   normalizePhone, normalizeEmail, digestOf,
 } from "./callcenter-db";
 import { searchProducts, getProductById, findOrder, findWholesaleMatch } from "./callcenter-commerce";
@@ -153,28 +153,52 @@ async function toolGetCoa(pool: Pool, ctx: ToolContext): Promise<ToolResult> {
   };
 }
 
-/* ---- order verification + status ---- */
+/* ---- order verification + status ----
+ * Policy (2026-10-06 email handoff): keyed-HMAC verifiers, single-use atomic
+ * consumption, 10-min expiry, 60s resend cooldown, ≤3 sends/hour per order
+ * and per recipient, ≤5 wrong attempts per challenge, superseded codes die,
+ * generic responses that never disclose whether an order exists, and the
+ * code goes ONLY to the email already stored on the order. */
 
-function hashCode(code: string): string {
-  return createHash("sha256").update(code).digest("hex");
+const VERIFY_EXPIRY_MIN = 10;
+const RESEND_COOLDOWN_SEC = 60;
+const MAX_SENDS_PER_HOUR = 3;
+
+function verifyHmac(value: string): string {
+  const secret = process.env.CC_VERIFY_HASH_SECRET || process.env.OPS_SESSION_SECRET;
+  if (!secret) throw new Error("CC_VERIFY_HASH_SECRET / OPS_SESSION_SECRET must be set");
+  return createHmac("sha256", secret).update(value).digest("hex");
 }
+
+// One generic line for every start-verification outcome where the order may
+// or may not exist — identical wording so nothing leaks either way.
+const GENERIC_SENT =
+  "If that order exists, a 6-digit code is on its way to the email on the order. It may take a moment to arrive — read it back when you have it.";
 
 async function toolStartOrderVerification(pool: Pool, ctx: ToolContext): Promise<ToolResult> {
   const orderRef = str(ctx.args.order_reference ?? ctx.args.order, 60);
   if (!ctx.conversationExternalId) return { status: "rejected", customer_message: "I can't verify from this channel." };
   if (!orderRef) return { status: "rejected", customer_message: "What's the order number?" };
+  const orderKey = verifyHmac(`order:${orderRef.toLowerCase()}`);
 
-  const started = await pool.query(
-    `SELECT COUNT(*)::int AS n FROM cc_verifications WHERE conversation_external_id = $1`,
-    [ctx.conversationExternalId],
-  );
-  if (started.rows[0].n >= 3) {
-    return { status: "rejected", customer_message: "We've hit the verification limit for this call. The team can help on a callback." };
+  if (!verifyChannelConfigured()) {
+    return {
+      status: "unavailable",
+      customer_message: "I can't send verification codes from this line yet, so I can't open order details here. I can save a request and the team will follow up using the contact on the order.",
+    };
   }
 
-  // The challenge goes ONLY to the contact already on the order — never to a
-  // destination the caller supplies. No connected transactional channel yet →
-  // honest unavailable + human fallback (never fabricated verification).
+  // Abuse limits, all computed BEFORE any order lookup so timing stays uniform.
+  const [perConv, cooldown, perOrder] = await Promise.all([
+    pool.query(`SELECT COUNT(*)::int AS n FROM cc_verifications WHERE conversation_external_id = $1`, [ctx.conversationExternalId]),
+    pool.query(`SELECT 1 FROM cc_verifications WHERE conversation_external_id = $1 AND order_key = $2 AND created_at > NOW() - make_interval(secs => $3) LIMIT 1`,
+      [ctx.conversationExternalId, orderKey, RESEND_COOLDOWN_SEC]),
+    pool.query(`SELECT COUNT(*)::int AS n FROM cc_verifications WHERE order_key = $1 AND sent_at IS NOT NULL AND created_at > NOW() - interval '1 hour'`, [orderKey]),
+  ]);
+  if (perConv.rows[0].n >= 3) return { status: "rejected", customer_message: "We've hit the verification limit for this call. The team can help on a callback." };
+  if (cooldown.rows[0]) return { status: "rejected", customer_message: "A code was just sent — give it a minute to arrive before we try again." };
+  if (perOrder.rows[0].n >= MAX_SENDS_PER_HOUR) return { status: "rejected", customer_message: "That order has hit the code limit for now. I can save a request for the team instead." };
+
   let onFile: string | null = null;
   try {
     const lookup = await findOrder(orderRef);
@@ -183,69 +207,154 @@ async function toolStartOrderVerification(pool: Pool, ctx: ToolContext): Promise
     return { status: "unavailable", customer_message: "I can't reach the order system right now. I can have the team call you back instead." };
   }
 
-  const code = String(randomInt(100000, 999999));
-  const masked = onFile ? onFile.replace(/^(.).*(@.).*(\..+)$/, "$1***$2***$3") : null;
+  const recipientKey = onFile ? verifyHmac(`rcpt:${onFile.toLowerCase()}`) : null;
+  if (recipientKey) {
+    const perRcpt = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM cc_verifications WHERE recipient_key = $1 AND sent_at IS NOT NULL AND created_at > NOW() - interval '1 hour'`,
+      [recipientKey],
+    );
+    // Same generic reply as success — a rate-limited recipient reveals nothing.
+    if (perRcpt.rows[0].n >= MAX_SENDS_PER_HOUR) return { status: "ok", customer_message: GENERIC_SENT };
+  }
+
+  // A fresh code supersedes every unconsumed one on this conversation.
   await pool.query(
-    `INSERT INTO cc_verifications (conversation_external_id, order_reference, purpose, channel, destination_masked, code_hash, expires_at)
-     VALUES ($1, $2, 'order_status', 'email', $3, $4, NOW() + interval '10 minutes')`,
-    [ctx.conversationExternalId, orderRef, masked, hashCode(code)],
+    `UPDATE cc_verifications SET superseded = TRUE WHERE conversation_external_id = $1 AND verified_at IS NULL AND NOT superseded`,
+    [ctx.conversationExternalId],
   );
 
-  const sent = await sendVerificationChallenge(onFile, code);
-  if (!sent) {
-    // Row exists for audit; without a delivery channel the flow stops here.
-    // Deliberately the same message whether or not the order exists.
-    return {
-      status: "unavailable",
-      customer_message: "I can't send verification codes from this line yet, so I can't open order details here. I can save a request and the team will follow up using the contact on the order.",
-    };
+  const code = String(randomInt(100000, 999999));
+  const masked = onFile ? onFile.replace(/^(.).*(@.).*(\..+)$/, "$1***$2***$3") : null; // staff UI only — never returned to the caller
+  const ins = await pool.query(
+    `INSERT INTO cc_verifications (conversation_external_id, order_reference, purpose, channel, destination_masked,
+        code_hash, expires_at, recipient_key, order_key)
+     VALUES ($1, $2, 'order_status', 'email', $3, $4, NOW() + make_interval(mins => $5), $6, $7) RETURNING id`,
+    [ctx.conversationExternalId, orderRef, masked, verifyHmac(`code:${code}`), VERIFY_EXPIRY_MIN, recipientKey, orderKey],
+  );
+  const challengeId = ins.rows[0].id;
+
+  if (!onFile) {
+    // Unknown order / no email on file: no send happens, but the reply is
+    // byte-identical to the success path.
+    return { status: "ok", customer_message: GENERIC_SENT };
   }
-  return {
-    status: "ok",
-    customer_message: "If that order exists, a 6-digit code was just sent to the contact on file. Read it back when you have it.",
-    data: { destination_hint: masked },
-  };
+
+  const delivery = await sendVerificationChallenge(onFile, code, challengeId);
+  await pool.query(
+    `UPDATE cc_verifications SET delivery_status = $2, provider_message_id = $3, sent_at = CASE WHEN $2 IN ('queued','accepted','delivered') THEN NOW() ELSE sent_at END WHERE id = $1`,
+    [challengeId, delivery.status, delivery.messageId ?? null],
+  );
+  if (delivery.status === "failed") {
+    // Provider refused — honest failure, simple recovery path (prompt block
+    // tells the agent to offer create-followup).
+    return { status: "unavailable", customer_message: "I couldn't send the code. I can save a request for our support team to help instead." };
+  }
+  await setSyncState(pool, "verify_last_send", { at: new Date().toISOString(), status: delivery.status });
+  return { status: "ok", customer_message: GENERIC_SENT };
 }
 
-/** Delivery adapter. No approved transactional channel is connected yet, so
- *  this reports failure honestly. Wire CC_VERIFY_WEBHOOK_URL to the RP email
- *  engine's transactional endpoint when it ships (never a new ESP from here). */
-async function sendVerificationChallenge(destination: string | null, code: string): Promise<boolean> {
-  const hook = process.env.CC_VERIFY_WEBHOOK_URL;
-  const token = process.env.CC_VERIFY_WEBHOOK_TOKEN;
-  if (!hook || !token || !destination) return false;
+/** Delivery endpoint resolution: explicit CC_VERIFY_* wins, else the RP site's
+ *  /api/ops-transactional with the ops bearer ops already holds — the same
+ *  authoriseOps gate every other site ops read uses. Zero new secrets. */
+export function verifyChannelCfg(): { url: string; token: string } | null {
+  const url = process.env.CC_VERIFY_WEBHOOK_URL
+    || (process.env.RP_SITE_API_URL ? `${process.env.RP_SITE_API_URL.replace(/\/$/, "")}/api/ops-transactional` : null);
+  const token = process.env.CC_VERIFY_WEBHOOK_TOKEN || process.env.RP_SITE_OPS_TOKEN;
+  return url && token ? { url, token } : null;
+}
+
+export function verifyChannelConfigured(): boolean {
+  return !!verifyChannelCfg();
+}
+
+interface VerifyDelivery { status: "queued" | "accepted" | "delivered" | "failed"; messageId?: string | null }
+
+/** Delivery adapter → the RP in-house email engine's transactional endpoint.
+ *  Destination comes exclusively from the order record; the URL and token come
+ *  exclusively from server config. Returns only what the engine confirmed —
+ *  provider acceptance is not inbox delivery, and the wording upstream says so. */
+async function sendVerificationChallenge(destination: string, code: string, challengeId: number): Promise<VerifyDelivery> {
+  const cfg = verifyChannelCfg();
+  if (!cfg) return { status: "failed" };
   try {
-    const r = await fetch(hook, {
+    const r = await fetch(cfg.url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ to: destination, template: "cc-verification", code }),
+      headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "order-verification",
+        to: destination,
+        code,
+        expiresInMinutes: VERIFY_EXPIRY_MIN,
+        idempotencyKey: `cc-verify-${challengeId}`,
+      }),
       signal: AbortSignal.timeout(8000),
     });
-    return r.ok;
-  } catch {
-    return false;
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) {
+      console.error(`[OPS][CC] verify send failed: ${r.status} ${String(j.error ?? "").slice(0, 120)}`); // no destination, no code
+      return { status: "failed" };
+    }
+    return { status: j.status === "queued" ? "queued" : "accepted", messageId: j.messageId ?? null };
+  } catch (e: any) {
+    console.error(`[OPS][CC] verify send error: ${e.message}`);
+    return { status: "failed" };
+  }
+}
+
+/** Health probe: ping the transactional endpoint without sending anything. */
+export async function verifyChannelPing(): Promise<{ configured: boolean; reachable: boolean; detail?: string }> {
+  const cfg = verifyChannelCfg();
+  if (!cfg) return { configured: false, reachable: false };
+  try {
+    const r = await fetch(cfg.url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ ping: true }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    return { configured: true, reachable: r.ok && j.ok === true, detail: r.ok ? undefined : `HTTP ${r.status}` };
+  } catch (e: any) {
+    return { configured: true, reachable: false, detail: e.message };
   }
 }
 
 async function toolVerifyOrderAccess(pool: Pool, ctx: ToolContext): Promise<ToolResult> {
   const code = str(ctx.args.code, 12).replace(/\D/g, "");
   if (!ctx.conversationExternalId || !code) return { status: "rejected", customer_message: "Read me the 6-digit code when you have it." };
-  const row = (await pool.query(
-    `SELECT * FROM cc_verifications
-      WHERE conversation_external_id = $1 AND verified_at IS NULL AND expires_at > NOW()
-      ORDER BY id DESC LIMIT 1`,
+  // Atomically burn an attempt on the newest live (unsuperseded) challenge —
+  // correct under concurrency across multiple server tasks.
+  const claimed = (await pool.query(
+    `UPDATE cc_verifications SET attempts = attempts + 1
+      WHERE id = (
+        SELECT id FROM cc_verifications
+         WHERE conversation_external_id = $1 AND verified_at IS NULL AND NOT superseded
+           AND expires_at > NOW() AND attempts < max_attempts
+         ORDER BY id DESC LIMIT 1 FOR UPDATE SKIP LOCKED)
+      RETURNING id, code_hash, order_reference`,
     [ctx.conversationExternalId],
   )).rows[0];
-  if (!row) return { status: "rejected", customer_message: "There's no active code for this call — we'd need to start again." };
-  if (row.attempts >= row.max_attempts) return { status: "rejected", customer_message: "Too many tries on that code. The team can help on a callback." };
-  await pool.query(`UPDATE cc_verifications SET attempts = attempts + 1 WHERE id = $1`, [row.id]);
-  const a = Buffer.from(hashCode(code));
-  const b = Buffer.from(String(row.code_hash));
+  if (!claimed) {
+    const any = await pool.query(
+      `SELECT 1 FROM cc_verifications WHERE conversation_external_id = $1 AND attempts >= max_attempts AND expires_at > NOW() LIMIT 1`,
+      [ctx.conversationExternalId],
+    );
+    return any.rows[0]
+      ? { status: "rejected", customer_message: "Too many tries on that code. The team can help on a callback." }
+      : { status: "rejected", customer_message: "There's no active code for this call — we'd need to start again." };
+  }
+  const a = Buffer.from(verifyHmac(`code:${code}`));
+  const b = Buffer.from(String(claimed.code_hash));
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return { status: "rejected", customer_message: "That code doesn't match." };
   }
-  await pool.query(`UPDATE cc_verifications SET verified_at = NOW() WHERE id = $1`, [row.id]);
-  return { status: "ok", customer_message: "You're verified for this call.", data: { order_reference: row.order_reference } };
+  // Single-use consumption: only one concurrent matcher can flip verified_at.
+  const consumed = await pool.query(
+    `UPDATE cc_verifications SET verified_at = NOW(), consumed_at = NOW() WHERE id = $1 AND verified_at IS NULL RETURNING id`,
+    [claimed.id],
+  );
+  if (!consumed.rows[0]) return { status: "rejected", customer_message: "That code was already used." };
+  return { status: "ok", customer_message: "You're verified for this call.", data: { order_reference: claimed.order_reference } };
 }
 
 async function toolGetOrderStatus(pool: Pool, ctx: ToolContext): Promise<ToolResult> {
