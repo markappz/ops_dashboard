@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Mail, MousePointerClick, Newspaper, Share2, Bot, Link2, CircleDot, EyeOff, Globe, Handshake, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { ui } from "./coa/api";
 
 /**
@@ -70,12 +70,11 @@ export default function RealPeptidesOrders() {
   const [range, setRange] = useDateRange("realpeptides");
   const [channel, setChannel] = useState("all");
   const [query, setQuery] = useState("");
-  const rq = rangeQuery(range);
 
   const q = useQuery({
-    queryKey: ["rp-orders", rq],
+    queryKey: ["rp-orders", rangeKey(range)],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/orders?${rq}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/orders?${rangeQuery(range)}`, { credentials: "include" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },

@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
+import { rangeKey, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
 import { Card, CommandHero, DailyBars, Delta, Health, Panel, Section, Breakdown, MINUTE, clock, get, num, usd, rangeLabel, rangeShort, type HealthRow } from "../components/command-center";
 
 /**
@@ -10,9 +10,8 @@ import { Card, CommandHero, DailyBars, Delta, Health, Panel, Section, Breakdown,
  */
 
 function useData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
-  const rq = rangeQuery(range);
   const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
-  const cmd = useQuery({ queryKey: ["pawgen-command", rq], queryFn: () => get(`/api/ops/pawgen/command?${rq}`), refetchInterval: MINUTE });
+  const cmd = useQuery({ queryKey: ["pawgen-command", rangeKey(range)], queryFn: () => get(`/api/ops/pawgen/command?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const pages = useQuery({
     queryKey: ["pawgen-pages-summary", pageDays],
     queryFn: () => { const force = forceRef.current ? "&refresh=1" : ""; forceRef.current = false; return get(`/api/ops/pages?company=pawgen&days=${pageDays}&summary=1${force}`); },

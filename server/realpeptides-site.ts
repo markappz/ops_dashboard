@@ -14,7 +14,7 @@
  * UI shows the connect state — never a fabricated zero.
  */
 import type { SalesSummary, SalesWindow } from "./woocommerce";
-import type { Window } from "./lib/window";
+import { pruneCache, type Window } from "./lib/window";
 
 const cache = new Map<string, { at: number; data: SalesSummary }>();
 const CACHE_MS = 10 * 60_000;
@@ -71,6 +71,7 @@ export async function siteSalesSummary(win: Window): Promise<SalesSummary> {
     pending: Number(j.pending ?? 0),
     fetchedAt: new Date().toISOString(),
   };
+  pruneCache(cache, CACHE_MS);
   cache.set(win.key, { at: Date.now(), data });
   return data;
 }

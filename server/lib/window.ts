@@ -41,3 +41,13 @@ export function windowOf(q: Record<string, unknown>, fallbackDays = 30): Window 
   return { from: new Date(now.getTime() - days * DAY), to: now, prevFrom: new Date(now.getTime() - 2 * days * DAY), prevTo: new Date(now.getTime() - days * DAY),
     days, custom: false, site: `days=${days}`, key: `d${days}` };
 }
+
+/**
+ * Evict expired entries before inserting. Live preset windows mint a new
+ * `from..to` key every minute, so an unpruned window-keyed Map grows without
+ * bound for the life of the process.
+ */
+export function pruneCache<V extends { at: number }>(cache: Map<string, V>, ttlMs: number): void {
+  const cutoff = Date.now() - ttlMs;
+  for (const [k, v] of cache) if (v.at < cutoff) cache.delete(k);
+}

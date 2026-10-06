@@ -4,7 +4,7 @@ import { StatCard, type Tone } from "../components/stat";
 import { Link } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
 import { api as coaApi, type Sku } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
 
@@ -47,10 +47,10 @@ const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => 
 const MINUTE = 60_000;
 
 function useOverviewData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
-  const rq = rangeQuery(range);
+  const rk = rangeKey(range);
   const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
-  const ov = useQuery({ queryKey: ["rp-overview", rq], queryFn: () => get(`/api/ops/realpeptides/overview?${rq}`), refetchInterval: MINUTE });
-  const contacts = useQuery({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
+  const ov = useQuery({ queryKey: ["rp-overview", rk], queryFn: () => get(`/api/ops/realpeptides/overview?${rangeQuery(range)}`), refetchInterval: MINUTE });
+  const contacts = useQuery({ queryKey: ["rp-contacts", rk], queryFn: () => get(`/api/ops/realpeptides/contacts?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const skus = useQuery({ queryKey: ["coa-skus"], queryFn: () => coaApi<{ skus: Sku[] }>("/skus"), retry: false, refetchInterval: MINUTE });
   const pages = useQuery({
     queryKey: ["rp-pages-summary", pageDays],

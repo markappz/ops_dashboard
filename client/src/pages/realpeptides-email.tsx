@@ -3,7 +3,7 @@ import { CampaignDetail, type CampaignLike } from "../components/campaign-detail
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { EmailCalendar } from "./email-calendar";
 import { SegmentsCard } from "../components/segments-card";
 import { EmailHealthCard, type EmailHealthData } from "../components/email-health-card";
@@ -57,13 +57,12 @@ const money = (cents: number) => "$" + (cents / 100).toLocaleString(undefined, {
 export default function RealPeptidesEmail() {
   // Same picker and same stored window as the Command Center, Orders and Leads - one range for the brand.
   const [range, setRange] = useDateRange("realpeptides");
-  const rq = rangeQuery(range);
   const days = rangeDays(range);
   const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const q = useQuery({
-    queryKey: ["rp-email", rq],
+    queryKey: ["rp-email", rangeKey(range)],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/email?${rq}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/email?${rangeQuery(range)}`, { credentials: "include" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 
 /**
  * Leads for Real Peptides.
@@ -199,10 +199,9 @@ function LegacyLists({ range }: { range: number }) {
 
 export default function RealPeptidesLeads() {
   const [range, setRange] = useDateRange("realpeptides");
-  const rq = rangeQuery(range);
   const days = rangeDays(range);
   const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
-  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
+  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rangeKey(range)], queryFn: () => get(`/api/ops/realpeptides/contacts?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const c = q.data;
   const asOf = c?.generatedAt ? new Date(c.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
 

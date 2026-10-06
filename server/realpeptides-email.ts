@@ -6,7 +6,7 @@
  * ops caches and renders.
  */
 import type { Express } from "express";
-import { windowOf } from "./lib/window";
+import { windowOf, pruneCache } from "./lib/window";
 import { ENGINES } from "./brand-engines";
 import { computeEmailHealth } from "./email-health";
 
@@ -41,7 +41,8 @@ export function registerRealPeptidesEmail(app: Express) {
       if (!r.ok) throw new Error(`ops-email-summary ${r.status}: ${text.slice(0, 160)}`);
       const summary = JSON.parse(text);
       const data = { configured: true, ...summary, health: computeEmailHealth(summary) };
-      cache.set(win.key, { at: Date.now(), data });
+      pruneCache(cache, CACHE_MS);
+  cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
       console.error("[OPS][RP] email:", e.message);

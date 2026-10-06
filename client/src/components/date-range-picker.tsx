@@ -35,8 +35,32 @@ export function presetRange(key: string, now = new Date()): DateRange {
   return { from, to, label: p.label, key: p.key };
 }
 
+/**
+ * Re-resolve a preset at query time, quantized to the minute. A preset picked
+ * at page load is a pair of frozen instants; in an always-open ops tab the
+ * "Today" / to-date windows must track the clock, not the load time (Paul,
+ * 10-06: PeptideU "Today" served the window from whenever the tab opened).
+ * Quantizing keeps the query key stable between minutes so re-renders don't
+ * refetch. Custom ranges are explicit instants and stay fixed.
+ */
+export function liveRange(r: DateRange): DateRange {
+  if (r.key === "custom") return r;
+  return presetRange(r.key, new Date(Math.floor(Date.now() / 60_000) * 60_000));
+}
+
 export function rangeQuery(r: DateRange): string {
-  return `from=${encodeURIComponent(r.from.toISOString())}&to=${encodeURIComponent(r.to.toISOString())}`;
+  const live = liveRange(r);
+  return `from=${encodeURIComponent(live.from.toISOString())}&to=${encodeURIComponent(live.to.toISOString())}`;
+}
+
+/**
+ * Stable react-query cache key for a selection. Key on this and call
+ * rangeQuery() INSIDE the queryFn: the key then changes only when the user
+ * picks a different range, while every interval refetch re-resolves the
+ * window — no skeleton flash from instants churning in the key.
+ */
+export function rangeKey(r: DateRange): string {
+  return r.key === "custom" ? `custom:${r.from.toISOString()}..${r.to.toISOString()}` : r.key;
 }
 
 /** Whole days in the range, ≥ 1 — for "per day" math and per-day labels. */

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { StatCard } from "../components/stat";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, useDateRange } from "../components/date-range-picker";
 
 /**
  * Affiliates for Real Peptides.
@@ -69,7 +69,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNo
 export default function RealPeptidesAffiliates() {
   const [range, setRange] = useDateRange("realpeptides");
   const q = useQuery<Data>({
-    queryKey: ["rp-affiliates", rangeQuery(range)],
+    queryKey: ["rp-affiliates", rangeKey(range)],
     queryFn: () => get(`/api/ops/realpeptides/affiliates?${rangeQuery(range)}`),
     refetchInterval: 5 * MINUTE,
     staleTime: MINUTE,
