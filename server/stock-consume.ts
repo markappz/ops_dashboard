@@ -146,6 +146,10 @@ export async function runPawgenConsume(): Promise<ConsumeResult | null> {
         ORDER BY created_at DESC LIMIT 500`, [PG_SINCE]);
     const orders: ConsumeOrder[] = [];
     for (const o of rows) {
+      // Oral-drops orders ("1-dropper"…, live 2026-10-06) are NOT the WOLVE vial and
+      // ship no BAC — parseInt would silently count them as vials, so skip them until
+      // the dropper gets its own tracker SKU.
+      if (String(o.pack_id ?? "").endsWith("-dropper")) continue;
       // "2-pack" × quantity → vials of the stack; pack id's leading integer is the pack size.
       const packSize = Math.max(1, parseInt(String(o.pack_id), 10) || 1);
       const vials = packSize * Math.max(1, Number(o.quantity ?? 1));
