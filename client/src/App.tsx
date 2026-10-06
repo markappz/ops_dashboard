@@ -63,7 +63,7 @@ import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
 import RealPeptidesEmail from "./pages/realpeptides-email";
-import RealPeptidesFlows from "./pages/realpeptides-flows";
+import EmailFlows from "./pages/email-flows";
 import EmailActivity from "./pages/email-activity";
 import EmailBroadcasts from "./pages/email-broadcasts";
 import EmailAudience from "./pages/email-audience";
@@ -92,8 +92,8 @@ const subTabs = (prefix: string) => ({
   ],
   email: [
     { path: `/${prefix}/email`, label: "Email" },
-    // Engine-brand email suite. Flows stays RP-only (capability-gated server-side —
-    // the pawgen/PeptideU v1 engines don't serve flows).
+    // Engine-brand email suite. Flows is served by all three engines since 2026-10-06
+    // (capability-gated server-side; a brand without the capability gets 501s).
     ...(prefix === "realpeptides"
       ? [
           { path: `/${prefix}/broadcasts`, label: "Broadcasts" },
@@ -105,6 +105,7 @@ const subTabs = (prefix: string) => ({
     ...(prefix === "pawgen" || prefix === "peptideu"
       ? [
           { path: `/${prefix}/broadcasts`, label: "Broadcasts" },
+          { path: `/${prefix}/flows`, label: "Flows" },
           { path: `/${prefix}/audience`, label: "Audience" },
           { path: `/${prefix}/activity`, label: "Activity" },
           { path: `/${prefix}/compose`, label: "Compose" },
@@ -289,6 +290,7 @@ export default function App() {
           <Route path="/email/blended" component={EmailBlended} />
           <Route path="/peptideu/email">{() => <><SubTabs tabs={PU_TABS.email} /><PeptideuEmail /></>}</Route>
           <Route path="/peptideu/broadcasts">{() => <><SubTabs tabs={PU_TABS.email} /><EmailBroadcasts company="peptideu" label="PeptideU" /></>}</Route>
+          <Route path="/peptideu/flows">{() => <><SubTabs tabs={PU_TABS.email} /><EmailFlows company="peptideu" /></>}</Route>
           <Route path="/peptideu/audience">{() => <><SubTabs tabs={PU_TABS.email} /><EmailAudience company="peptideu" /></>}</Route>
           <Route path="/peptideu/activity">{() => <><SubTabs tabs={PU_TABS.email} /><EmailActivity company="peptideu" /></>}</Route>
           <Route path="/peptideu/compose">{() => <><SubTabs tabs={PU_TABS.email} /><EmailCompose company="peptideu" /></>}</Route>
@@ -308,6 +310,7 @@ export default function App() {
           <Route path="/pawgen" component={PawgenOverview} />
           <Route path="/pawgen/email">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><PawgenEmail /></>}</Route>
           <Route path="/pawgen/broadcasts">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailBroadcasts company="pawgen" label="pawgen" /></>}</Route>
+          <Route path="/pawgen/flows">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailFlows company="pawgen" /></>}</Route>
           <Route path="/pawgen/audience">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailAudience company="pawgen" /></>}</Route>
           <Route path="/pawgen/activity">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailActivity company="pawgen" /></>}</Route>
           <Route path="/pawgen/compose">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailCompose company="pawgen" /></>}</Route>
@@ -332,7 +335,7 @@ export default function App() {
           <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
           <Route path="/realpeptides/tasks" component={TasksBoard} />
           <Route path="/realpeptides/email">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesEmail /></>}</Route>
-          <Route path="/realpeptides/flows">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesFlows /></>}</Route>
+          <Route path="/realpeptides/flows">{() => <><SubTabs tabs={RP_TABS.email} /><EmailFlows company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/activity">{() => <><SubTabs tabs={RP_TABS.email} /><EmailActivity company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/compose">{() => <><SubTabs tabs={RP_TABS.email} /><EmailCompose company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/broadcasts">{() => <><SubTabs tabs={RP_TABS.email} /><EmailBroadcasts company="realpeptides" label="Real Peptides" /></>}</Route>

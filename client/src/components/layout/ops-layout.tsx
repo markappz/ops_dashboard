@@ -29,7 +29,7 @@ for (const sub of ["conversations", "follow-ups", "wholesale", "settings"]) {
 // pawgen/PeptideU email suites (engine generalization): everything highlights their one
 // Email nav entry — these brands have no separate Audience/Activity sidebar items.
 for (const b of ["pawgen", "peptideu"]) {
-  for (const sub of ["broadcasts", "audience", "activity", "compose"]) {
+  for (const sub of ["flows", "broadcasts", "audience", "activity", "compose"]) {
     NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
   }
 }

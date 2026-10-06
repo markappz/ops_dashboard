@@ -29,8 +29,8 @@ export interface BuilderFlow {
 }
 
 const b64 = (x: string) => btoa(String.fromCharCode(...new TextEncoder().encode(x)));
-const post = async (body: unknown) => {
-  const r = await fetch("/api/ops/realpeptides/marketing/custom-flow", {
+const postTo = async (company: string, body: unknown) => {
+  const r = await fetch(`/api/ops/${company}/marketing/custom-flow`, {
     method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
@@ -106,8 +106,11 @@ const nodeTypes = { btrigger: BTriggerNode, bemail: BEmailNode, bsplit: BSplitNo
 
 type Sel = number | "trigger" | "split" | null;
 
-export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<BuilderFlow>; onClose: () => void; onSaved: () => void }) {
+export function FlowBuilder({ company, initial, onClose, onSaved }: { company: string; initial?: Partial<BuilderFlow>; onClose: () => void; onSaved: () => void }) {
   const qc = useQueryClient();
+  const post = (body: unknown) => postTo(company, body);
+  // The RP key predates the multi-brand tabs — keep it so saved inboxes survive.
+  const inboxKey = company === "realpeptides" ? "rp-test-inbox" : `ops-test-inbox-${company}`;
   const [flow, setFlow] = useState<BuilderFlow>({
     name: "", status: "draft", trigger: { type: "optin" }, exitOnPurchase: true, splitOn: null, steps: [],
     ...initial,
@@ -116,13 +119,13 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const [preview, setPreview] = useState(false);
-  const [testTo, setTestTo] = useState(() => { try { return localStorage.getItem("rp-test-inbox") ?? ""; } catch { return ""; } });
+  const [testTo, setTestTo] = useState(() => { try { return localStorage.getItem(inboxKey) ?? ""; } catch { return ""; } });
   const [enrollPreview, setEnrollPreview] = useState<{ recipients: number; segment: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const segments = useQuery({
-    queryKey: ["rp-marketing-segments"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/segments", { credentials: "include" })).json() as
+    queryKey: ["ops-marketing-segments", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/segments`, { credentials: "include" })).json() as
       Promise<{ all: number; segments: { slug: string; count: number }[] }>,
     staleTime: 5 * 60_000,
   });
@@ -256,7 +259,7 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
       });
       setFlow((f) => ({ ...f, id: j.id, key: j.key }));
       setMsg({ tone: "ok", text: flow.status === "active" ? "Saved — live flow updated (next sweep uses the new copy)." : "Draft saved." });
-      onSaved(); qc.invalidateQueries({ queryKey: ["rp-custom-flows"] });
+      onSaved(); qc.invalidateQueries({ queryKey: ["ops-custom-flows", company] });
       return j;
     } catch (e: any) { setMsg({ tone: "bad", text: e.message }); return null; } finally { setBusy(null); }
   }
@@ -285,7 +288,7 @@ export function FlowBuilder({ initial, onClose, onSaved }: { initial?: Partial<B
   async function sendTest(i: number) {
     const saved = await save();
     if (!saved || !testTo.trim()) return;
-    try { localStorage.setItem("rp-test-inbox", testTo.trim()); } catch {}
+    try { localStorage.setItem(inboxKey, testTo.trim()); } catch {}
     setBusy("test");
     try {
       const orderedIndex = reorder(flow.steps).indexOf(flow.steps[i]);

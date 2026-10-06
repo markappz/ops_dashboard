@@ -11,7 +11,8 @@ import { PageHero } from "../components/page-hero";
  * The flow review gallery + suppression import — the "show me everything in the browser before
  * anything sends" surface (Paul, 2026-10-02, the night Resend suspended the account).
  *
- * Every flow step renders through the site's engine itself (/api/ops/realpeptides/marketing/render
+ * Company-generic since 2026-10-06 (pawgen + peptideu grew the same engine contract).
+ * Every flow step renders through the brand's engine itself (/api/ops/:company/marketing/render
  * proxies the token-gated bridge), so what this page shows IS what a customer would receive —
  * hand-authored salvage included. Flow sends stay paused in the engine until Paul approves here
  * and the hold is lifted in code.
@@ -25,18 +26,18 @@ const b64 = (x: string) => btoa(String.fromCharCode(...new TextEncoder().encode(
 
 const fmtDelay = (h: number) => (h === 0 ? "immediately" : h % 24 === 0 ? `+${h / 24}d` : `+${h}h`);
 
-export default function RealPeptidesFlows() {
+export default function EmailFlows({ company }: { company: string }) {
   const flows = useQuery({
-    queryKey: ["rp-flows"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/flows", { credentials: "include" })).json() as Promise<{ flows: Flow[]; instant?: InstantSend[] }>,
+    queryKey: ["ops-flows", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/flows`, { credentials: "include" })).json() as Promise<{ flows: Flow[]; instant?: InstantSend[] }>,
     staleTime: 5 * 60_000,
   });
   const [open, setOpen] = useState<{ flowKey?: string; stepIndex?: number; instant?: string; subject: string } | null>(null);
   const [view, setView] = useState<"table" | "canvas">("canvas");
   const [builder, setBuilder] = useState<Partial<BuilderFlow> | null>(null);
   const custom = useQuery({
-    queryKey: ["rp-custom-flows"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/custom-flows", { credentials: "include" })).json() as
+    queryKey: ["ops-custom-flows", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/custom-flows`, { credentials: "include" })).json() as
       Promise<{ flows?: { id: string; key: string; name: string; status: "draft" | "active" | "paused"; trigger: { type: string; segment?: string }; exitOnPurchase: boolean; splitOn?: string | null; steps: { index: number; delayHours: number; subject: string; html_b64?: string; branch?: string | null }[]; enrollments: { active: number; completed: number; exited: number } }[]; error?: string }>,
     staleTime: 60_000,
   });
@@ -49,22 +50,22 @@ export default function RealPeptidesFlows() {
       steps: f.steps.map((st) => ({ delayHours: st.delayHours, subject: st.subject, html: fromB64(st.html_b64), branch: st.branch === "yes" || st.branch === "no" ? st.branch : undefined })) });
   };
   const overrides = useQuery({
-    queryKey: ["rp-overrides"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/overrides", { credentials: "include" })).json() as
+    queryKey: ["ops-overrides", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/overrides`, { credentials: "include" })).json() as
       Promise<{ overrides: { alias: string; enabled: boolean }[] }>,
     staleTime: 60_000,
   });
   const overrideState = (alias: string) => overrides.data?.overrides.find((o) => o.alias === alias);
   // Stats window: "New ESP" = since the Mailgun cutover (2026-10-02 ~02:00 ET; Resend died the
   // evening before and nothing sent in between, so days-since-Oct-2 IS the Mailgun era).
-  const MAILGUN_EPOCH = Date.parse("2026-10-02T06:00:00Z");
+  const MAILGUN_EPOCH = Date.parse(company === "realpeptides" ? "2026-10-02T06:00:00Z" : "2026-10-05T00:00:00Z");
   const espDays = Math.max(1, Math.ceil((Date.now() - MAILGUN_EPOCH) / 86_400_000));
   const [statsRange, setStatsRange] = useState<"esp" | "90">("esp");
   const rangeDaysN = statsRange === "esp" ? espDays : 90;
   const stats = useQuery({
-    queryKey: ["rp-email-flow-stats", rangeDaysN],
+    queryKey: ["ops-email-flow-stats", company, rangeDaysN],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/email?range=${rangeDaysN}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/email?range=${rangeDaysN}`, { credentials: "include" });
       // A bridge 502 must THROW so react-query retries — resolving with an error body used to
       // get cached as "success" for 10 minutes and every flow read "no sends yet" (Paul, 10-02).
       if (!r.ok) throw new Error(`stats ${r.status}`);
@@ -108,7 +109,7 @@ export default function RealPeptidesFlows() {
         </div>
         </div>
       </div>
-      <UnsubImport />
+      {company === "realpeptides" && <UnsubImport />}
       {flows.isLoading && <Loader2 className="animate-spin text-ops-text-muted" />}
       <div className="rounded-2xl border border-ops-border bg-ops-surface p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -252,14 +253,14 @@ export default function RealPeptidesFlows() {
           </div>
         </div>
       ))}
-      <SiteEmailCatalog onPreview={(key, name) => setOpen({ instant: key, subject: name })} />
-      {open && <PreviewModal {...open} onClose={() => setOpen(null)} />}
-      {builder !== null && <FlowBuilder initial={builder} onClose={() => setBuilder(null)} onSaved={() => void custom.refetch()} />}
+      <SiteEmailCatalog company={company} onPreview={(key, name) => setOpen({ instant: key, subject: name })} />
+      {open && <PreviewModal company={company} {...open} onClose={() => setOpen(null)} />}
+      {builder !== null && <FlowBuilder company={company} initial={builder} onClose={() => setBuilder(null)} onSaved={() => void custom.refetch()} />}
     </div>
   );
 }
 
-function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowKey?: string; stepIndex?: number; instant?: string; subject: string; onClose: () => void }) {
+function PreviewModal({ company, flowKey, stepIndex, instant, subject, onClose }: { company: string; flowKey?: string; stepIndex?: number; instant?: string; subject: string; onClose: () => void }) {
   const qc2 = useQueryClient();
   const alias = instant ?? `flow-${flowKey}-${(stepIndex ?? 0) + 1}`;
   const [editing, setEditing] = useState(false);
@@ -274,7 +275,7 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
 
   async function startEdit(currentHtml: string) {
     // Prefill with the saved override when one exists, else fork the current render.
-    const r = await fetch(`/api/ops/realpeptides/marketing/override?alias=${encodeURIComponent(alias)}`, { credentials: "include" });
+    const r = await fetch(`/api/ops/${company}/marketing/override?alias=${encodeURIComponent(alias)}`, { credentials: "include" });
     const j = await r.json().catch(() => ({}));
     const o = j.override;
     setDraft(o?.html ?? currentHtml);
@@ -290,7 +291,7 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
     clearTimeout(draftTimer.current);
     if (!draft.trim()) { setDraftDoc(""); return; }
     draftTimer.current = setTimeout(async () => {
-      const r = await fetch("/api/ops/realpeptides/marketing/render-draft", {
+      const r = await fetch(`/api/ops/${company}/marketing/render-draft`, {
         method: "POST", credentials: "include", headers: { "content-type": "application/json" },
         body: JSON.stringify({ html_b64: b64(draft) }),
       });
@@ -302,7 +303,7 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
 
   async function saveOverride(enable: boolean) {
     setSaving(true); setSaveMsg(null);
-    const r = await fetch("/api/ops/realpeptides/marketing/set-override", {
+    const r = await fetch(`/api/ops/${company}/marketing/set-override`, {
       method: "POST", credentials: "include", headers: { "content-type": "application/json" },
       body: JSON.stringify({ alias, html_b64: b64(draft), subject: draftSubject || undefined, enabled: enable }),
     });
@@ -311,26 +312,26 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
     if (!r.ok) return setSaveMsg(j.error || `HTTP ${r.status}`);
     setEnabled(j.enabled); setHasOverride(true);
     setSaveMsg(j.enabled ? "Saved — this copy is LIVE for customers (within a minute)." : "Saved as a draft — customers still get the default.");
-    qc2.invalidateQueries({ queryKey: ["rp-overrides"] });
-    qc2.invalidateQueries({ queryKey: ["rp-flow-render", flowKey, stepIndex, instant] });
+    qc2.invalidateQueries({ queryKey: ["ops-overrides", company] });
+    qc2.invalidateQueries({ queryKey: ["ops-flow-render", company, flowKey, stepIndex, instant] });
   }
 
   async function removeOverride() {
     if (!confirm("Remove this edit and return to the default copy?")) return;
     setSaving(true);
-    await fetch("/api/ops/realpeptides/marketing/delete-override", {
+    await fetch(`/api/ops/${company}/marketing/delete-override`, {
       method: "POST", credentials: "include", headers: { "content-type": "application/json" },
       body: JSON.stringify({ alias }),
     });
     setSaving(false); setEditing(false); setHasOverride(false);
-    qc2.invalidateQueries({ queryKey: ["rp-overrides"] });
-    qc2.invalidateQueries({ queryKey: ["rp-flow-render", flowKey, stepIndex, instant] });
+    qc2.invalidateQueries({ queryKey: ["ops-overrides", company] });
+    qc2.invalidateQueries({ queryKey: ["ops-flow-render", company, flowKey, stepIndex, instant] });
   }
 
   const q = useQuery({
-    queryKey: ["rp-flow-render", flowKey, stepIndex, instant],
+    queryKey: ["ops-flow-render", company, flowKey, stepIndex, instant],
     queryFn: async () => {
-      const r = await fetch("/api/ops/realpeptides/marketing/render", {
+      const r = await fetch(`/api/ops/${company}/marketing/render`, {
         method: "POST", credentials: "include", headers: { "content-type": "application/json" },
         body: JSON.stringify(instant ? { instant } : { flowKey, stepIndex }),
       });
@@ -402,7 +403,7 @@ function PreviewModal({ flowKey, stepIndex, instant, subject, onClose }: { flowK
           {q.data && (
             <>
               <div className="mb-2 rounded-lg border border-brand-blue-500/30 bg-brand-blue-500/10 px-3 py-1.5 text-[11px] text-brand-blue-300">
-                Preview uses sample values: <code>SAMPLE10</code> stands in for the contact's unique promo code (minted per person at opt-in), "Alex" for their first name. Real sends substitute each recipient's own values.
+                Preview uses sample values — placeholders like <code>{'{{{couponCode}}}'}</code> and <code>{'{{{firstName}}}'}</code> substitute each recipient's own values on real sends.
               </div>
               <iframe title="Email preview" sandbox="" srcDoc={q.data.html} className="h-[68vh] w-full rounded-lg border border-ops-border bg-white" />
             </>
@@ -525,10 +526,10 @@ function UnsubImport() {
 interface SiteEmail { key: string; name: string; group: string; trigger: string; to: string; preview?: string }
 
 /** Every transactional + notification email the site sends, grouped like the old Resend folders. */
-function SiteEmailCatalog({ onPreview }: { onPreview: (key: string, name: string) => void }) {
+function SiteEmailCatalog({ company, onPreview }: { company: string; onPreview: (key: string, name: string) => void }) {
   const q = useQuery({
-    queryKey: ["rp-site-emails"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/marketing/site-emails", { credentials: "include" })).json() as Promise<{ emails: SiteEmail[] }>,
+    queryKey: ["ops-site-emails", company],
+    queryFn: async () => (await fetch(`/api/ops/${company}/marketing/site-emails`, { credentials: "include" })).json() as Promise<{ emails: SiteEmail[] }>,
     staleTime: 30 * 60_000,
   });
   if (!q.data?.emails) return null;

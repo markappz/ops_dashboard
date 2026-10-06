@@ -44,7 +44,9 @@ export const ENGINES: Record<string, BrandEngine | undefined> = {
     base: process.env.PAWGEN_SITE_API_URL,
     token: process.env.PAWGEN_SITE_OPS_TOKEN,
     path: "/api/ops-marketing",
-    capabilities: [],
+    // pawgen's engine serves the flows contract since 2026-10-06 (lib/flowsOps.server.ts
+    // in the pawgen repo). No site-emails catalog yet.
+    capabilities: ["flows", "overrides", "custom-flows"],
     alertFrom: "pawgen",
   },
   peptideu: {
@@ -53,7 +55,8 @@ export const ENGINES: Record<string, BrandEngine | undefined> = {
     base: process.env.PEPTIDEU_ENGINE_URL,
     token: process.env.PEPTIDEU_ENGINE_TOKEN,
     path: "",
-    capabilities: [],
+    // PeptideU's ops-marketing fn serves the flows contract since 2026-10-06.
+    capabilities: ["flows", "overrides", "custom-flows"],
     alertFrom: "peptideu",
   },
 };
