@@ -69,6 +69,11 @@ import EmailBroadcasts from "./pages/email-broadcasts";
 import EmailAudience from "./pages/email-audience";
 import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
+import CallCenterOverview from "./pages/callcenter/overview";
+import CallCenterConversations from "./pages/callcenter/conversations";
+import CallCenterFollowups from "./pages/callcenter/followups";
+import CallCenterWholesale from "./pages/callcenter/wholesale";
+import CallCenterSettings from "./pages/callcenter/settings";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
 
@@ -109,6 +114,13 @@ const subTabs = (prefix: string) => ({
   ],
 });
 const RP_TABS = subTabs("realpeptides");
+const CC_TABS = [
+  { path: "/realpeptides/call-center", label: "Overview" },
+  { path: "/realpeptides/call-center/conversations", label: "Conversations" },
+  { path: "/realpeptides/call-center/follow-ups", label: "Follow-ups" },
+  { path: "/realpeptides/call-center/wholesale", label: "Wholesale requests" },
+  { path: "/realpeptides/call-center/settings", label: "Settings & health" },
+] as const;
 const PAWGEN_TABS = subTabs("pawgen");
 const PU_TABS = subTabs("peptideu");
 const PU_SEO_TABS = PU_TABS.seo;
@@ -326,6 +338,11 @@ export default function App() {
           <Route path="/realpeptides/broadcasts">{() => <><SubTabs tabs={RP_TABS.email} /><EmailBroadcasts company="realpeptides" label="Real Peptides" /></>}</Route>
           <Route path="/realpeptides/audience">{() => <><SubTabs tabs={RP_TABS.email} /><EmailAudience company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/wholesale" component={RealPeptidesWholesale} />
+          <Route path="/realpeptides/call-center">{() => <><SubTabs tabs={CC_TABS} /><CallCenterOverview /></>}</Route>
+          <Route path="/realpeptides/call-center/conversations">{() => <><SubTabs tabs={CC_TABS} /><CallCenterConversations /></>}</Route>
+          <Route path="/realpeptides/call-center/follow-ups">{() => <><SubTabs tabs={CC_TABS} /><CallCenterFollowups /></>}</Route>
+          <Route path="/realpeptides/call-center/wholesale">{() => <><SubTabs tabs={CC_TABS} /><CallCenterWholesale /></>}</Route>
+          <Route path="/realpeptides/call-center/settings">{() => <><SubTabs tabs={CC_TABS} /><CallCenterSettings /></>}</Route>
           <Route path="/realpeptides/leads">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesLeads /></>}</Route>
           <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>
           <Route path="/realpeptides/traffic">{() => <><SubTabs tabs={RP_TABS.marketing} /><CompanyTraffic {...RP} /></>}</Route>

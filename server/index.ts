@@ -60,9 +60,19 @@ import { registerPagesRoutes } from "./pages";
 import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
 import { registerRpContentLive } from "./rp-content-live";
 import { verifyPawgenConnection } from "./db";
+import { registerCallCenterWebhook } from "./callcenter-webhook";
+import { registerCallCenterTools } from "./callcenter-tools";
+import { registerCallCenterRoutes } from "./callcenter";
+import { startCallCenterLoops } from "./callcenter-worker";
+import { ensureCallCenterTables } from "./callcenter-db";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
+
+// Retell webhook + agent-tool routes verify an HMAC over the EXACT raw body,
+// so they must mount before the global JSON parser consumes the stream.
+registerCallCenterWebhook(app, pool);
+registerCallCenterTools(app, pool);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -150,6 +160,7 @@ registerRealPeptidesWholesale(app);
 registerRealPeptidesAffiliates(app);
 registerRpPaid(app);
 registerPagesRoutes(app);
+registerCallCenterRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
@@ -213,6 +224,12 @@ async function start() {
   }
 
   await ensureTrackingTables();
+  try {
+    await ensureCallCenterTables(pool);
+    console.log("[OPS] Call Center tables verified");
+  } catch (e: any) {
+    console.warn("[OPS] Call Center tables setup warning:", e.message);
+  }
   await verifyPeptideuConnection(); // non-fatal — PeptideU section degrades gracefully
   await verifyPawgenConnection(); // non-fatal — pawgen section degrades gracefully
   await setupClient();
@@ -228,6 +245,7 @@ async function start() {
     startRpImageSyncLoop();
     startTargetRefreshLoop();
     startRpRankingLoop();
+    startCallCenterLoops();
   });
 }
 

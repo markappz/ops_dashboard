@@ -94,6 +94,15 @@ RP_ORDER_SYNC_SINCE=2026-08-26T13:00Z — never lower it). Velocity/forecast fro
 (/api/ops/realpeptides/inventory-stats). POs live on the tracker (/pos): ordered qty = on-order,
 receiving stocks in. Tap any product for the mobile-friendly manage sheet.
 
+**Call Center** (`/realpeptides/call-center`, 2026-10-06) — Retell voice/chat layer; full
+runbook in CALLCENTER.md. Public signature-verified routes `/api/integrations/retell/webhook`
++ `/tools/:tool` MUST stay registered BEFORE `app.use(express.json())` (raw-body HMAC).
+Tables `cc_*` from `server/callcenter-schema.sql` at boot. Env: `RETELL_API_KEY` (+optional
+`RETELL_WEBHOOK_API_KEY`, `RETELL_TOOL_AUTH_SECRET`), `OPS_PUBLIC_BASE_URL`. Retell agent
+config ships ONLY via `scripts/retell-sync.ts` (diff→apply→rollback, snapshots gitignored) —
+never hand-edit tools/prompts in the Retell dashboard or rerun old deploy scripts. Tests:
+`createdb ops_callcenter_dev && npm test` (vitest, scratch pg, never the RDS).
+
 ## Clomark per brand
 `server/clomark.ts` maps company → Clomark business profile id (`COMPANY_BUSINESS`, override with
 `CLOMARK_BUSINESS_ID_<COMPANY>`); every `/api/ops/clomark/*` route takes `?company=`. The content

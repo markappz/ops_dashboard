@@ -3594,3 +3594,44 @@ Created pawgen/PeptideU/Real Peptides brand profiles in ops (colors/voice/footer
 brand tokens; pawgen voice encodes the HEAL15 15% standing offer). Verified: auto-pick works both
 brands; blended renders grades RP A·99 / PU C·75 / pawgen C·73 over $323K attributed revenue.
 Lesson re-learned: "load every page in the browser before handover" means EVERY page.
+
+### 2026-10-06 — Real Peptides Call Center tab (Retell) — BUILT + LOCALLY VERIFIED, NOT pushed
+
+Paul: "I need a call center tab built for real peptides" + Joshua's implementation prompt
+(~/Downloads/PAUL-CALL-CENTER-IMPLEMENTATION-PROMPT.md) + Retell API key (in .env, never committed).
+Full runbook: CALLCENTER.md. Everything on main (uncommitted working tree this session).
+
+Built: cc_* schema (server/callcenter-schema.sql, boot-applied); webhook receiver
+(callcenter-webhook.ts — raw-body BEFORE express.json, retell-sdk HMAC verify, agent allowlist,
+durable inbox→2xx); worker (callcenter-worker.ts — 10s inbox loop w/ claim-by-UPDATE, field-level
+monotonic guards for dupes/out-of-order/end-without-start, analysis→queue routing that never
+reopens staff outcomes or duplicates live-tool saves, 10m reconcile w/ watermark+overlap, resumable
+backfill, optional CC_RETENTION_DAYS scrub); 9 live tools (callcenter-tools.ts — per-agent
+server-side capability map, idempotent receipts via cc_tool_calls, verification grants bound to
+conversation+order+expiry w/ attempt limits, honest unavailable states); commerce adapters
+(callcenter-commerce.ts — public /api/search = price/stock authority w/ bromatane→Bromantane +
+letter-spelling matcher; ops-orders/ops-wholesale token feeds; existing-quote matcher so known
+partners never re-enter as leads); staff API (callcenter.ts); UI pages client/src/pages/callcenter/*
+(Overview/Conversations+detail/Follow-ups/Wholesale/Settings&health behind SubTabs, new Support nav
+section + phone icon); RBAC grant realpeptides:call-center; Retell IntegrationSpec; config sync
+scripts/retell-sync.ts (export/diff/apply/rollback, ops_cc_ namespaced tools merged into
+general_tools preserving end_call/agent_swap, marked prompt block, refuses to clobber foreign
+webhook URLs; snapshots gitignored).
+
+Verified: tsc clean; vite+esbuild build clean; vitest 21/21 (scratch pg ops_callcenter_dev —
+signature valid/wrong-key/replay, inbox dedupe/out-of-order, staff-edit preservation, live-tool
+suppression, dead-letter after 5, allowlist incl. spoofed-args case, idempotent create-followup,
+verification gating+rate-limit, declined-contact respected, product matching); live local run on
+:5005 w/ signed seed fixtures — webhooks 204, wholesale inquiry receipt, search-products returned
+live Bromantane price from realpeptides.co; browser-verified all 5 pages via LAN IP (Chrome is on
+the laptop — localhost unreachable from it), exercised assign-owner + no-answer attempt (state →
+in_progress, task NOT closed); retell-sync diff dry-run against the live workspace printed the
+correct per-agent plan (8 agents draft v0, 0 phone numbers — public line still Google Voice).
+
+Deps added: retell-sdk ^6.1.1 (verifier/signer), vitest ^3 (dev) + "test" script.
+
+NEXT (gated on Paul): (1) push-go → deploy; FIRST add RETELL_API_KEY + OPS_PUBLIC_BASE_URL to
+prod/ops-secrets AND task-def secrets list; (2) after live: npx tsx scripts/retell-sync.ts apply,
+test-call each agent, flag tests, run backfill; (3) decisions: phone port into Retell (nothing
+automated), CC_VERIFY_WEBHOOK_URL once RP email engine ships transactional hook, SMS provider,
+Twilio for browser dialer. Hades doesn't exist anywhere — sales_recovery queue stands in.

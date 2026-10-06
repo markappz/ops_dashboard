@@ -22,6 +22,10 @@ for (const b of ["realpeptides", "pawgen"]) {
 for (const sub of ["flows", "broadcasts", "compose"]) {
   NAV_ALIASES[`/realpeptides/${sub}`] = "/realpeptides/email";
 }
+// Call Center sub-tabs highlight the one Call Center entry.
+for (const sub of ["conversations", "follow-ups", "wholesale", "settings"]) {
+  NAV_ALIASES[`/realpeptides/call-center/${sub}`] = "/realpeptides/call-center";
+}
 // pawgen/PeptideU email suites (engine generalization): everything highlights their one
 // Email nav entry — these brands have no separate Audience/Activity sidebar items.
 for (const b of ["pawgen", "peptideu"]) {
@@ -86,6 +90,10 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
     ],
+  },
+  {
+    label: "Support",
+    items: [{ path: "/realpeptides/call-center", label: "Call Center", icon: "phone" }],
   },
   {
     label: "Customers",
@@ -185,7 +193,8 @@ const FITSCRIPT_PATH_ALIASES: Record<string, string> = {
 ALL_ALIASES = { ...NAV_ALIASES, ...FITSCRIPT_PATH_ALIASES };
 
 const ICONS: Record<string, ReactNode> = {
-  shield: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12.75L11.25 15 15 9.75M21 12c0 5.591-3.824 10.29-9 11.622C6.824 22.29 3 17.591 3 12V5.25a.75.75 0 01.53-.717 11.209 11.209 0 007.877-3.08.75.75 0 011.185 0 11.209 11.209 0 007.877 3.08.75.75 0 01.531.717V12z" /></svg>,
+  phone: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" /></svg>,
+  shield:<svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12.75L11.25 15 15 9.75M21 12c0 5.591-3.824 10.29-9 11.622C6.824 22.29 3 17.591 3 12V5.25a.75.75 0 01.53-.717 11.209 11.209 0 007.877-3.08.75.75 0 011.185 0 11.209 11.209 0 007.877 3.08.75.75 0 01.531.717V12z" /></svg>,
   gift: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
   grid: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>,
   users: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>,

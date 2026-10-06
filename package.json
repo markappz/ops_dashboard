@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
-    "start": "NODE_ENV=production node dist/index.js"
+    "start": "NODE_ENV=production node dist/index.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^0.29.1",
@@ -43,6 +44,7 @@
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.2",
     "remark-gfm": "^4.0.1",
+    "retell-sdk": "^6.1.1",
     "stripe": "^18.4.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
@@ -69,6 +71,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript": "^5.6.3",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "vitest": "^3.2.7"
   }
 }

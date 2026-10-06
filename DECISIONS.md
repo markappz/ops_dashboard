@@ -645,3 +645,26 @@ Drafts never send (engine-level: the sweep holds their enrollments). Segment enr
 server-enforced two-step (counts without confirm, nothing enrolls). Canvas UI = @xyflow/react
 (flow-canvas.tsx read-only map, flow-builder.tsx editor). All HTML browser→ops travels base64
 (Cloudflare WAF rejects raw HTML in JSON).
+
+## 2026-10-06 — Call Center: ops owns conversations/requests; site stays commerce truth; Retell config only via sync script
+
+**Decision:** The RP Call Center stores conversations, contacts, follow-ups and webhook state in
+ops' own cc_* tables, but reads ALL commerce truth live (public /api/search for price/stock,
+token-gated ops-orders/ops-wholesale for order/quote state) and never mutates wholesale status,
+rep attribution or payment state from call-center code. Retell remote config changes go through
+scripts/retell-sync.ts exclusively (namespaced ops_cc_ tools + one marked prompt block,
+export-before-edit snapshots, rollback), and the public webhook/tool routes register before the
+global JSON parser so raw-body HMAC verification works.
+
+**Why this and not alternatives:**
+- **vs. mirroring the site's catalog/orders into ops tables:** a second copy drifts and would
+  tempt agents to quote stale prices; the live search API is the same source the storefront shows.
+- **vs. editing Retell prompts/tools in the dashboard:** no diff, no rollback, and the 09-xx
+  deploy script history shows hand-synced config reverting names/voices. The marked-block merge
+  keeps Joshua's SOPs intact.
+- **vs. express.json({verify}) rawBody capture:** mounting raw routes first keeps the gate simple
+  and can't silently break if the global parser's options change.
+
+**How to apply:** new agent capability = AGENT_CAPABILITIES entry + TOOL_DEFS in retell-sync +
+grant pattern if staff-facing; rerun diff→apply. New disconnected integration = honest state in
+/callcenter/health, never a fake success.

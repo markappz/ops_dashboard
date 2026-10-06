@@ -193,6 +193,14 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
     // Delete/discard a closed-short PO (nothing received) via the inventory helper.
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/inventory\/pos\/\d+\/?$/ },
   ],
+  // Work the Call Center queues (follow-ups, callback attempts, test flags).
+  // No settings, no replay/backfill, no webhook administration.
+  "realpeptides:call-center": [
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/\d+\/?$/ },
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/\d+\/attempts\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/callcenter\/conversations\/\d+\/?$/ },
+  ],
 };
 
 /**
@@ -209,6 +217,11 @@ export const PERMISSION_CATALOG: Array<{ key: string; label: string; detail: str
     key: "pawgen:refund",
     label: "pawgen — refund orders",
     detail: "Issue refunds on pawgen orders. Nothing else under pawgen.",
+  },
+  {
+    key: "realpeptides:call-center",
+    label: "Real Peptides — Call Center queues",
+    detail: "Work follow-ups: assign, schedule, snooze, record callback attempts, mark outcomes. No settings or replay controls.",
   },
 ];
 
