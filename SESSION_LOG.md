@@ -3776,3 +3776,12 @@ entry-level add OK + master-summary 403 + delete 403; allowlist-cache warm quirk
 SQL-inserted test users. NEXT PHASES: brand sales auto-join; team activity tab (work systems of
 record: ops_admin_actions, tasks, change requests, tickets, GitHub commits/PRs per person — NOT
 terminal surveillance).
+**Deployed 2026-10-07 ~21:00Z (Paul's go via "i'm not seeing finance tab" + "let's push"):**
+24dd756..39be36c live, run 37684743882 green, bundle index-K178-V_6.js. Browser-verified on prod:
+calendar panel left-anchors on /fitscript (was left:-193px off-screen — measured live before fix);
+Master Financials link renders for paulclotar (master seed); pawgen leads off the 1000 pin →
+REAL total 1,476 (today 17 / week 143 — 476 leads had been invisible). Local preview for Paul ran
+on :5005 w/ scratch data. NOTE: reverra brand work seen UNCOMMITTED in this checkout (another
+seat's lane — reverra-site.ts + use-company/google-auth/pages/tracking/index edits + touches to
+finance files); my commits staged file-specific to avoid sweeping it. Paul still to grant
+Michael finance:master + entry grants for Josh/Justin/Mike Burnett in Settings → Team.
