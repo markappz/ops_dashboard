@@ -129,6 +129,7 @@ const NB = { company: "northblu", label: "North Blu", domain: "northblu.com" } a
 const NB_EMAIL_TABS = [
   { path: "/northblu/email", label: "Email" },
   { path: "/northblu/broadcasts", label: "Broadcasts" },
+  { path: "/northblu/flows", label: "Flows" },
   { path: "/northblu/audience", label: "Audience" },
   { path: "/northblu/activity", label: "Activity" },
   { path: "/northblu/compose", label: "Compose" },
@@ -341,6 +342,7 @@ export default function App() {
           {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
           <Route path="/northblu" component={NorthbluOverview} />
           <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
+          <Route path="/northblu/flows">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailFlows company="northblu" /></>}</Route>
           <Route path="/northblu/broadcasts">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailBroadcasts company="northblu" label="North Blu" /></>}</Route>
           <Route path="/northblu/audience">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailAudience company="northblu" /></>}</Route>
           <Route path="/northblu/activity">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailActivity company="northblu" /></>}</Route>

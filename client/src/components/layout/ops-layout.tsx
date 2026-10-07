@@ -33,8 +33,8 @@ for (const b of ["pawgen", "peptideu"]) {
     NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
   }
 }
-// North Blu (waitlist brand, 2026-10-06): base email engine only — no flows.
-for (const sub of ["broadcasts", "audience", "activity", "compose"]) {
+// North Blu (waitlist brand, 2026-10-06; flows added 10-07): full email suite.
+for (const sub of ["broadcasts", "flows", "audience", "activity", "compose"]) {
   NAV_ALIASES[`/northblu/${sub}`] = "/northblu/email";
 }
 NAV_ALIASES["/northblu/pages"] = "/northblu/seo";

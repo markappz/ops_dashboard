@@ -65,8 +65,9 @@ export const ENGINES: Record<string, BrandEngine | undefined> = {
     base: process.env.NORTHBLU_SITE_API_URL,
     token: process.env.NORTHBLU_SITE_OPS_TOKEN,
     path: "/api/ops-marketing",
-    // Base contract only (2026-10-06 waitlist launch) — no flows yet.
-    capabilities: [],
+    // Flows contract live 2026-10-07 (northblu engine port, verified via the
+    // proxy call shapes: what=flows/custom-flows/overrides + builder round-trip).
+    capabilities: ["flows", "overrides", "custom-flows"],
     alertFrom: "northblu",
   },
 };
