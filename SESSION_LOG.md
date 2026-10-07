@@ -3746,3 +3746,7 @@ login hero, index.html title "BRANDMAXXER Ops" + Archivo Black font + inline-SVG
 unreferenced. tsc + build + 28/28 tests green. NOT browser-verified locally (Chrome on the
 laptop refused LAN nav tonight — worked this morning; don't rabbit-hole rule) → verify the
 served bundle in prod browser right after deploy per standing rule.
+**Deployed 2026-10-07 02:3xZ (Paul: "i love it. push it!"):** a72a5cf live, run 37562018866 green;
+browser-verified on prod — sidebar BRANDMAXXER lockup w/ heavier XX + OPS chip, tab title
+"BRANDMAXXER Ops", Archivo Black served, favicon tile live. Brand spec/archive artifact:
+3PcJjT3d292w3gMAXqrtzA (v3 = final on top). Log committed locally, rides next push.
