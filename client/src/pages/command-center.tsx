@@ -1,9 +1,9 @@
-import { useState } from "react";
 import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeDays, useDateRange } from "../components/date-range-picker";
 
 interface Snapshot {
   totalUsers: number;
@@ -88,14 +88,13 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
 }
 
-const GROWTH_RANGES = [
-  { days: 1, label: "Today" },
-  { days: 7, label: "7d" },
-  { days: 30, label: "30d" },
-] as const;
-
 export default function CommandCenter() {
-  const [growthDays, setGrowthDays] = useState<1 | 7 | 30>(30);
+  // Same calendar widget as every other brand (Paul, 10-07: FitScript had
+  // Today/7d/30d chips while RP/pawgen/PU/NB run the DateRangePicker). The
+  // reports endpoints take a day count, so a custom calendar range maps to
+  // its span ending today — presets behave identically to the other brands.
+  const [growthRange, setGrowthRange] = useDateRange("fitscript-overview");
+  const growthDays = rangeDays(growthRange);
   const { data: snapshot, isLoading } = useQuery<Snapshot>({
     queryKey: ["ops-snapshot"],
     queryFn: () => fetch("/api/ops/snapshot").then((r) => r.json()),
@@ -234,21 +233,7 @@ export default function CommandCenter() {
             <div className="text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
               Growth Overview
             </div>
-            <div className="inline-flex rounded-lg border border-ops-border bg-ops-surface p-0.5">
-              {GROWTH_RANGES.map((r) => (
-                <button
-                  key={r.days}
-                  type="button"
-                  onClick={() => setGrowthDays(r.days)}
-                  title={r.days === 1 ? "Last 24 hours" : `Last ${r.days} days`}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                    growthDays === r.days ? "bg-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
+            <DateRangePicker value={growthRange} onChange={setGrowthRange} />
           </div>
           <Link href="/reports/traffic">
             <span className="text-[11px] text-ops-text-muted hover:text-brand-blue-500 cursor-pointer">

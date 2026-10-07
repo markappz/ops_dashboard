@@ -54,6 +54,7 @@ import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
+import NorthbluOverview from "./pages/northblu-overview";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
@@ -338,7 +339,7 @@ export default function App() {
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
 
           {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
-          <Route path="/northblu" component={NorthbluEmail} />
+          <Route path="/northblu" component={NorthbluOverview} />
           <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
           <Route path="/northblu/broadcasts">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailBroadcasts company="northblu" label="North Blu" /></>}</Route>
           <Route path="/northblu/audience">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailAudience company="northblu" /></>}</Route>
