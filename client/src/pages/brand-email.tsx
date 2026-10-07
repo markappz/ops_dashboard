@@ -122,7 +122,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
           <div className="mb-6 flex flex-wrap items-start gap-2 rounded-xl border border-ops-border bg-ops-bg/40 px-4 py-3 text-[12px] text-ops-text-muted">
             <Info size={13} className="mt-0.5 shrink-0" />
             <span>
-              Open and click rates count only sends made after Resend tracking was switched on ({d.trackingSince ? new Date(d.trackingSince).toLocaleString() : "pending"}).
+              Open and click rates count only sends made after provider tracking was switched on ({d.trackingSince ? new Date(d.trackingSince).toLocaleString() : "pending"}).
               Lifetime: {t.lifetime.sends.toLocaleString()} sends · {t.lifetime.opens.toLocaleString()} opens · {t.lifetime.clicks.toLocaleString()} clicks. Timestamps are UTC.
             </span>
           </div>
@@ -147,7 +147,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
             </table>
           </div>
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-ops-text-muted">Campaigns (Resend broadcasts)</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-ops-text-muted">Campaigns (broadcasts)</h2>
           <div className="overflow-x-auto rounded-2xl border border-ops-border bg-ops-surface shadow-card">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
