@@ -3811,3 +3811,11 @@ alfredintel/reverra-d2c-store, cloned to ~/Projects/reverra, dev on :3001).
 **Pending Paul:** push approval (ops deploy), then a setup-reverra-env.mjs secrets
 pass when the store has a prod URL + prod OPS_API_TOKEN. GA4/GSC connect waits on
 the Google account decision; Clomark business profile + pixel at relaunch.
+
+## 2026-10-07 (later) — Reverra tab DEPLOYED to ops.fitscript.me
+
+Rode the finance push (run 37687223789 green, bundle index-Cia9hg2T.js); Clomark seat
+canaried /reverra: connect-state banner + GA4/GSC not-connected tiles, no error
+boundary. Designed state until the store has a prod URL. Cosmetic follow-up noted:
+"Real Pep…"/"Reverra" switcher labels can truncate when active in the even 6-brand
+grid — revisit with the next facelift pass, not urgent.
