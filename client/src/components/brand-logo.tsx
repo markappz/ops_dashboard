@@ -61,17 +61,17 @@ export function BrandWordmark({ className = "" }: { className?: string }) {
   );
 }
 
-/** Sidebar lockup: infinity mark stacked above BRANDMAXXER · OPS chip beside. */
-export function BrandLogo({ markHeight = 13, wordClass = "text-[15px]" }: { markHeight?: number; wordClass?: string }) {
+/** Sidebar lockup: infinity mark CENTERED above the wordmark, OPS chip beside. */
+export function BrandLogo({ markHeight = 18, wordClass = "text-[15px]" }: { markHeight?: number; wordClass?: string }) {
   return (
-    <div className="flex flex-col gap-[5px] min-w-0" aria-label="BRANDMAXXER Ops">
-      <BrandMark height={markHeight} />
-      <div className="flex items-center gap-2 min-w-0">
+    <div className="flex items-end gap-2 min-w-0" aria-label="BRANDMAXXER Ops">
+      <div className="flex flex-col items-center gap-[5px] min-w-0">
+        <BrandMark height={markHeight} />
         <BrandWordmark className={`text-ops-text ${wordClass}`} />
-        <span className="text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold bg-ops-accent-soft px-1.5 py-0.5 rounded shrink-0">
-          Ops
-        </span>
       </div>
+      <span className="text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold bg-ops-accent-soft px-1.5 py-0.5 rounded shrink-0 mb-[1px]">
+        Ops
+      </span>
     </div>
   );
 }
