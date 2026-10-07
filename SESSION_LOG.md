@@ -3750,3 +3750,13 @@ served bundle in prod browser right after deploy per standing rule.
 browser-verified on prod — sidebar BRANDMAXXER lockup w/ heavier XX + OPS chip, tab title
 "BRANDMAXXER Ops", Archivo Black served, favicon tile live. Brand spec/archive artifact:
 3PcJjT3d292w3gMAXqrtzA (v3 = final on top). Log committed locally, rides next push.
+
+### 2026-10-07 — BRANDMAXXER rebrand sprint complete (all deployed + browser-verified)
+Iterated live with Paul across 4 deploys: a72a5cf type-only wordmark → 4999978 stacked twin-loops
+→ 3e5f43a loops sized up + CENTERED over wordmark (final lockup; gradient infinity XX 18px
+sidebar/22px login, favicon keeps bold plain-XX tile) → c90c1af Workspace switcher facelift
+(eyebrow, per-brand monogram tiles FS/PU/PW/RP/NB in own hues, tinted+ringed active state) →
+e0d2836 Real Peptides takes the full-width row (label truncated in half-column). All verified on
+served bundles in Paul's browser; final bundle index-b7ncPC4c.js. Brand spec/archive artifact:
+3PcJjT3d292w3gMAXqrtzA (v6 = final on top, exploration archived). Partner = source of the
+BRANDMAXXER name/direction.
