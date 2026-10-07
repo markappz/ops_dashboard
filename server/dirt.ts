@@ -28,6 +28,7 @@ import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
 import { logAiCost } from "./aiCostLogger";
 import { logAdminAction } from "./lib/auditLog";
 import { RP_READ_TOOLS, RP_WRITE_TOOLS } from "./dirt-realpeptides-tools";
+import { FINANCE_READ_TOOLS, FINANCE_WRITE_TOOLS } from "./dirt-finance-tools";
 import { pool } from "./db";
 
 const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
@@ -1604,7 +1605,7 @@ const STRIPE_TOOLS: ToolDef[] = [
   },
 ];
 
-const TOOLS = [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[]), ...WRITE_TOOLS, ...STRIPE_TOOLS, ...(RP_WRITE_TOOLS as ToolDef[])];
+const TOOLS = [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[]), ...(FINANCE_READ_TOOLS as ToolDef[]), ...WRITE_TOOLS, ...STRIPE_TOOLS, ...(RP_WRITE_TOOLS as ToolDef[]), ...(FINANCE_WRITE_TOOLS as ToolDef[])];
 
 // ─── Conversation persistence ──────────────────────────────────────
 
@@ -1691,7 +1692,7 @@ export function registerDirtRoutes(app: Express) {
     }
     const modelId = body.model === "fast" ? BEDROCK_MODELS.FAST : BEDROCK_MODELS.HIGH_IQ;
     const userEmail = req.adminEmail || "unknown";
-    const activeTools = body.readOnly ? [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[])] : TOOLS;
+    const activeTools = body.readOnly ? [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[]), ...(FINANCE_READ_TOOLS as ToolDef[])] : TOOLS;
     const conversationId = body.conversationId || randomUUID();
 
     res.setHeader("content-type", "text/event-stream");
@@ -1944,7 +1945,7 @@ export function registerDirtRoutes(app: Express) {
     if (!body?.messages?.length) return res.status(400).json({ error: "messages required" });
     const modelId = body.model === "fast" ? BEDROCK_MODELS.FAST : BEDROCK_MODELS.HIGH_IQ;
     const userEmail = req.adminEmail || "unknown";
-    const activeTools = body.readOnly ? [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[])] : TOOLS;
+    const activeTools = body.readOnly ? [...READ_TOOLS, ...(RP_READ_TOOLS as ToolDef[]), ...(FINANCE_READ_TOOLS as ToolDef[])] : TOOLS;
     const messages: any[] = body.messages.map((m) => ({ role: m.role, content: m.content }));
     const toolUses: any[] = [];
     let totalInput = 0, totalOutput = 0, finalText = "";

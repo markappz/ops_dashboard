@@ -55,6 +55,8 @@ import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
 import NorthbluOverview from "./pages/northblu-overview";
+import BrandFinancials from "./pages/finance/brand-financials";
+import MasterFinancials from "./pages/finance/master";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
@@ -340,6 +342,12 @@ export default function App() {
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
 
           {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
+          <Route path="/fitscript/financials">{() => <BrandFinancials company="fitscript" label="FitScript" />}</Route>
+          <Route path="/peptideu/financials">{() => <BrandFinancials company="peptideu" label="PeptideU" />}</Route>
+          <Route path="/pawgen/financials">{() => <BrandFinancials company="pawgen" label="pawgen" />}</Route>
+          <Route path="/realpeptides/financials">{() => <BrandFinancials company="realpeptides" label="Real Peptides" />}</Route>
+          <Route path="/northblu/financials">{() => <BrandFinancials company="northblu" label="North Blu" />}</Route>
+          <Route path="/admin/financials" component={MasterFinancials} />
           <Route path="/northblu" component={NorthbluOverview} />
           <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
           <Route path="/northblu/flows">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailFlows company="northblu" /></>}</Route>

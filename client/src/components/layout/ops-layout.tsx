@@ -66,6 +66,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
     ],
   },
+  { label: "Finance", items: [{ path: "/peptideu/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/peptideu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -83,6 +84,7 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
     ],
   },
   { label: "SEO", items: [{ path: "/pawgen/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/pawgen/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/pawgen/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -91,6 +93,7 @@ const NORTHBLU_NAV_SECTIONS: NavSection[] = [
   { label: "Email", items: [{ path: "/northblu/email", label: "Email", icon: "mail" }] },
   { label: "Marketing", items: [{ path: "/northblu/traffic", label: "Traffic", icon: "chart" }] },
   { label: "SEO", items: [{ path: "/northblu/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/northblu/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/northblu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -136,6 +139,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
     label: "Workspace",
     items: [{ path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" }],
   },
+  { label: "Finance", items: [{ path: "/realpeptides/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/realpeptides/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -185,6 +189,7 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/content-library", label: "Content Library", icon: "folder" },
     ],
   },
+  { label: "Finance", items: [{ path: "/fitscript/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -244,6 +249,15 @@ export function OpsLayout({
 }) {
   const [location, navigate] = useLocation();
   const { theme, toggle } = useTheme();
+  // Master Financials link is finance:master only (Paul + Michael). The server
+  // enforces the gate; this just keeps the link out of everyone else's sidebar.
+  const [financeMaster, setFinanceMaster] = useState(false);
+  useEffect(() => {
+    fetch("/api/ops/finance/access", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setFinanceMaster(j?.level === "master"))
+      .catch(() => {});
+  }, []);
   const { company, setCompany } = useCompany();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -422,6 +436,18 @@ export function OpsLayout({
 
         {/* Footer — Settings stays reachable from every company tab */}
         <div className="p-3 border-t border-ops-border">
+          {financeMaster && (
+            <Link href="/admin/financials">
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                location.startsWith("/admin/financials")
+                  ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500"
+                  : "text-ops-text-muted hover:text-ops-text hover:bg-ops-surface-hover"
+              }`} onClick={() => setSidebarOpen(false)}>
+                {ICONS.dollar}
+                <span>Master Financials</span>
+              </div>
+            </Link>
+          )}
           <Link href="/settings">
             <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
               location.startsWith("/settings")

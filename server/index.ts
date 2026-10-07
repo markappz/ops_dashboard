@@ -65,6 +65,7 @@ import { registerCallCenterTools } from "./callcenter-tools";
 import { registerCallCenterRoutes } from "./callcenter";
 import { startCallCenterLoops } from "./callcenter-worker";
 import { ensureCallCenterTables } from "./callcenter-db";
+import { registerFinanceRoutes } from "./finance";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -161,6 +162,7 @@ registerRealPeptidesAffiliates(app);
 registerRpPaid(app);
 registerPagesRoutes(app);
 registerCallCenterRoutes(app);
+registerFinanceRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {

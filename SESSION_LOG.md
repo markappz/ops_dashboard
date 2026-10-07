@@ -3760,3 +3760,19 @@ e0d2836 Real Peptides takes the full-width row (label truncated in half-column).
 served bundles in Paul's browser; final bundle index-b7ncPC4c.js. Brand spec/archive artifact:
 3PcJjT3d292w3gMAXqrtzA (v6 = final on top, exploration archived). Partner = source of the
 BRANDMAXXER name/direction.
+
+### 2026-10-07 — Finance system Phase 1 (Paul + Michael ask) — committed, awaiting push go
+Per-brand Financials tabs (all 5 brand sidebars, Finance section) + MASTER roll-up at
+/admin/financials. ops_finance_entries (cents; kinds expense/revenue/retainer; recurring monthly
+expansion in SQL — retainers count once per covered month). Access model STRICTER than admin:
+finance:master (seed FINANCE_MASTER_EMAILS env, default paulclotar@gmail.com — Paul grants
+Michael in Settings→Team; master link renders only for masters) and finance:entry (Josh/Justin/
+CFO Mike Burnett: view brands, add, edit-own; no cross-brand). Enforced server-side in every
+route incl. summary?brand=all and entries?brand=all; admins WITHOUT the grant get 403 by design.
+Dirt tools: add_finance_entry + finance_summary (grant-checked per call — Dirt never widens
+access). Grants in PERMISSION_CATALOG/ROUTES. v1 revenue = tracked entries only; per-brand live
+sales auto-join = next pass (honest copy everywhere). E2E on scratch pg: master add/summary,
+entry-level add OK + master-summary 403 + delete 403; allowlist-cache warm quirk only for
+SQL-inserted test users. NEXT PHASES: brand sales auto-join; team activity tab (work systems of
+record: ops_admin_actions, tasks, change requests, tickets, GitHub commits/PRs per person — NOT
+terminal surveillance).

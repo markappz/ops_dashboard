@@ -193,6 +193,19 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
     // Delete/discard a closed-short PO (nothing received) via the inventory helper.
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/inventory\/pos\/\d+\/?$/ },
   ],
+  // Finance entry (Josh / Justin / CFO Mike Burnett): add + edit-own entries.
+  // Views are gated inside server/finance.ts (financeLevel), including the
+  // master-only cross-brand roll-up — these patterns only open the writes
+  // for viewer-role accounts.
+  "finance:entry": [
+    { method: "POST", pattern: /^\/api\/ops\/finance\/entries\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+  ],
+  "finance:master": [
+    { method: "POST", pattern: /^\/api\/ops\/finance\/entries\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+    { method: "DELETE", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+  ],
   // Work the Call Center queues (follow-ups, callback attempts, test flags).
   // No settings, no replay/backfill, no webhook administration.
   "realpeptides:call-center": [
@@ -223,6 +236,16 @@ export const PERMISSION_CATALOG: Array<{ key: string; label: string; detail: str
     label: "Real Peptides — Call Center queues",
     detail: "Work follow-ups: assign, schedule, snooze, record callback attempts, mark outcomes. No settings or replay controls.",
   },
+  {
+    key: "finance:entry",
+    label: "Finance — log expenses & retainers",
+    detail: "See brand Financials tabs and add entries (edit own). For Josh, Justin and CFO Mike Burnett. No master roll-up.",
+  },
+  {
+    key: "finance:master",
+    label: "Finance — MASTER (Paul & Michael only)",
+    detail: "Everything: cross-brand roll-up, all edits and deletes. Being an admin is deliberately not enough for this view.",
+  },
 ];
 
 function permitsRequest(granted: string[], method: string, path: string): boolean {
@@ -236,6 +259,16 @@ function permitsRequest(granted: string[], method: string, path: string): boolea
 
 function permissionsFor(email: string): string[] {
   return allowlistCache?.perms.get(email.toLowerCase()) ?? [];
+}
+
+/**
+ * Grant check for modules that gate BEYOND role=admin (finance: the master
+ * view is Paul+Michael only, so being an admin is deliberately not enough).
+ * Reads the same 60s allowlist cache requireAuth uses.
+ */
+export function emailHasPermission(email: string | undefined, perm: string): boolean {
+  if (!email) return false;
+  return permissionsFor(email).includes(perm);
 }
 
 function getAllowlist(): Set<string> {
