@@ -151,7 +151,17 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
       // the bottom of the screen and hid Apply (Paul, 2026-10-02). Desktop: right-aligned dropdown.
       const phone = window.innerWidth < 768;
       setIsPhone(phone);
-      if (!phone) setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right) });
+      // Anchor to whichever edge keeps the panel on screen: right-aligning
+      // under a LEFT-side trigger (FitScript's Growth row, Paul 10-07) pushed
+      // the panel to left:-193px over the sidebar. Buttons in the left half
+      // anchor left; right-half buttons keep the original right alignment.
+      if (!phone) {
+        if (r.left < window.innerWidth / 2) {
+          setPos({ top: r.bottom + 8, left: Math.max(16, r.left), right: 0 });
+        } else {
+          setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right), left: undefined });
+        }
+      }
     };
     place();
     const onDoc = (e: MouseEvent) => {
@@ -194,7 +204,7 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
           {/* Phones: a CENTERED modal card (Paul, 10-02 — the bottom sheet read as misplaced),
               with the Cancel/Apply bar pinned below the scrolling calendar. */}
           {isPhone && <div className="fixed inset-0 z-[59] bg-black/50 backdrop-blur-[2px]" onClick={() => setOpen(false)} />}
-          <div ref={panelRef} style={isPhone ? undefined : { top: pos.top, right: pos.right }}
+          <div ref={panelRef} style={isPhone ? undefined : pos.left != null ? { top: pos.top, left: pos.left } : { top: pos.top, right: pos.right }}
             className={isPhone
               ? "fixed left-1/2 top-1/2 z-[60] flex max-h-[82vh] w-[calc(100vw-2rem)] max-w-[380px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"
               : "fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"}>
