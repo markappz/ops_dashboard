@@ -3785,3 +3785,29 @@ on :5005 w/ scratch data. NOTE: reverra brand work seen UNCOMMITTED in this chec
 seat's lane — reverra-site.ts + use-company/google-auth/pages/tracking/index edits + touches to
 finance files); my commits staged file-specific to avoid sweeping it. Paul still to grant
 Michael finance:master + entry grants for Josh/Justin/Mike Burnett in Settings → Team.
+
+## 2026-10-07 (later) — Reverra added as 6th brand (committed c21a62f, NOT pushed)
+
+Reverra = new D2C peptide oral-strip brand, 49% under BRANDMAXXER (partner repo
+alfredintel/reverra-d2c-store, cloned to ~/Projects/reverra, dev on :3001).
+
+- Company union + switcher tile (RV, hue 164,38,68) — 6 brands makes the 2-col grid
+  even, so RP's full-width lastOdd row is naturally gone (layout stays clean).
+- REVERRA_NAV_SECTIONS: Overview / Traffic / SEO / Finance / Integrations. Orders nav
+  deferred (no dead links) until the store grows /api/ops-orders.
+- server/reverra-site.ts: proxies store's token-gated /api/ops-summary (same contract
+  as RP's). Env REVERRA_SITE_API_URL + REVERRA_SITE_OPS_TOKEN; unset → configured:false.
+- pages/reverra-overview.tsx on the command-center kit (pawgen-style Sales row,
+  GA4/GSC connect-state tiles, DailyBars + Breakdown panels).
+- Allowlists: google-auth, email-planner, pages SITE_ROOTS, finance (+client lists),
+  dirt tool description, tracking ORIGIN_SITE (+ reverrahealth.com, confirmed from
+  the product packaging QR, both apex and www).
+- Store side: reverra repo commit d4df52a adds /api/ops-summary (Bearer OPS_API_TOKEN).
+- Verified E2E in browser on :5002 (scratch ops_dev_scratch pg, seeded dev admin):
+  sandbox order RV-2026-0001 → $174 revenue / 1 order / backlog 1 / Glow top product.
+  tsc --noEmit clean. Dev-start gotcha: email-scheduler import runs before
+  dotenv/config, so cold `npm run dev` needs env exported (set -a; source .env).
+
+**Pending Paul:** push approval (ops deploy), then a setup-reverra-env.mjs secrets
+pass when the store has a prod URL + prod OPS_API_TOKEN. GA4/GSC connect waits on
+the Google account decision; Clomark business profile + pixel at relaunch.
