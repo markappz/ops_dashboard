@@ -331,29 +331,57 @@ export function OpsLayout({
           <BrandLogo />
         </div>
 
-        {/* Company switcher */}
+        {/* Company switcher — "Workspace" (facelift pass 2026-10-07, Paul).
+            Each brand gets a monogram tile in its own hue; the active chip
+            carries a tinted fill + hued ring instead of one generic blue pill.
+            Grid stays 2-col (labels wrap in a 256px sidebar); the odd fifth
+            brand spans the full row on purpose. */}
         <div className="px-4 py-3 border-b border-ops-border">
-          {/* 2×2 grid, not a row — a fourth brand in a 256px sidebar wraps the labels. */}
-          <div className="grid grid-cols-2 bg-ops-bg rounded-lg p-1 gap-1">
+          <div className="px-1 mb-2 flex items-center justify-between">
+            <span className="text-[10px] tracking-[0.16em] uppercase font-semibold text-ops-text-subtle">Workspace</span>
+            <span className="h-1 w-1 rounded-full bg-ops-border" aria-hidden />
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
             {([
-              { key: "fitscript" as Company, label: "FitScript" },
-              { key: "peptideu" as Company, label: "PeptideU" },
-              { key: "pawgen" as Company, label: "pawgen" },
-              { key: "realpeptides" as Company, label: "Real Peptides" },
-              { key: "northblu" as Company, label: "North Blu" },
-            ]).map((o) => (
-              <button
-                key={o.key}
-                onClick={() => selectCompany(o.key)}
-                className={`w-full text-xs font-semibold py-1.5 rounded-md transition-all ${
-                  activeCompany === o.key
-                    ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"
-                    : "text-ops-text-muted hover:text-ops-text"
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
+              { key: "fitscript" as Company, label: "FitScript", mono: "FS", hue: "46,91,255" },
+              { key: "peptideu" as Company, label: "PeptideU", mono: "PU", hue: "139,92,246" },
+              { key: "pawgen" as Company, label: "pawgen", mono: "PW", hue: "16,185,129" },
+              { key: "realpeptides" as Company, label: "Real Peptides", mono: "RP", hue: "212,166,47" },
+              { key: "northblu" as Company, label: "North Blu", mono: "NB", hue: "34,211,238" },
+            ]).map((o, i, all) => {
+              const active = activeCompany === o.key;
+              const lastOdd = i === all.length - 1 && all.length % 2 === 1;
+              return (
+                <button
+                  key={o.key}
+                  onClick={() => selectCompany(o.key)}
+                  aria-pressed={active}
+                  className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all border ${lastOdd ? "col-span-2" : ""} ${
+                    active
+                      ? "border-transparent"
+                      : "border-transparent hover:bg-ops-bg hover:border-ops-border"
+                  }`}
+                  style={active ? {
+                    backgroundColor: `rgba(${o.hue},0.12)`,
+                    borderColor: `rgba(${o.hue},0.45)`,
+                    boxShadow: `0 4px 16px -6px rgba(${o.hue},0.45)`,
+                  } : undefined}
+                >
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[9px] font-black tracking-wide transition-all"
+                    style={active
+                      ? { backgroundColor: `rgb(${o.hue})`, color: "#fff" }
+                      : { backgroundColor: `rgba(${o.hue},0.14)`, color: `rgb(${o.hue})` }}
+                  >
+                    {o.mono}
+                  </span>
+                  <span className={`min-w-0 truncate text-xs font-semibold ${active ? "text-ops-text" : "text-ops-text-muted group-hover:text-ops-text"}`}>
+                    {o.label}
+                  </span>
+                  {active && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `rgb(${o.hue})` }} aria-hidden />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
