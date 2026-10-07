@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BrandWordmark } from "../components/brand-logo";
 
 export default function Login({ error }: { error?: string }) {
   const [email, setEmail] = useState("");
@@ -46,8 +47,9 @@ export default function Login({ error }: { error?: string }) {
       />
       <div className="relative w-full max-w-sm bg-ops-surface border border-ops-border rounded-2xl shadow-card-lg p-8">
         <div className="mb-6">
-          <div className="text-[10px] font-semibold text-brand-blue-500 uppercase tracking-[0.18em] mb-2">
-            FitScript · Ops
+          <div className="mb-2 flex items-center gap-2">
+            <BrandWordmark className="text-ops-text text-[17px]" />
+            <span className="text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold bg-ops-accent-soft px-1.5 py-0.5 rounded">Ops</span>
           </div>
           <h1 className="text-2xl font-bold text-ops-text tracking-tight">Welcome back</h1>
           <p className="text-sm text-ops-text-muted mt-1.5">

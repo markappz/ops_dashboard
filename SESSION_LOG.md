@@ -3734,3 +3734,15 @@ shows FAILED but that's a false negative — two deploys raced, the action lost 
 behaviorally verified: signed front-desk envelope on get-order-status → 200 verification_required
 (was 403). Do NOT redeploy to "fix" the red run. Josh unblocked: FD→wholesale intake + FD→support
 verification both authorize; he retests by phone and flags sessions as tests.
+
+### 2026-10-06 — BRANDMAXXER rebrand of the ops shell (Paul + partner) — committed, awaiting push go
+Shell renamed FitScript Ops → BRANDMAXXER (OPS chip kept as-is; the four brand workspaces inside
+keep their names). Direction iterated live with Paul: started with XX-as-infinity loop monograms
+(spec sheet artifact 3PcJjT3d292w3gMAXqrtzA, v2), Paul pulled back to PURE TYPE — Archivo Black
+wordmark with the XX slightly larger, tracked tight and text-stroke-thickened (components/
+brand-logo.tsx: BrandWordmark/BrandXX/BrandLogo). Applied: sidebar lockup (ops-layout),
+login hero, index.html title "BRANDMAXXER Ops" + Archivo Black font + inline-SVG favicon
+(dark tile, bold double-X strokes — no loops). fitscript-logo-white.png left on disk,
+unreferenced. tsc + build + 28/28 tests green. NOT browser-verified locally (Chrome on the
+laptop refused LAN nav tonight — worked this morning; don't rabbit-hole rule) → verify the
+served bundle in prod browser right after deploy per standing rule.

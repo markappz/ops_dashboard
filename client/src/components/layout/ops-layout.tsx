@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../hooks/use-theme";
 import { useCompany, type Company } from "../../hooks/use-company";
-import logoWhite from "../../assets/fitscript-logo-white.png";
+import { BrandLogo } from "../brand-logo";
 import { Dirt } from "../dirt/Dirt";
 
 type NavItem = { path: string; label: string; icon: string };
@@ -326,17 +326,9 @@ export function OpsLayout({
 
       {/* Sidebar — fixed slide-out on mobile, static column on lg+ */}
       <aside className={`fixed lg:static lg:translate-x-0 inset-y-0 left-0 z-40 w-64 bg-ops-surface border-r border-ops-border flex flex-col shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
-        {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-ops-border gap-2.5">
-          <img
-            src={logoWhite}
-            alt="FITSCRIPT"
-            className="h-5 w-auto"
-            style={theme === "light" ? { filter: "invert(1)" } : undefined}
-          />
-          <span className="text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold bg-ops-accent-soft px-1.5 py-0.5 rounded">
-            Ops
-          </span>
+        {/* Logo — BRANDMAXXER rebrand 2026-10-06 (twin-loop XX, OPS chip as-is) */}
+        <div className="h-16 flex items-center px-5 border-b border-ops-border">
+          <BrandLogo />
         </div>
 
         {/* Company switcher */}
