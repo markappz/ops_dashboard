@@ -346,8 +346,9 @@ export function OpsLayout({
               { key: "fitscript" as Company, label: "FitScript", mono: "FS", hue: "46,91,255" },
               { key: "peptideu" as Company, label: "PeptideU", mono: "PU", hue: "139,92,246" },
               { key: "pawgen" as Company, label: "pawgen", mono: "PW", hue: "16,185,129" },
-              { key: "realpeptides" as Company, label: "Real Peptides", mono: "RP", hue: "212,166,47" },
               { key: "northblu" as Company, label: "North Blu", mono: "NB", hue: "34,211,238" },
+              // longest label rides the full-width row so it never truncates
+              { key: "realpeptides" as Company, label: "Real Peptides", mono: "RP", hue: "212,166,47" },
             ]).map((o, i, all) => {
               const active = activeCompany === o.key;
               const lastOdd = i === all.length - 1 && all.length % 2 === 1;
