@@ -3819,3 +3819,12 @@ canaried /reverra: connect-state banner + GA4/GSC not-connected tiles, no error
 boundary. Designed state until the store has a prod URL. Cosmetic follow-up noted:
 "Real Pep…"/"Reverra" switcher labels can truncate when active in the even 6-brand
 grid — revisit with the next facelift pass, not urgent.
+**Quick-add + Reverra deployed 2026-10-07 21:1xZ (Paul: "push"):** 39be36c..100ac30 live, run
+37687223789 green, bundle index-Cia9hg2T.js. Canaried: /reverra connect-state card (paul-62's
+ask — no error boundary); RP Financials shows the NL quick-add bar (type or mic → Haiku
+tool-forced parse → addFinanceEntry; dev E2E parsed "45 bucks a month for Canva on peptideu,
+started yesterday" → $45/mo software, dated yesterday; refuses without an amount). AddEntry form
+regridded (note/Add collapse fixed), phone-width stacking via standard grid collapses — desktop
+browser-verified, phone eyeball = Paul post-deploy. Mobile window-resize check impossible
+(Chrome full-screen refuses programmatic resize). Switcher label truncation at 6 brands = paul-62's
+accepted tradeoff.
