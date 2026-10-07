@@ -4,7 +4,7 @@ import { Lock } from "lucide-react";
 import { PageHero } from "../../components/page-hero";
 import { StatCard } from "../../components/stat";
 import { DateRangePicker, useDateRange } from "../../components/date-range-picker";
-import { AddEntry, EntriesTable } from "./brand-financials";
+import { AddEntry, EntriesTable, QuickAdd } from "./brand-financials";
 import { DollarSign, Repeat, TrendingUp, Scale } from "lucide-react";
 
 /**
@@ -70,6 +70,8 @@ export default function MasterFinancials() {
         subtitle="Every brand's tracked money in one place — expenses, retainers, manual revenue and the bottom line. Live storefront sales stay on each brand's tabs until the auto-join pass; Dirt files entries here too."
         actions={<DateRangePicker value={range} onChange={setRange} />}
       />
+
+      <QuickAdd company="shared" onDone={refresh} />
 
       <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard i={0} label={`Total expenses · ${range.label}`} icon={<DollarSign />} value={usd(tot.expenses)} tone="warn" />

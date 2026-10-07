@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DollarSign, Repeat, TrendingUp, Scale, Trash2 } from "lucide-react";
+import { DollarSign, Repeat, TrendingUp, Scale, Trash2, Mic, Sparkles, Loader2 } from "lucide-react";
 import { PageHero } from "../../components/page-hero";
 import { StatCard } from "../../components/stat";
 import { DateRangePicker, useDateRange } from "../../components/date-range-picker";
@@ -78,6 +78,8 @@ export default function BrandFinancials({ company, label }: { company: string; l
         actions={<DateRangePicker value={range} onChange={setRange} />}
       />
 
+      <QuickAdd company={company} onDone={() => { qc.invalidateQueries({ queryKey: ["fin-summary"] }); qc.invalidateQueries({ queryKey: ["fin-entries"] }); }} />
+
       <div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard i={0} label={`Expenses · ${range.label}`} icon={<DollarSign />} value={usd(b?.expenses ?? 0)} tone={b?.expenses ? "warn" : undefined} />
         <StatCard i={1} label="Retainers (counted monthly)" icon={<Repeat />} value={usd(b?.retainers ?? 0)} sub="within this window" />
@@ -111,6 +113,75 @@ export default function BrandFinancials({ company, label }: { company: string; l
   );
 }
 
+
+/** Natural-language entry: type it or say it — one Haiku call files it. */
+export function QuickAdd({ company, onDone }: { company: string; onDone: () => void }) {
+  const [text, setText] = useState("");
+  const [listening, setListening] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const recRef = useRef<any>(null);
+
+  const send = useMutation({
+    mutationFn: (t: string) => api<{ ok: boolean; parsed: { kind: string; brand: string; amount_usd: number; category: string; vendor: string | null; recurring: string } }>(
+      "/api/ops/finance/quick-add", { method: "POST", body: JSON.stringify({ text: t, brand: company }) }),
+    onSuccess: (j) => {
+      const p = j.parsed;
+      setResult(`Filed: ${p.kind} · ${p.brand} · $${p.amount_usd.toLocaleString()}${p.recurring === "monthly" ? "/mo" : ""}${p.vendor ? ` · ${p.vendor}` : ""}`);
+      setErr(null); setText(""); onDone();
+    },
+    onError: (e: Error) => { setErr(e.message); setResult(null); },
+  });
+
+  const toggleMic = () => {
+    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!SR) { setErr("Voice input needs Chrome — type it instead."); return; }
+    if (listening) { recRef.current?.stop(); return; }
+    const rec = new SR();
+    recRef.current = rec;
+    rec.continuous = false; rec.interimResults = true; rec.lang = "en-US";
+    rec.onresult = (ev: any) => {
+      const t = Array.from(ev.results).map((r: any) => r[0].transcript).join(" ");
+      setText(t);
+      if (ev.results[ev.results.length - 1].isFinal) rec.stop();
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => { setListening(false); setErr("Didn't catch that — try again or type it."); };
+    setErr(null); setListening(true); rec.start();
+  };
+
+  const go = () => { if (text.trim() && !send.isPending) send.mutate(text.trim()); };
+
+  return (
+    <div className="mb-6 rounded-xl border border-brand-blue-500/40 bg-ops-surface p-3 shadow-card sm:p-4">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 shrink-0 text-brand-blue-500" />
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && go()}
+          placeholder={`Just type it — “$500 Replicate credits yesterday” or “$3k/mo Acme retainer” — and hit Enter`}
+          aria-label="Add an expense in plain English"
+          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-ops-text placeholder:text-ops-text-muted focus:outline-none"
+        />
+        <button type="button" onClick={toggleMic} aria-label={listening ? "Stop listening" : "Speak the expense"}
+          className={`shrink-0 rounded-lg border p-2 transition ${listening ? "border-red-500/60 bg-red-500/10 text-red-400 animate-pulse" : "border-ops-border text-ops-text-muted hover:text-ops-text"}`}>
+          <Mic className="h-4 w-4" />
+        </button>
+        <button type="button" onClick={go} disabled={!text.trim() || send.isPending}
+          className="shrink-0 rounded-lg bg-brand-blue-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 sm:px-4">
+          {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "File it"}
+        </button>
+      </div>
+      {(result || err || listening) && (
+        <div className={`mt-2 px-6 text-xs ${err ? "text-red-400" : listening ? "text-brand-blue-500" : "text-emerald-400"}`}>
+          {listening ? "Listening… say the amount, what it was for, and the brand." : err ?? result}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AddEntry({ company, onDone, allowBrandPick }: { company: string; onDone: () => void; allowBrandPick?: boolean }) {
   const [brand, setBrand] = useState(company);
   const [kind, setKind] = useState("expense");
@@ -136,7 +207,7 @@ export function AddEntry({ company, onDone, allowBrandPick }: { company: string;
     <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
       <div className="mb-2.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">Add entry</div>
       {err && <div className="mb-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{err}</div>}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="grid grid-cols-2 items-center gap-2 md:grid-cols-4 xl:flex xl:flex-wrap">
         {allowBrandPick && (
           <select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Brand" className={input}>
             {["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "reverra", "clomark", "shared"].map((x) => <option key={x}>{x}</option>)}
@@ -145,18 +216,18 @@ export function AddEntry({ company, onDone, allowBrandPick }: { company: string;
         <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind" className={input}>
           <option value="expense">Expense</option><option value="retainer">Retainer</option><option value="revenue">Revenue</option>
         </select>
-        <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$ amount" inputMode="decimal" aria-label="Amount" className={`${input} w-24`} />
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="$ amount" inputMode="decimal" aria-label="Amount" className={`${input} w-full xl:w-24`} />
         <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className={input}>
           {FIN_CATEGORIES.map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
         </select>
-        <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor / client" aria-label="Vendor" className={`${input} w-36`} />
-        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Note" aria-label="Note" className={`${input} min-w-0 flex-1`} />
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" className={input} />
-        <label className="flex items-center gap-1.5 text-xs text-ops-text-muted">
+        <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor / client" aria-label="Vendor" className={`${input} w-full xl:w-36`} />
+        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Note" aria-label="Note" className={`${input} col-span-2 w-full md:col-span-2 xl:w-auto xl:min-w-[180px] xl:flex-1`} />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" className={`${input} w-full xl:w-auto`} />
+        <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-ops-text-muted">
           <input type="checkbox" checked={recurring || kind === "retainer"} disabled={kind === "retainer"} onChange={(e) => setRecurring(e.target.checked)} /> monthly
         </label>
         <button type="button" disabled={add.isPending || !Number(amount)} onClick={() => add.mutate()}
-          className="rounded-lg bg-fitscript-green px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50">Add</button>
+          className="col-span-2 rounded-lg bg-fitscript-green px-4 py-2 text-sm font-medium text-white disabled:opacity-50 md:col-span-4 xl:col-span-1 xl:ml-auto xl:py-1.5">Add</button>
       </div>
     </div>
   );

@@ -20,6 +20,8 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { pool } from "./db";
 import { emailHasPermission } from "./admin-auth";
 import { logAdminAction } from "./lib/auditLog";
+import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
+import { logAiCost } from "./aiCostLogger";
 
 export const FINANCE_KINDS = ["expense", "revenue", "retainer"] as const;
 export const FINANCE_CATEGORIES = [
@@ -124,7 +126,64 @@ const MONTHLY_SQL = `
     ))::int * CASE WHEN f.entry_date <= $2::date AND COALESCE(f.ended_at, $2::date) >= $1::date THEN 1 ELSE 0 END
   ELSE CASE WHEN f.entry_date >= $1::date AND f.entry_date <= $2::date THEN 1 ELSE 0 END END`;
 
+/**
+ * Natural-language quick-add: "add a $500 Replicate bill" / "$3k/mo Acme
+ * retainer starting Oct 1" → one tool-forced Haiku call extracts the entry,
+ * then the SAME addFinanceEntry path files it (grant-checked upstream).
+ */
+async function parseAndFile(text: string, defaultBrand: string, createdBy: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const resp: any = await (anthropic as any).messages.create({
+    model: BEDROCK_MODELS.FAST,
+    max_tokens: 400,
+    system: `Extract ONE finance entry from the user's sentence. Today is ${today}. Default brand is "${defaultBrand}" unless another brand is named (${FINANCE_BRANDS.join(", ")}). "per month"/"monthly"/"/mo" or the word retainer → recurring monthly. Retainers and money we RECEIVE are kind retainer/revenue; bills/costs are expense. Pick the closest category. Resolve relative dates ("yesterday", "last Tuesday") to YYYY-MM-DD. If no dollar amount is present, call the tool with amount_usd 0.`,
+    tools: [{
+      name: "file_entry",
+      description: "File the extracted entry",
+      input_schema: {
+        type: "object",
+        properties: {
+          brand: { type: "string", enum: [...FINANCE_BRANDS] },
+          kind: { type: "string", enum: [...FINANCE_KINDS] },
+          amount_usd: { type: "number" },
+          category: { type: "string", enum: [...FINANCE_CATEGORIES] },
+          vendor: { type: "string" },
+          description: { type: "string" },
+          date: { type: "string", description: "YYYY-MM-DD" },
+          recurring: { type: "string", enum: ["none", "monthly"] },
+        },
+        required: ["brand", "kind", "amount_usd"],
+      },
+    }],
+    tool_choice: { type: "tool", name: "file_entry" },
+    messages: [{ role: "user", content: text.slice(0, 500) }],
+  });
+  logAiCost({ surface: "ops_finance_quickadd", model: BEDROCK_MODELS.FAST, inputTokens: resp.usage?.input_tokens ?? 0, outputTokens: resp.usage?.output_tokens ?? 0 }).catch(() => {});
+  const call = resp.content?.find((c: any) => c.type === "tool_use");
+  const a = call?.input ?? {};
+  if (!a.amount_usd) return { error: "I couldn't find a dollar amount in that — include one like “$500 Replicate credits”." };
+  const filed = await addFinanceEntry({
+    brand: a.brand || defaultBrand, kind: a.kind || "expense", category: a.category,
+    vendor: a.vendor, description: a.description || text.slice(0, 200), amountUsd: a.amount_usd,
+    entryDate: a.date, recurring: a.recurring, source: "dirt", createdBy,
+  });
+  if ("error" in filed) return filed;
+  return { ok: true, id: filed.id, parsed: { brand: a.brand || defaultBrand, kind: a.kind || "expense", amount_usd: a.amount_usd, category: a.category ?? "other", vendor: a.vendor ?? null, date: a.date ?? today, recurring: a.recurring ?? "none" } };
+}
+
 export function registerFinanceRoutes(app: Express) {
+  app.post("/api/ops/finance/quick-add", needAccess("entry"), async (req: FinReq, res) => {
+    try {
+      if (!isAIConfigured()) return res.status(503).json({ error: "AI isn't configured on this server — use the manual form." });
+      const text = String(req.body?.text ?? "").trim();
+      if (!text) return res.status(400).json({ error: "Say or type the expense first." });
+      const out = await parseAndFile(text, String(req.body?.brand || "shared").toLowerCase(), req.adminEmail!);
+      if ("error" in out) return res.status(400).json(out);
+      await logAdminAction({ adminEmail: req.adminEmail!, actionType: "finance.entry.add", targetKind: "finance_entry", targetId: String(out.id), targetLabel: `quick-add: ${text.slice(0, 80)}`, status: "ok" });
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   /** What the signed-in user may see — drives nav visibility client-side. */
   app.get("/api/ops/finance/access", async (req: FinReq, res) => {
     res.json({ level: financeLevel(req.adminEmail) });
