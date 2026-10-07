@@ -379,7 +379,6 @@ export function OpsLayout({
                   <span className={`min-w-0 truncate text-xs font-semibold ${active ? "text-ops-text" : "text-ops-text-muted group-hover:text-ops-text"}`}>
                     {o.label}
                   </span>
-                  {active && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: `rgb(${o.hue})` }} aria-hidden />}
                 </button>
               );
             })}
