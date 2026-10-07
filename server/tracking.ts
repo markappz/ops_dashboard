@@ -36,6 +36,10 @@ const ORIGIN_SITE: Record<string, string> = {
   "https://www.peptide101guide.com": "realpeptides",
   "https://hairgrowthprotocol.com": "realpeptides",
   "https://www.hairgrowthprotocol.com": "realpeptides",
+  // Reverra (D2C peptide strips) — domain assumed from partner seed data,
+  // confirm before launch. TRACKING_ALLOWED_ORIGINS derives from these keys.
+  "https://reverrahealth.com": "reverra",
+  "https://www.reverrahealth.com": "reverra",
 };
 function siteForOrigin(origin: string | undefined): string {
   // Same-origin requests send no Origin header; those can only come from the

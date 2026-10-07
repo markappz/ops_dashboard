@@ -139,7 +139,7 @@ export function AddEntry({ company, onDone, allowBrandPick }: { company: string;
       <div className="flex flex-wrap items-center gap-2">
         {allowBrandPick && (
           <select value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Brand" className={input}>
-            {["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "clomark", "shared"].map((x) => <option key={x}>{x}</option>)}
+            {["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "reverra", "clomark", "shared"].map((x) => <option key={x}>{x}</option>)}
           </select>
         )}
         <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Kind" className={input}>

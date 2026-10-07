@@ -8,7 +8,7 @@ import { Dirt } from "../dirt/Dirt";
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
-const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides", "/northblu"]);
+const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides", "/northblu", "/reverra"]);
 let ALL_ALIASES: Record<string, string> = {};
 
 // Consolidated nav (2026-09-16): these URLs still route, but live as sub-tabs
@@ -38,6 +38,9 @@ for (const sub of ["broadcasts", "flows", "audience", "activity", "compose"]) {
   NAV_ALIASES[`/northblu/${sub}`] = "/northblu/email";
 }
 NAV_ALIASES["/northblu/pages"] = "/northblu/seo";
+// Reverra (D2C peptide strips, 2026-10-07): SEO sub-tabs under one entry.
+NAV_ALIASES["/reverra/pages"] = "/reverra/seo";
+NAV_ALIASES["/reverra/content"] = "/reverra/seo";
 // PeptideU's Leads lives under Email too (pawgen has its own sidebar entry).
 NAV_ALIASES['/peptideu/leads'] = '/peptideu/email';
 
@@ -95,6 +98,16 @@ const NORTHBLU_NAV_SECTIONS: NavSection[] = [
   { label: "SEO", items: [{ path: "/northblu/seo", label: "SEO", icon: "file-text" }] },
   { label: "Finance", items: [{ path: "/northblu/financials", label: "Financials", icon: "dollar" }] },
   { label: "System", items: [{ path: "/northblu/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const REVERRA_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/reverra", label: "Overview", icon: "grid" }] },
+  // Orders tab lands with the store's /api/ops-orders feed (post-relaunch);
+  // until then sales tiles on the Overview carry the order counts.
+  { label: "Marketing", items: [{ path: "/reverra/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/reverra/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/reverra/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/reverra/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
@@ -270,7 +283,9 @@ export function OpsLayout({
         ? "realpeptides"
         : location.startsWith("/northblu")
           ? "northblu"
-          : "fitscript";
+          : location.startsWith("/reverra")
+            ? "reverra"
+            : "fitscript";
   const sections =
     activeCompany === "peptideu"
       ? PEPTIDEU_NAV_SECTIONS
@@ -280,12 +295,14 @@ export function OpsLayout({
           ? REALPEPTIDES_NAV_SECTIONS
           : activeCompany === "northblu"
             ? NORTHBLU_NAV_SECTIONS
-            : NAV_SECTIONS;
+            : activeCompany === "reverra"
+              ? REVERRA_NAV_SECTIONS
+              : NAV_SECTIONS;
 
   // Every brand lands on its Overview — the top tab (RP's Leads-as-home era
   // ended when its Overview got real order data).
   const companyHome = (c: Company) =>
-    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : c === "northblu" ? "/northblu" : "/fitscript";
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : c === "northblu" ? "/northblu" : c === "reverra" ? "/reverra" : "/fitscript";
 
   // On first load, honor the remembered company preference ("/" now always forwards to a home).
   const didRedirect = useRef(false);
@@ -361,6 +378,7 @@ export function OpsLayout({
               { key: "peptideu" as Company, label: "PeptideU", mono: "PU", hue: "139,92,246" },
               { key: "pawgen" as Company, label: "pawgen", mono: "PW", hue: "16,185,129" },
               { key: "northblu" as Company, label: "North Blu", mono: "NB", hue: "34,211,238" },
+              { key: "reverra" as Company, label: "Reverra", mono: "RV", hue: "164,38,68" },
               // longest label rides the full-width row so it never truncates
               { key: "realpeptides" as Company, label: "Real Peptides", mono: "RP", hue: "212,166,47" },
             ]).map((o, i, all) => {

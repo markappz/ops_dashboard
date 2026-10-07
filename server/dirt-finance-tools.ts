@@ -24,7 +24,7 @@ const NO_ACCESS = { error: "No finance access — Paul grants finance:entry in S
 export const FINANCE_READ_TOOLS: ToolDef[] = [
   {
     name: "finance_summary",
-    description: "Brand financials roll-up: tracked expenses by category, retainers and manual revenue for a brand (or all brands, master-grant only) over a date window. Brands: fitscript, peptideu, pawgen, realpeptides, northblu, clomark, shared.",
+    description: "Brand financials roll-up: tracked expenses by category, retainers and manual revenue for a brand (or all brands, master-grant only) over a date window. Brands: fitscript, peptideu, pawgen, realpeptides, northblu, reverra, clomark, shared.",
     input_schema: {
       type: "object",
       properties: {

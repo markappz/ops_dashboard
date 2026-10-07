@@ -13,7 +13,7 @@ import { wallClock } from "./email-scheduler";
 import { hasEngine } from "./brand-engines";
 import { pool } from "./db";
 
-const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen", "northblu"]);
+const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen", "northblu", "reverra"]);
 const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sending", "sent", "send_failed", "missed"]);
 const RESEND = "https://api.resend.com";
 

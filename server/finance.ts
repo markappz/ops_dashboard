@@ -26,7 +26,7 @@ export const FINANCE_CATEGORIES = [
   "ai_credits", "ads", "software", "contractors", "payroll", "inventory",
   "shipping", "legal", "fees", "retainer", "sales", "other",
 ] as const;
-export const FINANCE_BRANDS = ["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "clomark", "shared"] as const;
+export const FINANCE_BRANDS = ["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "reverra", "clomark", "shared"] as const;
 
 let tablesEnsured = false;
 export async function ensureFinanceTables(): Promise<void> {

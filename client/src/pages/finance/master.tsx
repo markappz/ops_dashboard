@@ -18,7 +18,7 @@ interface Entry { id: number; brand: string; kind: string; category: string; ven
 
 const BRAND_LABEL: Record<string, string> = {
   fitscript: "FitScript", peptideu: "PeptideU", pawgen: "pawgen", realpeptides: "Real Peptides",
-  northblu: "North Blu", clomark: "Clomark", shared: "Shared / company-wide",
+  northblu: "North Blu", reverra: "Reverra", clomark: "Clomark", shared: "Shared / company-wide",
 };
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const d10 = (d: Date) => d.toISOString().slice(0, 10);

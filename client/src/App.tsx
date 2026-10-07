@@ -55,6 +55,7 @@ import { SubTabs } from "./components/sub-tabs";
 import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
 import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
 import NorthbluOverview from "./pages/northblu-overview";
+import ReverraOverview from "./pages/reverra-overview";
 import BrandFinancials from "./pages/finance/brand-financials";
 import MasterFinancials from "./pages/finance/master";
 import EmailBlended from "./pages/email-blended";
@@ -139,6 +140,14 @@ const NB_EMAIL_TABS = [
 const NB_SEO_TABS = [
   { path: "/northblu/seo", label: "SEO" },
   { path: "/northblu/pages", label: "Pages" },
+];
+// Reverra (2026-10-07): D2C peptide-strip store, 49% BRANDMAXXER. Sales via the
+// store's /api/ops-summary; no email engine yet (site still on Resend — Mailgun
+// engine comes with the relaunch). Domain unconfirmed until partners verify.
+const RV = { company: "reverra", label: "Reverra", domain: "reverrahealth.com" } as const;
+const RV_SEO_TABS = [
+  { path: "/reverra/seo", label: "SEO" },
+  { path: "/reverra/pages", label: "Pages" },
 ];
 const PU_TABS = subTabs("peptideu");
 const PU_SEO_TABS = PU_TABS.seo;
@@ -359,6 +368,12 @@ export default function App() {
           <Route path="/northblu/seo">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanySeo {...NB} /></>}</Route>
           <Route path="/northblu/pages">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanyPages company="northblu" label="North Blu" /></>}</Route>
           <Route path="/northblu/integrations">{() => <CompanyIntegrations company="northblu" label="North Blu" />}</Route>
+          <Route path="/reverra" component={ReverraOverview} />
+          <Route path="/reverra/traffic">{() => <CompanyTraffic {...RV} />}</Route>
+          <Route path="/reverra/seo">{() => <><SubTabs tabs={RV_SEO_TABS} /><CompanySeo {...RV} /></>}</Route>
+          <Route path="/reverra/pages">{() => <><SubTabs tabs={RV_SEO_TABS} /><CompanyPages company="reverra" label="Reverra" /></>}</Route>
+          <Route path="/reverra/financials">{() => <BrandFinancials company="reverra" label="Reverra" />}</Route>
+          <Route path="/reverra/integrations">{() => <CompanyIntegrations company="reverra" label="Reverra" />}</Route>
           <Route path="/peptideu/traffic">{() => <CompanyTraffic {...PU} />}</Route>
           <Route path="/peptideu/seo">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanySeo {...PU} /></>}</Route>
           <Route path="/peptideu/pages">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanyPages company="peptideu" label="PeptideU" /></>}</Route>
