@@ -65,6 +65,7 @@ import RealPeptidesCampaignLinks from "./pages/realpeptides-campaign-links";
 import PawgenCampaignLinks from "./pages/pawgen-campaign-links";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
+import RealPeptidesPurchaseOrders from "./pages/realpeptides-purchase-orders";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
 import RealPeptidesEmail from "./pages/realpeptides-email";
 import EmailFlows from "./pages/email-flows";
@@ -408,6 +409,7 @@ export default function App() {
           <Route path="/realpeptides/seo">{() => <><SubTabs tabs={RP_TABS.seo} /><CompanySeo {...RP} /></>}</Route>
           <Route path="/realpeptides/coa" component={RealPeptidesCoa} />
           <Route path="/realpeptides/inventory" component={RealPeptidesInventory} />
+          <Route path="/realpeptides/purchase-orders" component={RealPeptidesPurchaseOrders} />
           <Route path="/realpeptides/integrations">{() => <CompanyIntegrations company="realpeptides" label="Real Peptides" />}</Route>
 
           {/* Legacy redirects — Tracking absorbed into Marketing, Admin Log into Settings, Creative + Clinical hidden */}
