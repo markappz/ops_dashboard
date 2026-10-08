@@ -118,6 +118,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
       { path: "/realpeptides/orders", label: "Orders", icon: "package" },
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
+      { path: "/realpeptides/purchase-orders", label: "Purchase Orders", icon: "clipboard" },
     ],
   },
   {

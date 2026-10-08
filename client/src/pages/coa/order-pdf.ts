@@ -33,6 +33,17 @@ export function orderQty(s: Sku, item: InvItem = "product"): number | null {
   return item === "product" ? Math.ceil(need / 10) * 10 : need;
 }
 
+type Velocity = Record<string, { units: Record<number, number>; weekly: number }>;
+
+/** Derive each product's target from its live sales rate: weekly × weeks of cover. */
+export function applyTargetWeeks(skus: Sku[], velocity: Velocity, weeks: number | null): Sku[] {
+  if (weeks === null) return skus;
+  return skus.map((s) => {
+    const weekly = velocity[s.sku_code]?.weekly ?? 0;
+    return { ...s, ideal_stock: weekly > 0 ? Math.ceil(weekly * weeks) : null };
+  });
+}
+
 const TITLES: Record<InvItem, { title: string; file: string; qtyHead: string }> = {
   product: { title: "Purchase Order — Restock Request", file: "order", qtyHead: "ORDER QTY" },
   label: { title: "Label Print Order — Vial Labels", file: "label-order", qtyHead: "PRINT QTY" },

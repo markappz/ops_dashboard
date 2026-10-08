@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  X, FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
+  FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
 import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
@@ -19,14 +19,23 @@ import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 const remainingOf = (i: PoItem) => Math.max(0, Number(i.qty) - Number(i.received_qty));
 const poRemaining = (po: Po) => po.items.reduce((a, i) => a + remainingOf(i), 0);
+const isOpenPo = (po: Po) => po.status === "draft" || po.status === "ordered";
 
 type Velocity = Record<string, { units: Record<number, number>; weekly: number }>;
+type StatusFilter = "open" | "completed" | "all";
 
-export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: Sku[]; velocity?: Velocity; onClose: () => void; onSay: (m: string) => void }) {
+const STATUS_TABS: { key: StatusFilter; label: string }[] = [
+  { key: "open", label: "Open" },
+  { key: "completed", label: "Completed" },
+  { key: "all", label: "All" },
+];
+
+export function PurchaseOrders({ skus, velocity = {}, onSay }: { skus: Sku[]; velocity?: Velocity; onSay: (m: string) => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<number | "new" | "paste" | null>(null);
   const [mode, setMode] = useState<"list" | "new" | "paste">("list");
   const [supplierFilter, setSupplierFilter] = useState<string>(ALL);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
   const supQ = useQuery({ queryKey: ["coa-suppliers"], queryFn: () => api<{ suppliers: string[]; counts: { supplier: string | null; products: number }[] }>("/suppliers") });
   const batchesQ = useQuery({
@@ -40,7 +49,12 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
 
   const poSuppliers = useMemo(() => [...new Set(pos.map((p) => p.supplier).filter((s): s is string => !!s))].sort(), [pos]);
   const hasUnassignedPo = pos.some((p) => !p.supplier);
-  const filteredPos = pos.filter((p) => supplierFilter === ALL || (supplierFilter === UNASSIGNED ? !p.supplier : p.supplier === supplierFilter));
+  const openCount = pos.filter(isOpenPo).length;
+  const completedCount = pos.length - openCount;
+  const filteredPos = pos.filter((p) =>
+    (supplierFilter === ALL || (supplierFilter === UNASSIGNED ? !p.supplier : p.supplier === supplierFilter)) &&
+    (statusFilter === "all" || (statusFilter === "open" ? isOpenPo(p) : !isOpenPo(p))),
+  );
 
   const bump = () => {
     qc.invalidateQueries({ queryKey: ["coa-pos"] });
@@ -59,16 +73,7 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
   const lowCount = skus.filter((s) => isLow(s) && (orderQty(s) ?? 0) > 0).length;
 
   return (
-    <div className={ui.modal} onClick={onClose}>
-      <div className={`${ui.sheet} max-w-4xl`} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-ops-border p-5">
-          <div>
-            <h2 className="text-base font-semibold text-ops-text">Purchase orders</h2>
-            <p className="text-xs text-ops-text-muted">One PO per supplier. Ordered quantities count as on-order; check-ins stock in what actually arrived, box by box.</p>
-          </div>
-          <button type="button" onClick={onClose} className="p-1 text-ops-text-muted hover:text-ops-text"><X size={20} /></button>
-        </div>
-
+    <div className="rounded-2xl border border-ops-border bg-ops-surface shadow-card">
         <div className="space-y-3 p-5">
           <div className="grid gap-2 sm:grid-cols-2">
             <button type="button" onClick={() => setMode(mode === "new" ? "list" : "new")} className={mode === "new" ? ui.ghost : ui.primary}>
@@ -114,20 +119,32 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
           {posQ.isLoading && <div className="py-8 text-center text-sm text-ops-text-muted">Loading POs…</div>}
           {!posQ.isLoading && !pos.length && mode === "list" && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders yet — start with New PO.</div>}
 
-          {mode === "list" && pos.length > 0 && (poSuppliers.length > 0 || hasUnassignedPo) && (
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><Truck size={13} /> Supplier</span>
-              <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}
-                className="h-8 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
-                <option value={ALL}>All suppliers</option>
-                {poSuppliers.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
-                {hasUnassignedPo && <option value={UNASSIGNED}>No supplier</option>}
-              </select>
+          {mode === "list" && pos.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-xl border border-ops-border bg-ops-bg p-1">
+                {STATUS_TABS.map((s) => (
+                  <button key={s.key} type="button" onClick={() => setStatusFilter(s.key)}
+                    className={`rounded-lg px-3 py-1 text-xs font-semibold transition ${statusFilter === s.key ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+                    {s.label}{s.key === "open" ? ` (${openCount})` : s.key === "completed" ? ` (${completedCount})` : ""}
+                  </button>
+                ))}
+              </div>
+              {(poSuppliers.length > 0 || hasUnassignedPo) && (
+                <span className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><Truck size={13} /> Supplier</span>
+                  <select value={supplierFilter} onChange={(e) => setSupplierFilter(e.target.value)}
+                    className="h-8 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
+                    <option value={ALL}>All suppliers</option>
+                    {poSuppliers.map((sp) => <option key={sp} value={sp}>{sp}</option>)}
+                    {hasUnassignedPo && <option value={UNASSIGNED}>No supplier</option>}
+                  </select>
+                </span>
+              )}
               <span className="text-xs text-ops-text-muted">{filteredPos.length} of {pos.length}</span>
             </div>
           )}
 
-          {mode === "list" && pos.length > 0 && !filteredPos.length && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders for this supplier.</div>}
+          {mode === "list" && pos.length > 0 && !filteredPos.length && <div className="py-8 text-center text-sm text-ops-text-muted">No purchase orders match these filters.</div>}
 
           {filteredPos.map((po) => (
             <PoCard key={po.id} po={po} skus={skus} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy} run={run} onSay={onSay}
@@ -136,7 +153,6 @@ export function PurchaseOrders({ skus, velocity = {}, onClose, onSay }: { skus: 
                 lot ? `Lot ${lot} saved for ${item.product_name}.` : `Lot cleared for ${item.product_name}.`)} />
           ))}
         </div>
-      </div>
     </div>
   );
 }
