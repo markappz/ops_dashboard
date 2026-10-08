@@ -326,28 +326,30 @@ export default function RealPeptidesPaid() {
                   <div className="text-sm font-semibold">Paid cohorts by month</div>
                   <div className="text-xs text-ops-text-muted">Subscribers acquired by ads that month, and everything they've spent since. LTV/sub vs your cost per lead in Meta = ad profitability.</div>
                 </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-[10.5px] uppercase tracking-[0.08em] text-ops-text-muted">
-                      <th className="px-4 py-2 font-medium">Month</th>
-                      <th className="px-4 py-2 text-right font-medium">Subscribers</th>
-                      <th className="px-4 py-2 text-right font-medium">Buyers</th>
-                      <th className="px-4 py-2 text-right font-medium">Revenue to date</th>
-                      <th className="px-4 py-2 text-right font-medium">LTV / sub</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {seg.lifetime.paidCohorts.map((c) => (
-                      <tr key={c.month} className="border-t border-ops-border/60">
-                        <td className="px-4 py-2">{c.month}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{num(c.subscribers)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{num(c.buyers)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums font-medium">{cents(c.revenueCents)}</td>
-                        <td className="px-4 py-2 text-right tabular-nums">{usd(c.subscribers > 0 ? c.revenueCents / c.subscribers / 100 : 0)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-[10.5px] uppercase tracking-[0.08em] text-ops-text-muted">
+                        <th className="px-4 py-2 font-medium">Month</th>
+                        <th className="px-4 py-2 text-right font-medium">Subscribers</th>
+                        <th className="px-4 py-2 text-right font-medium">Buyers</th>
+                        <th className="px-4 py-2 text-right font-medium">Revenue to date</th>
+                        <th className="px-4 py-2 text-right font-medium">LTV / sub</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {seg.lifetime.paidCohorts.map((c) => (
+                        <tr key={c.month} className="border-t border-ops-border/60">
+                          <td className="px-4 py-2">{c.month}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{num(c.subscribers)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{num(c.buyers)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium">{cents(c.revenueCents)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">{usd(c.subscribers > 0 ? c.revenueCents / c.subscribers / 100 : 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <div className="rounded-xl border border-ops-border bg-ops-surface shadow-card">

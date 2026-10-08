@@ -23,6 +23,10 @@ const SITE_ROOTS: Record<string, string | null> = {
   pawgen: "https://pawgen.com",
   realpeptides: "https://www.realpeptides.co",
   peptideu: "https://peptideu.com",
+  northblu: "https://northblu.com",
+  // Domain assumed from the partner's seed data (admin@reverrahealth.com) —
+  // confirm with the Reverra partners before launch; site not live yet.
+  reverra: "https://reverrahealth.com",
 };
 
 const CACHE_HOURS = 1;

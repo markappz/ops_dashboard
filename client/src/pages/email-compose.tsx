@@ -3,8 +3,17 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 import { ModalPortal } from "../components/modal-portal";
+import { useEngines } from "../hooks/use-engines";
 
 type EmailStyle = "html" | "branded" | "plain-text";
+
+/** Auto-pick the brand's compose profile when composing from a brand's Email tab. */
+const PROFILE_MATCH: Record<string, RegExp> = {
+  realpeptides: /real\s*peptides|^rp\b/i,
+  pawgen: /pawgen/i,
+  peptideu: /peptide\s*u\b|peptideu/i,
+  northblu: /north\s*blu\b/i,
+};
 
 interface BrandProfile {
   id: string;
@@ -119,7 +128,7 @@ function parseFinalEmail(raw: string): ParsedEmail {
   return { subject, preheader, changes, html, text };
 }
 
-export default function EmailCompose() {
+export default function EmailCompose(props?: { company?: string }) {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
 
@@ -141,14 +150,22 @@ export default function EmailCompose() {
   const [templateName, setTemplateName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const [saved, setSaved] = useState<{ templateId: string; klaviyoUrl: string | null } | null>(null);
+  const [saved, setSaved] = useState<{ templateId: string; klaviyoUrl: string | null; plan?: boolean } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!profileId && defaultProfile) setProfileId(defaultProfile.id);
-  }, [defaultProfile, profileId]);
+    if (profileId || !profiles.length) return;
+    // Brand profile first (composing from a brand tab), THEN the global default —
+    // one effect, so the default can never race ahead of the brand match.
+    const c = props?.company ?? new URLSearchParams(window.location.search).get("company");
+    const re = c ? PROFILE_MATCH[c] : undefined;
+    const hit = re ? profiles.find((pr) => re.test(pr.name)) : undefined;
+    const pick = hit ?? defaultProfile;
+    if (pick) setProfileId(pick.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultProfile, profileId, profiles]);
 
   useEffect(() => {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -242,6 +259,13 @@ export default function EmailCompose() {
     }
   };
 
+  const company = props?.company ?? new URLSearchParams(window.location.search).get("company");
+  // Engine brands (brand-engines registry) save into the email calendar; the rest go to Klaviyo.
+  const engines = useEngines();
+  const engine = company ? engines[company] : undefined;
+  const isEngine = !!engine?.configured;
+  const brandLabel = engine?.label ?? company ?? "";
+
   const reset = () => {
     abortRef.current?.abort();
     setMessages([]);
@@ -265,13 +289,17 @@ export default function EmailCompose() {
           name: templateName.trim(),
           subject: parsed.subject,
           preheader: parsed.preheader,
-          html: parsed.html || undefined,
+          html_b64: parsed.html ? btoa(String.fromCharCode(...new TextEncoder().encode(parsed.html))) : undefined,
           text: parsed.text || undefined,
+          ...(company ? { company } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
         setSaveMsg(`Failed: ${j.error || "unknown"}`);
+      } else if (j.destination === "plan") {
+        setSaveMsg(null);
+        setSaved({ templateId: String(j.planId), klaviyoUrl: null, plan: true });
       } else {
         setSaveMsg(null);
         setSaved({ templateId: j.templateId, klaviyoUrl: j.klaviyoUrl ?? null });
@@ -285,6 +313,11 @@ export default function EmailCompose() {
 
   const continueToSend = () => {
     if (!saved) return;
+    if (saved.plan) {
+      // Engine-brand drafts live in the email calendar; the Review & send door is on the plan editor there.
+      navigate(company ? `/${company}/email` : "/email");
+      return;
+    }
     const qs = new URLSearchParams({
       templateId: saved.templateId,
       name: templateName.trim(),
@@ -309,7 +342,7 @@ export default function EmailCompose() {
         subtitle="Chat with Claude to write branded HTML or plain-text emails. Profile + style apply to every turn."
         actions={
           <button
-            onClick={() => navigate("/email")}
+            onClick={() => navigate(company ? `/${company}/email` : "/email")}
             className="text-xs text-ops-text-muted hover:text-ops-text px-3 py-1.5 rounded-lg border border-ops-border hover:bg-ops-surface-hover"
           >
             ← Back to Email
@@ -496,7 +529,7 @@ export default function EmailCompose() {
         <div className="bg-ops-surface border border-ops-border rounded-xl shadow-card p-4 sm:p-5">
           {!saved ? (
             <>
-              <h3 className="text-sm font-semibold text-ops-text mb-3">Save to Klaviyo</h3>
+              <h3 className="text-sm font-semibold text-ops-text mb-3">{isEngine ? `Save to the ${brandLabel} calendar` : "Save to Klaviyo"}</h3>
               {parsed.subject && (
                 <div className="mb-3">
                   <div className="text-[11px] font-semibold text-ops-text-muted uppercase tracking-wider mb-1">Subject</div>
@@ -517,7 +550,7 @@ export default function EmailCompose() {
                   disabled={saving || !templateName.trim()}
                   className="px-5 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] disabled:opacity-40 hover:opacity-95"
                 >
-                  {saving ? "Saving…" : "Save to Klaviyo"}
+                  {saving ? "Saving…" : isEngine ? "Save as draft" : "Save to Klaviyo"}
                 </button>
               </div>
               {saveMsg && (
@@ -533,8 +566,8 @@ export default function EmailCompose() {
                   <svg className="w-4 h-4 text-brand-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-ops-text">Saved to Klaviyo</div>
-                  <div className="text-[11px] text-ops-text-muted">Template <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
+                  <div className="text-sm font-semibold text-ops-text">{saved.plan ? `Saved to the ${brandLabel || "brand"} email calendar` : "Saved to Klaviyo"}</div>
+                  <div className="text-[11px] text-ops-text-muted">{saved.plan ? "Plan" : "Template"} <span className="font-mono">{saved.templateId}</span> · "{templateName}"</div>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
@@ -542,7 +575,7 @@ export default function EmailCompose() {
                   onClick={continueToSend}
                   className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 text-white shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)] hover:opacity-95 inline-flex items-center gap-1.5"
                 >
-                  Continue to schedule send
+                  {saved.plan ? "Open the calendar → Review & send" : "Continue to schedule send"}
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                 </button>
                 {saved.klaviyoUrl && (

@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
+import { rangeKey, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
 import { Card, CommandHero, DailyBars, Delta, Health, Panel, Section, Breakdown, MINUTE, clock, get, num, usd, rangeLabel, rangeShort, type HealthRow } from "../components/command-center";
 
 /**
@@ -10,9 +10,8 @@ import { Card, CommandHero, DailyBars, Delta, Health, Panel, Section, Breakdown,
  */
 
 function useData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
-  const rq = rangeQuery(range);
   const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
-  const cmd = useQuery({ queryKey: ["pawgen-command", rq], queryFn: () => get(`/api/ops/pawgen/command?${rq}`), refetchInterval: MINUTE });
+  const cmd = useQuery({ queryKey: ["pawgen-command", rangeKey(range)], queryFn: () => get(`/api/ops/pawgen/command?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const pages = useQuery({
     queryKey: ["pawgen-pages-summary", pageDays],
     queryFn: () => { const force = forceRef.current ? "&refresh=1" : ""; forceRef.current = false; return get(`/api/ops/pages?company=pawgen&days=${pageDays}&summary=1${force}`); },
@@ -25,8 +24,9 @@ function useData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
 function SalesRow({ d, range }: { d: any; range: DateRange }) {
   const s = d?.sales; const t = d?.traffic; const rl = rangeShort(range);
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <Card label={`Revenue · ${rl}`} accent to="/pawgen/orders" value={s ? <>{usd(s.current.revenue)}<Delta cur={s.current.revenue} prev={s.previous.revenue} /></> : "…"} sub={s ? `${num(s.current.orders)} paid orders · all time ${usd(s.allTime.revenue)}` : undefined} />
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Card label={`Revenue · ${rl}`} accent to="/pawgen/orders" spark={(s?.series ?? []).map((r: any) => r.revenue)} value={s ? <>{usd(s.current.revenue)}<Delta cur={s.current.revenue} prev={s.previous.revenue} /></> : "…"} sub={s ? `all time ${usd(s.allTime.revenue)}` : undefined} />
+      <Card label={`Orders · ${rl}`} to="/pawgen/orders" spark={(s?.series ?? []).map((r: any) => r.orders)} value={s ? <>{num(s.current.orders)}<Delta cur={s.current.orders} prev={s.previous.orders} /></> : "…"} sub="paid orders" />
       <Card label="Average order" to="/pawgen/orders" value={s ? <>{usd(s.current.aov)}<Delta cur={s.current.aov} prev={s.previous.aov} /></> : "…"} sub={s ? `${num(s.current.customers)} customers · ${num(s.allTime.repeatCustomers)} repeat buyers all time` : undefined} />
       <Card label={`Sessions · ${rl}`} to="/pawgen/marketing" value={t?.pixelInstalled ? <>{num(t.current.sessions)}<Delta cur={t.current.sessions} prev={t.previous.sessions} /></> : "—"} sub={t?.pixelInstalled ? `${num(t.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
       <Card label="New customers" to="/pawgen/orders" value={d?.newCustomers ? <>{num(d.newCustomers.window)}<Delta cur={d.newCustomers.window} prev={d.newCustomers.previous} /></> : "…"} sub={d?.newCustomers ? `${num(d.newCustomers.today)} today · ${num(d.newCustomers.week)} 7d · ${num(d.newCustomers.month)} 30d` : "first paid order"} />
@@ -40,7 +40,7 @@ function LeadsRow({ d }: { d: any }) {
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Guide leads" to="/pawgen/marketing" value={l ? num(l.total) : "…"} sub={l ? `${num(l.guideSent)} guides sent` : undefined} />
-      <Card label="New leads · today" value={l ? num(l.today) : "…"} tone={l?.today ? "good" : undefined} sub="last 24 hours" />
+      <Card label="New leads · 24h" value={l ? num(l.today) : "…"} tone={l?.today ? "good" : undefined} sub="rolling last 24 hours" />
       <Card label="New leads · 7 days" value={l ? num(l.week) : "…"} sub={l?.week ? `${Math.round(l.week / 7)}/day` : "last 7 days"} />
       <Card label="New leads · 30 days" value={l ? num(l.month) : "…"} sub={l?.bySource?.[0] ? `top source · ${l.bySource[0].source}` : "last 30 days"} />
       <Card label="Lead → buyer" value={l ? `${conv}%` : "…"} tone={conv >= 5 ? "good" : undefined} sub={l ? `${num(l.converted)} leads bought` : undefined} />

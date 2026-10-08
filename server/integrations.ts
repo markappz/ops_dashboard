@@ -294,7 +294,27 @@ const GITHUB_PAT_FIX: IntegrationSpec = {
   },
 };
 
+const RETELL: IntegrationSpec = {
+  name: "retell",
+  fields: [
+    { envKey: "RETELL_API_KEY", label: "Retell API Key", placeholder: "key_… (dashboard.retellai.com → API Keys)", secret: true },
+    { envKey: "RETELL_WEBHOOK_API_KEY", label: "Webhook Verification Key (optional)", placeholder: "Only if webhook-badge key differs from the API key", secret: true },
+    { envKey: "RETELL_TOOL_AUTH_SECRET", label: "Tool Auth Secret (optional)", placeholder: "Extra shared header for agent tool calls", secret: true },
+  ],
+  test: async () => {
+    try {
+      const { retell, retellCfg } = await import("./callcenter-retell");
+      if (!retellCfg()) return { ok: false, error: "RETELL_API_KEY not set" };
+      const agents = await retell.listAgents();
+      return { ok: true, detail: `${agents.length} voice agents visible` };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  },
+};
+
 const SPECS: Record<string, IntegrationSpec> = {
+  retell: RETELL,
   klaviyo: KLAVIYO,
   slack: SLACK,
   "meta-ads": META_ADS,

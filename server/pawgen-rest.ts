@@ -112,9 +112,8 @@ export async function listOrders(status: string, limit: number, offset: number) 
 
 /** Headline stats + per-status counts, reduced in JS (see scale note above). */
 export async function ordersSummary() {
-  const { rows } = await rest<{ payment_status: string; fulfillment_status: string; amount_usd: string }>(
-    `orders?select=payment_status,fulfillment_status,amount_usd`,
-    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  const rows = await restAll<{ payment_status: string; fulfillment_status: string; amount_usd: string }>(
+    `orders?select=payment_status,fulfillment_status,amount_usd`
   );
 
   const stats = { paidOrders: 0, revenue: 0, refunded: 0, toFulfill: 0 };
@@ -142,8 +141,26 @@ export async function ordersSummary() {
 }
 
 /** Every field the overview tab aggregates over. Same capped fetch as ordersSummary. */
+/**
+ * Fetch EVERY row of a listing, paging in 1000s. Supabase's PostgREST enforces
+ * a server-side max-rows (default 1000) no matter how wide the Range header
+ * is — a single 0..9999 request silently comes back truncated at 1000, which
+ * is why the pawgen overview's "Guide leads" pinned at exactly 1000 (Paul,
+ * 10-07). REST_PAGE_MAX stays as the runaway ceiling.
+ */
+async function restAll<T>(path: string): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; from < REST_PAGE_MAX; from += PAGE) {
+    const { rows } = await rest<T>(path, { range: { from, to: from + PAGE - 1 } });
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 export async function ordersForAnalytics() {
-  const { rows } = await rest<{
+  const rows = await restAll<{
     created_at: string;
     amount_usd: string;
     shipping_cost: string | null;
@@ -161,17 +178,15 @@ export async function ordersForAnalytics() {
   }>(
     // ref_* are the first-touch attribution the site records at checkout. Omitting
     // them made the Marketing tab report 0 attributed orders when there were 3.
-    `orders?select=created_at,amount_usd,shipping_cost,pack_id,method,source,payment_status,fulfillment_status,customer_email,ref_source,ref_medium,ref_campaign,ref_landing,ref_referrer&order=created_at.desc`,
-    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+    `orders?select=created_at,amount_usd,shipping_cost,pack_id,method,source,payment_status,fulfillment_status,customer_email,ref_source,ref_medium,ref_campaign,ref_landing,ref_referrer&order=created_at.desc`
   );
   return rows;
 }
 
 /** Guide-magnet leads. */
 export async function fetchLeads() {
-  const { rows } = await rest<{ id: string; email: string; source: string | null; created_at: string; guide_sent: boolean | null }>(
-    `leads?select=id,email,source,created_at,guide_sent&order=created_at.desc`,
-    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+  const rows = await restAll<{ id: string; email: string; source: string | null; created_at: string; guide_sent: boolean | null; ref_source: string | null; ref_medium: string | null; ref_campaign: string | null }>(
+    `leads?select=id,email,source,created_at,guide_sent,ref_source,ref_medium,ref_campaign&order=created_at.desc`
   );
   return rows;
 }
@@ -232,14 +247,13 @@ export async function verifyPawgenRest(): Promise<boolean> {
  * Node. Fine at this volume; revisit if orders ever run to five figures.
  */
 export async function referrals() {
-  const { rows } = await rest<{
+  const rows = await restAll<{
     ref_source: string | null;
     amount_usd: string | null;
     payment_status: string | null;
     created_at: string;
   }>(
-    `orders?select=ref_source,amount_usd,payment_status,created_at&order=created_at.desc`,
-    { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+    `orders?select=ref_source,amount_usd,payment_status,created_at&order=created_at.desc`
   );
 
   type Agg = { source: string; orders: number; paidOrders: number; revenue: number; lastOrderAt: string | null };
@@ -264,9 +278,8 @@ export async function referrals() {
   // been run on the pawgen database. Missing table must not break the panel.
   const clicks = new Map<string, number>();
   try {
-    const { rows: clickRows } = await rest<{ ref_source: string }>(
-      `link_clicks?select=ref_source`,
-      { range: { from: 0, to: REST_PAGE_MAX - 1 } }
+    const clickRows = await restAll<{ ref_source: string }>(
+      `link_clicks?select=ref_source`
     );
     for (const c of clickRows) clicks.set(c.ref_source, (clicks.get(c.ref_source) ?? 0) + 1);
   } catch {

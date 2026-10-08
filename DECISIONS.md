@@ -620,3 +620,51 @@ re-crawl included), and every source shows an as-of time.
 **How to apply:** new RP read = one `/api/ops-*` route on the site + a thin cached proxy in ops.
 An overview tile must import the tab's helper, never re-derive the number. Anything cached gets
 a visible "as of" and a forced-refresh path.
+
+## 2026-10-02 — Dashboard facelift system (P0–P6)
+
+One navigation taxonomy for every brand (Overview · Sales · Customers · Email · Marketing ·
+SEO · brand-specific · System); FitScript pages live at /fitscript/* with the old root URLs
+kept routing forever (prefix-aware alias map handles highlighting). All stat tiles ride ONE
+component — client/src/components/stat.tsx StatCard (count-ups, delta pills, sparklines,
+entrance stagger, central "…"→skeleton) — never add a page-local stat card again. Tables
+always get an overflow-x-auto wrapper. /api/ops/version returns the server-bundle sha and
+ops-layout polls it: every deploy surfaces a "refresh" toast in open tabs, which closes the
+stale-bundle class of bugs. Touch targets are hardened centrally via a pointer:coarse
+::after hit-area inset in index.css. Email calendar has Month/List views (phones default
+List). Talk Dirt (⌘K) does voice round-trips: speak → auto-send on pause → spoken answer
+(browser speech stack; mute toggle persists).
+
+## 2026-10-02 — RP visual flow builder architecture
+
+Ops-built email sequences (CustomFlow/CustomFlowStep on the RP site DB) materialize into the
+exact FlowDefinition shape and ride the SAME engine sweep as code flows — never a parallel
+runner. That buys dedupe (FlowSend unique claim), suppression, unsubscribe headers,
+exit-on-purchase and the copy-editor override chain for free. Keys are always custom-<slug>.
+Drafts never send (engine-level: the sweep holds their enrollments). Segment enrollment is a
+server-enforced two-step (counts without confirm, nothing enrolls). Canvas UI = @xyflow/react
+(flow-canvas.tsx read-only map, flow-builder.tsx editor). All HTML browser→ops travels base64
+(Cloudflare WAF rejects raw HTML in JSON).
+
+## 2026-10-06 — Call Center: ops owns conversations/requests; site stays commerce truth; Retell config only via sync script
+
+**Decision:** The RP Call Center stores conversations, contacts, follow-ups and webhook state in
+ops' own cc_* tables, but reads ALL commerce truth live (public /api/search for price/stock,
+token-gated ops-orders/ops-wholesale for order/quote state) and never mutates wholesale status,
+rep attribution or payment state from call-center code. Retell remote config changes go through
+scripts/retell-sync.ts exclusively (namespaced ops_cc_ tools + one marked prompt block,
+export-before-edit snapshots, rollback), and the public webhook/tool routes register before the
+global JSON parser so raw-body HMAC verification works.
+
+**Why this and not alternatives:**
+- **vs. mirroring the site's catalog/orders into ops tables:** a second copy drifts and would
+  tempt agents to quote stale prices; the live search API is the same source the storefront shows.
+- **vs. editing Retell prompts/tools in the dashboard:** no diff, no rollback, and the 09-xx
+  deploy script history shows hand-synced config reverting names/voices. The marked-block merge
+  keeps Joshua's SOPs intact.
+- **vs. express.json({verify}) rawBody capture:** mounting raw routes first keeps the gate simple
+  and can't silently break if the global parser's options change.
+
+**How to apply:** new agent capability = AGENT_CAPABILITIES entry + TOOL_DEFS in retell-sync +
+grant pattern if staff-facing; rerun diff→apply. New disconnected integration = honest state in
+/callcenter/health, never a fake success.

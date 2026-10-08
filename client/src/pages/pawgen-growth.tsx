@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { PageHero } from "../components/page-hero";
 
 /**
@@ -29,6 +30,8 @@ interface Ga4 {
 interface Leads {
   totals?: { leads: number; converted: number; conversionRate: number; revenueFromLeads: number };
   bySource?: Record<string, number>;
+  byRef?: Record<string, number>;
+  byCampaign?: Record<string, number>;
   series?: { date: string; leads: number }[];
   recent?: { email: string; source: string | null; created_at: string; guide_sent: boolean | null; converted: boolean; revenue: number }[];
   error?: string;
@@ -38,12 +41,33 @@ const usd = (n: number) => `$${(n ?? 0).toLocaleString(undefined, { minimumFract
 const num = (n: number | undefined) => (n ?? 0).toLocaleString();
 
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: "good" | "warn" }) {
-  const c = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
+  return <StatCard label={label} value={value} sub={hint} tone={tone} />;
+}
+
+/** Count-only bars for lead rollups (no revenue axis). */
+function CountBars({ title, counts, empty, cap = 8 }: { title: string; counts?: Record<string, number>; empty: string; cap?: number }) {
+  const rows = Object.entries(counts ?? {}).sort((a, b) => b[1] - a[1]).slice(0, cap);
+  const total = rows.reduce((s, [, n]) => s + n, 0) || 1;
   return (
     <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold ${c}`}>{value}</div>
-      {hint && <div className="mt-1 text-xs text-ops-text-muted">{hint}</div>}
+      <div className="mb-3 text-[11px] uppercase tracking-wider text-ops-text-muted">{title}</div>
+      {rows.length === 0 ? (
+        <div className="text-sm text-ops-text-muted">{empty}</div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map(([key, n]) => (
+            <div key={key}>
+              <div className="flex justify-between gap-3 text-sm">
+                <span className="truncate text-ops-text" title={key}>{key}</span>
+                <span className="shrink-0 text-ops-text-muted">{n.toLocaleString()}</span>
+              </div>
+              <div className="mt-1 h-1.5 rounded-full bg-ops-border">
+                <div className="h-1.5 rounded-full bg-fitscript-green/70" style={{ width: `${(n / total) * 100}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -143,11 +167,21 @@ export function PawgenMarketing() {
   );
 }
 
-export function PawgenLeads() {
+interface LeadsCopy { company: string; eyebrow: string; subtitle: string; convertedLabel: string; convertedHint: string; boughtColumn: string; showRevenue: boolean }
+const LEADS_COPY: Record<string, LeadsCopy> = {
+  pawgen: { company: "pawgen", eyebrow: "pawgen", subtitle: "Dosing-guide signups, and how many became customers.", convertedLabel: "Became customers", convertedHint: "leads who placed a paid order", boughtColumn: "Bought", showRevenue: true },
+  peptideu: { company: "peptideu", eyebrow: "PeptideU", subtitle: "Guide-funnel opt-ins, and how many created an app account.", convertedLabel: "Became app users", convertedHint: "leads who created a PeptideU account", boughtColumn: "Joined app", showRevenue: false },
+};
+
+export function PawgenLeads() { return <BrandLeads company="pawgen" />; }
+export function PeptideuLeads() { return <BrandLeads company="peptideu" />; }
+
+function BrandLeads({ company }: { company: string }) {
+  const copy = LEADS_COPY[company] ?? LEADS_COPY.pawgen;
   const { data, isLoading } = useQuery<Leads>({
-    queryKey: ["pawgen-leads"],
+    queryKey: [`${company}-leads`],
     queryFn: async () => {
-      const r = await fetch("/api/ops/pawgen/leads", { credentials: "include" });
+      const r = await fetch(`/api/ops/${company}/leads`, { credentials: "include" });
       try { return await r.json(); } catch { return { error: `Request failed (HTTP ${r.status})` }; }
     },
   });
@@ -156,7 +190,7 @@ export function PawgenLeads() {
 
   return (
     <div>
-      <PageHero eyebrow="pawgen" title="Leads" subtitle="Dosing-guide signups, and how many became customers." />
+      <PageHero eyebrow={copy.eyebrow} title="Leads" subtitle={copy.subtitle} />
 
       {data?.error && <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{data.error}</div>}
       {isLoading && <div className="text-sm text-ops-text-muted">Loading…</div>}
@@ -165,9 +199,19 @@ export function PawgenLeads() {
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <Stat label="Total leads" value={num(t.leads)} />
-            <Stat label="Became customers" value={num(t.converted)} tone={t.converted > 0 ? "good" : undefined} />
-            <Stat label="Conversion rate" value={`${t.conversionRate}%`} hint="leads who placed a paid order" />
-            <Stat label="Revenue from leads" value={usd(t.revenueFromLeads)} />
+            <Stat label={copy.convertedLabel} value={num(t.converted)} tone={t.converted > 0 ? "good" : undefined} />
+            <Stat label="Conversion rate" value={`${t.conversionRate}%`} hint={copy.convertedHint} />
+            {copy.showRevenue && <Stat label="Revenue from leads" value={usd(t.revenueFromLeads)} />}
+          </div>
+
+          <div className="mb-4 grid gap-4 lg:grid-cols-3">
+            <CountBars title="By signup form" counts={data?.bySource} empty="No leads yet." />
+            <CountBars title="By first-touch source" counts={data?.byRef} empty="No attribution recorded yet." />
+            <CountBars
+              title="By campaign (tagged links)"
+              counts={data?.byCampaign}
+              empty="No campaign-tagged signups yet — mint links on Marketing ▸ Campaign Links."
+            />
           </div>
 
           <div className="mb-4 rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
@@ -191,7 +235,7 @@ export function PawgenLeads() {
                   <th className="px-4 py-3 font-medium">Email</th>
                   <th className="px-4 py-3 font-medium">Source</th>
                   <th className="px-4 py-3 font-medium">Guide sent</th>
-                  <th className="px-4 py-3 font-medium">Bought</th>
+                  <th className="px-4 py-3 font-medium">{copy.boughtColumn}</th>
                   <th className="px-4 py-3 font-medium">Date</th>
                 </tr>
               </thead>
@@ -204,7 +248,7 @@ export function PawgenLeads() {
                     <td className="px-4 py-2.5">
                       {l.converted ? (
                         <span className="rounded bg-fitscript-green/15 px-2 py-0.5 text-xs font-medium text-fitscript-green">
-                          {usd(l.revenue)}
+                          {copy.showRevenue ? usd(l.revenue) : "yes"}
                         </span>
                       ) : (
                         <span className="text-ops-text-muted">—</span>

@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign, Info } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 import { EmailCalendar } from "./email-calendar";
+import { SegmentsCard } from "../components/segments-card";
+import { EmailHealthCard, type EmailHealthData } from "../components/email-health-card";
 import { ui } from "./coa/api";
 
 /**
@@ -36,6 +39,7 @@ interface Payload {
     lifetime: { sends: number; opens: number; clicks: number };
   };
   flows: Flow[]; campaigns: Campaign[];
+  health?: EmailHealthData | null;
 }
 
 const FLOW_LABEL: Record<string, string> = {
@@ -53,13 +57,12 @@ const money = (cents: number) => "$" + (cents / 100).toLocaleString(undefined, {
 export default function RealPeptidesEmail() {
   // Same picker and same stored window as the Command Center, Orders and Leads - one range for the brand.
   const [range, setRange] = useDateRange("realpeptides");
-  const rq = rangeQuery(range);
   const days = rangeDays(range);
   const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
   const q = useQuery({
-    queryKey: ["rp-email", rq],
+    queryKey: ["rp-email", rangeKey(range)],
     queryFn: async () => {
-      const r = await fetch(`/api/ops/realpeptides/email?${rq}`, { credentials: "include" });
+      const r = await fetch(`/api/ops/realpeptides/email?${rangeQuery(range)}`, { credentials: "include" });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
       return r.json() as Promise<Payload>;
     },
@@ -67,16 +70,32 @@ export default function RealPeptidesEmail() {
   const d = q.data;
   const t = d?.totals;
 
+  const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
+  const plansQ = useQuery({
+    queryKey: ["rp-plans-names"],
+    queryFn: async () => (await fetch("/api/ops/email-plans?company=realpeptides", { credentials: "include" })).json() as Promise<{ plans?: { id: number; title: string; subject: string | null }[] }>,
+    staleTime: 5 * 60_000,
+  });
+  // ops-<planId>-<slug> tags map back to the plan's human title/subject.
+  const prettyName = (tag: string, fallback: string) => {
+    const m = /^ops-(\d+)-/.exec(tag);
+    const plan = m ? plansQ.data?.plans?.find((x) => x.id === Number(m[1])) : undefined;
+    return plan?.subject || plan?.title || fallback;
+  };
+
   return (
     <div>
       <PageHero
         eyebrow="Real Peptides"
         title="Email"
         subtitle="Flows and campaigns from the site's own send instrumentation — open rates, clicks, unsubscribes, and the sales each flow and broadcast produced (coupon first, else the last email clicked within 7 days)."
-        actions={<DateRangePicker value={range} onChange={setRange} />}
+        actions={<div className="flex items-center gap-2"><a href="/realpeptides/compose" className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-95">✨ Compose with AI</a><DateRangePicker value={range} onChange={setRange} /></div>}
       />
 
       <EmailCalendar company="realpeptides" />
+      {openCampaign && <CampaignDetail c={openCampaign} onClose={() => setOpenCampaign(null)} />}
+
+      <SegmentsCard company="realpeptides" />
 
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading email analytics…</div>}
       {q.error && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.error as Error).message}</div>}
@@ -88,6 +107,7 @@ export default function RealPeptidesEmail() {
 
       {d?.configured && t && (
         <>
+          <EmailHealthCard health={d.health} rangeLabel={rlabel} />
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Stat icon={<Users size={16} />} label="Marketable contacts" value={t.marketableContacts.toLocaleString()} />
             <Stat icon={<UserMinus size={16} />} label="Unsubscribed" value={t.unsubscribed.toLocaleString()} />
@@ -147,9 +167,10 @@ export default function RealPeptidesEmail() {
               </thead>
               <tbody className="divide-y divide-ops-border/50">
                 {d.campaigns.map((c) => (
-                  <tr key={c.broadcastId}>
+                  <tr key={c.broadcastId} onClick={() => setOpenCampaign({ ...c, prettyName: prettyName(c.broadcastId, c.name) })}
+                    className="cursor-pointer transition-colors hover:bg-ops-bg/40">
                     <td className="max-w-[280px] px-4 py-3">
-                      <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
+                      <div className="truncate font-medium text-brand-blue-400" title={c.broadcastId}>{prettyName(c.broadcastId, c.name)}</div>
                       <div className="text-[11px] text-ops-text-muted">sent {new Date(c.sentAt ?? c.lastSeen).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">
@@ -233,30 +254,32 @@ function FlowRow({ f }: { f: Flow }) {
         <tr className="bg-ops-bg/30">
           <td colSpan={7} className="px-4 py-3">
             {!f.steps.length ? <span className="text-xs text-ops-text-muted">No steps recorded in this window.</span> : (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
-                    <th className="py-1 pr-3 text-left font-medium">Step</th>
-                    <th className="py-1 pr-3 text-left font-medium">Subject</th>
-                    <th className="py-1 pr-3 text-right font-medium">Sends</th>
-                    <th className="py-1 pr-3 text-right font-medium">Open</th>
-                    <th className="py-1 pr-3 text-right font-medium">CTR</th>
-                    <th className="py-1 text-right font-medium">Bounce/Spam</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ops-border/40">
-                  {f.steps.map((s) => (
-                    <tr key={`${s.stepIndex}-${s.subject}`}>
-                      <td className="py-1.5 pr-3 tabular-nums text-ops-text-muted">#{s.stepIndex + 1}</td>
-                      <td className="max-w-[380px] truncate py-1.5 pr-3 text-ops-text" title={s.subject}>{s.subject}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{s.sends}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.openRate)}</td>
-                      <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.clickRate)}</td>
-                      <td className="py-1.5 text-right"><BadCounts bounces={s.bounces} complaints={s.complaints} /></td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-ops-text-muted">
+                      <th className="py-1 pr-3 text-left font-medium">Step</th>
+                      <th className="py-1 pr-3 text-left font-medium">Subject</th>
+                      <th className="py-1 pr-3 text-right font-medium">Sends</th>
+                      <th className="py-1 pr-3 text-right font-medium">Open</th>
+                      <th className="py-1 pr-3 text-right font-medium">CTR</th>
+                      <th className="py-1 text-right font-medium">Bounce/Spam</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-ops-border/40">
+                    {f.steps.map((s) => (
+                      <tr key={`${s.stepIndex}-${s.subject}`}>
+                        <td className="py-1.5 pr-3 tabular-nums text-ops-text-muted">#{s.stepIndex + 1}</td>
+                        <td className="max-w-[380px] truncate py-1.5 pr-3 text-ops-text" title={s.subject}>{s.subject}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{s.sends}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.openRate)}</td>
+                        <td className="py-1.5 pr-3 text-right tabular-nums text-ops-text">{pct(s.clickRate)}</td>
+                        <td className="py-1.5 text-right"><BadCounts bounces={s.bounces} complaints={s.complaints} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </td>
         </tr>
@@ -264,3 +287,4 @@ function FlowRow({ f }: { f: Flow }) {
     </>
   );
 }
+

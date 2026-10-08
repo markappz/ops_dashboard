@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard } from "../components/stat";
 import { PageHero } from "../components/page-hero";
 import { RpRankingMachine } from "../components/rp-ranking-machine";
 
@@ -90,12 +91,7 @@ function NotConnected({ what, company, label }: { what: "traffic" | "seo"; compa
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-ops-text">{value}</div>
-    </div>
-  );
+  return <StatCard label={label} value={value} />;
 }
 
 function Table({ head, rows }: { head: string[]; rows: (string | number)[][] }) {

@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { DeltaPill, StatCard } from "./stat";
 import { RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "./page-hero";
@@ -30,23 +31,14 @@ export function rangeShort(r: DateRange): string {
 export function Delta({ cur, prev, invert }: { cur: number; prev: number; invert?: boolean }) {
   if (!prev && !cur) return null;
   if (!prev) return <span className="ml-1.5 text-xs font-medium text-ops-text-muted">new</span>;
-  const d = ((cur - prev) / prev) * 100;
-  const good = invert ? d < 0 : d > 0;
-  const cls = Math.abs(d) < 1 ? "text-ops-text-muted" : good ? "text-fitscript-green" : "text-red-400";
-  return <span className={`ml-1.5 text-xs font-medium ${cls}`}>{d > 0 ? "+" : ""}{d.toFixed(0)}%</span>;
+  return <DeltaPill cur={cur} prev={prev} invert={invert} />;
 }
 
 export type Tone = "warn" | "bad" | "good" | "info";
-export function Card({ label, value, sub, accent, tone, to }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; tone?: Tone; to?: string }) {
-  const color = tone === "bad" ? "text-red-400" : tone === "warn" ? "text-yellow-500" : tone === "good" ? "text-fitscript-green" : tone === "info" ? "text-violet-400" : accent ? "text-brand-blue-500" : "text-ops-text";
-  const body = (
-    <div className="h-full rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card transition hover:border-ops-text-muted/40 md:p-5">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
-  return to ? <Link href={to} className="block">{body}</Link> : body;
+// Facelift P3: the kit's Card rides the shared StatCard, so every brand's
+// command center gets the v2 treatment (entrance, hover lift, tone colors) at once.
+export function Card(props: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; tone?: Tone; to?: string; spark?: number[]; i?: number }) {
+  return <StatCard {...props} />;
 }
 
 export function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {

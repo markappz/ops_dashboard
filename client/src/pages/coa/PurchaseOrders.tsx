@@ -227,7 +227,16 @@ function PoCard({ po, skus, canEdit, suppliers, busy, run, onSay, poBatch, lots,
     run(po.id, () => api(`/pos/${po.id}`, { method: "PATCH", body: JSON.stringify({ status }) }), done);
   const setSupplier = (supplier: string) =>
     run(po.id, () => api(`/pos/${po.id}`, { method: "PATCH", body: JSON.stringify({ supplier }) }));
-  const remove = () => run(po.id, () => api(`/pos/${po.id}`, { method: "DELETE" }), `PO #${po.id} deleted — its ${units} units no longer count as on-order.`);
+  const remove = () => {
+    if (po.status === "draft" || po.status === "ordered")
+      return run(po.id, () => api(`/pos/${po.id}`, { method: "DELETE" }), `PO #${po.id} deleted — its ${units} units no longer count as on-order.`);
+    run(po.id, async () => {
+      const r = await fetch(`/api/ops/realpeptides/inventory/pos/${po.id}`, { method: "DELETE", credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      onSay(j.deleted ? `PO #${po.id} deleted — nothing was received, so no stock moved.` : `PO #${po.id} cancelled — it no longer counts as on-order.`);
+    });
+  };
 
   const postBatches = (body: { batch: string }) =>
     fetch(`/api/ops/realpeptides/inventory/po-batches/${po.id}`, {

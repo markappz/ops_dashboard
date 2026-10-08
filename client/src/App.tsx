@@ -52,19 +52,33 @@ import CompanyIntegrations from "./pages/company-integrations";
 import RealPeptidesPaid from "./pages/realpeptides-paid";
 import RealPeptidesAffiliates from "./pages/realpeptides-affiliates";
 import { SubTabs } from "./components/sub-tabs";
-import { PawgenMarketing, PawgenLeads } from "./pages/pawgen-growth";
-import { PeptideuEmail, PawgenEmail } from "./pages/brand-email";
+import { PawgenMarketing, PawgenLeads, PeptideuLeads } from "./pages/pawgen-growth";
+import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
+import NorthbluOverview from "./pages/northblu-overview";
+import ReverraOverview from "./pages/reverra-overview";
+import BrandFinancials from "./pages/finance/brand-financials";
+import MasterFinancials from "./pages/finance/master";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
 import RealPeptidesCampaignLinks from "./pages/realpeptides-campaign-links";
+import PawgenCampaignLinks from "./pages/pawgen-campaign-links";
 import RealPeptidesCoa from "./pages/realpeptides-coa";
 import RealPeptidesInventory from "./pages/realpeptides-inventory";
 import RealPeptidesPurchaseOrders from "./pages/realpeptides-purchase-orders";
 import RealPeptidesOrders from "./pages/realpeptides-orders";
 import RealPeptidesEmail from "./pages/realpeptides-email";
+import EmailFlows from "./pages/email-flows";
+import EmailActivity from "./pages/email-activity";
+import EmailBroadcasts from "./pages/email-broadcasts";
+import EmailAudience from "./pages/email-audience";
 import TasksBoard from "./pages/tasks-board";
 import RealPeptidesWholesale from "./pages/realpeptides-wholesale";
+import CallCenterOverview from "./pages/callcenter/overview";
+import CallCenterConversations from "./pages/callcenter/conversations";
+import CallCenterFollowups from "./pages/callcenter/followups";
+import CallCenterWholesale from "./pages/callcenter/wholesale";
+import CallCenterSettings from "./pages/callcenter/settings";
 
 const RP = { company: "realpeptides", label: "Real Peptides", domain: "realpeptides.co" } as const;
 
@@ -79,16 +93,65 @@ const subTabs = (prefix: string) => ({
   marketing: [
     { path: `/${prefix}/marketing`, label: "Marketing" },
     { path: `/${prefix}/traffic`, label: "Site Traffic" },
-    ...(prefix === "realpeptides" ? [{ path: `/${prefix}/campaign-links`, label: "Campaign Links" }] : []),
+    ...(prefix === "realpeptides" || prefix === "pawgen" ? [{ path: `/${prefix}/campaign-links`, label: "Campaign Links" }] : []),
   ],
   email: [
     { path: `/${prefix}/email`, label: "Email" },
+    // Engine-brand email suite. Flows is served by all three engines since 2026-10-06
+    // (capability-gated server-side; a brand without the capability gets 501s).
+    ...(prefix === "realpeptides"
+      ? [
+          { path: `/${prefix}/broadcasts`, label: "Broadcasts" },
+          { path: `/${prefix}/flows`, label: "Flows" },
+          { path: `/${prefix}/audience`, label: "Audience" },
+          { path: `/${prefix}/activity`, label: "Activity" },
+        ]
+      : []),
+    ...(prefix === "pawgen" || prefix === "peptideu"
+      ? [
+          { path: `/${prefix}/broadcasts`, label: "Broadcasts" },
+          { path: `/${prefix}/flows`, label: "Flows" },
+          { path: `/${prefix}/audience`, label: "Audience" },
+          { path: `/${prefix}/activity`, label: "Activity" },
+          { path: `/${prefix}/compose`, label: "Compose" },
+        ]
+      : []),
     { path: `/${prefix}/leads`, label: "Leads" },
   ],
 });
 const RP_TABS = subTabs("realpeptides");
+const CC_TABS = [
+  { path: "/realpeptides/call-center", label: "Overview" },
+  { path: "/realpeptides/call-center/conversations", label: "Conversations" },
+  { path: "/realpeptides/call-center/follow-ups", label: "Follow-ups" },
+  { path: "/realpeptides/call-center/wholesale", label: "Wholesale requests" },
+  { path: "/realpeptides/call-center/settings", label: "Settings & health" },
+] as const;
 const PAWGEN_TABS = subTabs("pawgen");
-const PU_SEO_TABS = subTabs("peptideu").seo;
+// North Blu (2026-10-06): waitlist brand — base email engine (no flows), no leads page, no Clomark content yet.
+const NB = { company: "northblu", label: "North Blu", domain: "northblu.com" } as const;
+const NB_EMAIL_TABS = [
+  { path: "/northblu/email", label: "Email" },
+  { path: "/northblu/broadcasts", label: "Broadcasts" },
+  { path: "/northblu/flows", label: "Flows" },
+  { path: "/northblu/audience", label: "Audience" },
+  { path: "/northblu/activity", label: "Activity" },
+  { path: "/northblu/compose", label: "Compose" },
+];
+const NB_SEO_TABS = [
+  { path: "/northblu/seo", label: "SEO" },
+  { path: "/northblu/pages", label: "Pages" },
+];
+// Reverra (2026-10-07): D2C peptide-strip store, 49% BRANDMAXXER. Sales via the
+// store's /api/ops-summary; no email engine yet (site still on Resend — Mailgun
+// engine comes with the relaunch). Domain unconfirmed until partners verify.
+const RV = { company: "reverra", label: "Reverra", domain: "reverrahealth.com" } as const;
+const RV_SEO_TABS = [
+  { path: "/reverra/seo", label: "SEO" },
+  { path: "/reverra/pages", label: "Pages" },
+];
+const PU_TABS = subTabs("peptideu");
+const PU_SEO_TABS = PU_TABS.seo;
 const PU = { company: "peptideu", label: "PeptideU", domain: "peptideu.com" } as const;
 
 interface Me {
@@ -197,6 +260,18 @@ export default function App() {
       <ErrorBoundary>
         <Switch>
           <Route path="/" component={CommandCenter} />
+          {/* FitScript URL symmetry (facelift P2): same pages under /fitscript/*; the old
+              root paths above keep routing so bookmarks and in-app links never break. */}
+          <Route path="/fitscript" component={CommandCenter} />
+          <Route path="/fitscript/leads" component={Leads} />
+          <Route path="/fitscript/members" component={Members} />
+          <Route path="/fitscript/orders" component={Orders} />
+          <Route path="/fitscript/labs" component={Labs} />
+          <Route path="/fitscript/supplements" component={Supplements} />
+          <Route path="/fitscript/marketing" component={Marketing} />
+          <Route path="/fitscript/content" component={Content} />
+          <Route path="/fitscript/pages">{() => <CompanyPages company="fitscript" label="FitScript" />}</Route>
+          <Route path="/fitscript/email" component={Email} />
 
           {/* Customers */}
           <Route path="/leads" component={Leads} />
@@ -216,7 +291,7 @@ export default function App() {
           <Route path="/pages">{() => <CompanyPages company="fitscript" label="FitScript" />}</Route>
           <Route path="/email" component={Email} />
           <Route path="/email/send" component={EmailSend} />
-          <Route path="/email/compose" component={EmailCompose} />
+          <Route path="/email/compose">{() => <EmailCompose />}</Route>
           <Route path="/email/profiles" component={EmailProfiles} />
 
           {/* Reports */}
@@ -240,7 +315,13 @@ export default function App() {
           {/* PeptideU */}
           <Route path="/peptideu" component={PeptideuOverview} />
           <Route path="/email/blended" component={EmailBlended} />
-          <Route path="/peptideu/email" component={PeptideuEmail} />
+          <Route path="/peptideu/email">{() => <><SubTabs tabs={PU_TABS.email} /><PeptideuEmail /></>}</Route>
+          <Route path="/peptideu/broadcasts">{() => <><SubTabs tabs={PU_TABS.email} /><EmailBroadcasts company="peptideu" label="PeptideU" /></>}</Route>
+          <Route path="/peptideu/flows">{() => <><SubTabs tabs={PU_TABS.email} /><EmailFlows company="peptideu" /></>}</Route>
+          <Route path="/peptideu/audience">{() => <><SubTabs tabs={PU_TABS.email} /><EmailAudience company="peptideu" /></>}</Route>
+          <Route path="/peptideu/activity">{() => <><SubTabs tabs={PU_TABS.email} /><EmailActivity company="peptideu" /></>}</Route>
+          <Route path="/peptideu/compose">{() => <><SubTabs tabs={PU_TABS.email} /><EmailCompose company="peptideu" /></>}</Route>
+          <Route path="/peptideu/leads">{() => <><SubTabs tabs={PU_TABS.email} /><PeptideuLeads /></>}</Route>
           <Route path="/peptideu/members" component={PeptideuMembers} />
           <Route path="/peptideu/requests" component={PeptideuRequests} />
           <Route path="/peptideu/moderation" component={PeptideuModeration} />
@@ -255,14 +336,45 @@ export default function App() {
           {/* pawgen */}
           <Route path="/pawgen" component={PawgenOverview} />
           <Route path="/pawgen/email">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><PawgenEmail /></>}</Route>
+          <Route path="/pawgen/broadcasts">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailBroadcasts company="pawgen" label="pawgen" /></>}</Route>
+          <Route path="/pawgen/flows">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailFlows company="pawgen" /></>}</Route>
+          <Route path="/pawgen/audience">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailAudience company="pawgen" /></>}</Route>
+          <Route path="/pawgen/activity">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailActivity company="pawgen" /></>}</Route>
+          <Route path="/pawgen/compose">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><EmailCompose company="pawgen" /></>}</Route>
           <Route path="/pawgen/orders" component={PawgenOrders} />
           <Route path="/pawgen/leads">{() => <><SubTabs tabs={PAWGEN_TABS.email} /><PawgenLeads /></>}</Route>
           <Route path="/pawgen/marketing">{() => <><SubTabs tabs={PAWGEN_TABS.marketing} /><PawgenMarketing /></>}</Route>
+          <Route path="/pawgen/campaign-links">{() => <><SubTabs tabs={PAWGEN_TABS.marketing} /><PawgenCampaignLinks /></>}</Route>
           <Route path="/pawgen/traffic">{() => <><SubTabs tabs={PAWGEN_TABS.marketing} /><CompanyTraffic company="pawgen" label="pawgen" domain="pawgen.com" /></>}</Route>
           <Route path="/pawgen/pages">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanyPages company="pawgen" label="pawgen" /></>}</Route>
           <Route path="/pawgen/content">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanyContent company="pawgen" label="pawgen" /></>}</Route>
           <Route path="/pawgen/seo">{() => <><SubTabs tabs={PAWGEN_TABS.seo} /><CompanySeo company="pawgen" label="pawgen" domain="pawgen.com" /></>}</Route>
           <Route path="/pawgen/integrations">{() => <CompanyIntegrations company="pawgen" label="pawgen" />}</Route>
+
+          {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
+          <Route path="/fitscript/financials">{() => <BrandFinancials company="fitscript" label="FitScript" />}</Route>
+          <Route path="/peptideu/financials">{() => <BrandFinancials company="peptideu" label="PeptideU" />}</Route>
+          <Route path="/pawgen/financials">{() => <BrandFinancials company="pawgen" label="pawgen" />}</Route>
+          <Route path="/realpeptides/financials">{() => <BrandFinancials company="realpeptides" label="Real Peptides" />}</Route>
+          <Route path="/northblu/financials">{() => <BrandFinancials company="northblu" label="North Blu" />}</Route>
+          <Route path="/admin/financials" component={MasterFinancials} />
+          <Route path="/northblu" component={NorthbluOverview} />
+          <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
+          <Route path="/northblu/flows">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailFlows company="northblu" /></>}</Route>
+          <Route path="/northblu/broadcasts">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailBroadcasts company="northblu" label="North Blu" /></>}</Route>
+          <Route path="/northblu/audience">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailAudience company="northblu" /></>}</Route>
+          <Route path="/northblu/activity">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailActivity company="northblu" /></>}</Route>
+          <Route path="/northblu/compose">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailCompose company="northblu" /></>}</Route>
+          <Route path="/northblu/traffic">{() => <CompanyTraffic {...NB} />}</Route>
+          <Route path="/northblu/seo">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanySeo {...NB} /></>}</Route>
+          <Route path="/northblu/pages">{() => <><SubTabs tabs={NB_SEO_TABS} /><CompanyPages company="northblu" label="North Blu" /></>}</Route>
+          <Route path="/northblu/integrations">{() => <CompanyIntegrations company="northblu" label="North Blu" />}</Route>
+          <Route path="/reverra" component={ReverraOverview} />
+          <Route path="/reverra/traffic">{() => <CompanyTraffic {...RV} />}</Route>
+          <Route path="/reverra/seo">{() => <><SubTabs tabs={RV_SEO_TABS} /><CompanySeo {...RV} /></>}</Route>
+          <Route path="/reverra/pages">{() => <><SubTabs tabs={RV_SEO_TABS} /><CompanyPages company="reverra" label="Reverra" /></>}</Route>
+          <Route path="/reverra/financials">{() => <BrandFinancials company="reverra" label="Reverra" />}</Route>
+          <Route path="/reverra/integrations">{() => <CompanyIntegrations company="reverra" label="Reverra" />}</Route>
           <Route path="/peptideu/traffic">{() => <CompanyTraffic {...PU} />}</Route>
           <Route path="/peptideu/seo">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanySeo {...PU} /></>}</Route>
           <Route path="/peptideu/pages">{() => <><SubTabs tabs={PU_SEO_TABS} /><CompanyPages company="peptideu" label="PeptideU" /></>}</Route>
@@ -275,7 +387,17 @@ export default function App() {
           <Route path="/realpeptides/orders" component={RealPeptidesOrders} />
           <Route path="/realpeptides/tasks" component={TasksBoard} />
           <Route path="/realpeptides/email">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesEmail /></>}</Route>
+          <Route path="/realpeptides/flows">{() => <><SubTabs tabs={RP_TABS.email} /><EmailFlows company="realpeptides" /></>}</Route>
+          <Route path="/realpeptides/activity">{() => <><SubTabs tabs={RP_TABS.email} /><EmailActivity company="realpeptides" /></>}</Route>
+          <Route path="/realpeptides/compose">{() => <><SubTabs tabs={RP_TABS.email} /><EmailCompose company="realpeptides" /></>}</Route>
+          <Route path="/realpeptides/broadcasts">{() => <><SubTabs tabs={RP_TABS.email} /><EmailBroadcasts company="realpeptides" label="Real Peptides" /></>}</Route>
+          <Route path="/realpeptides/audience">{() => <><SubTabs tabs={RP_TABS.email} /><EmailAudience company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/wholesale" component={RealPeptidesWholesale} />
+          <Route path="/realpeptides/call-center">{() => <><SubTabs tabs={CC_TABS} /><CallCenterOverview /></>}</Route>
+          <Route path="/realpeptides/call-center/conversations">{() => <><SubTabs tabs={CC_TABS} /><CallCenterConversations /></>}</Route>
+          <Route path="/realpeptides/call-center/follow-ups">{() => <><SubTabs tabs={CC_TABS} /><CallCenterFollowups /></>}</Route>
+          <Route path="/realpeptides/call-center/wholesale">{() => <><SubTabs tabs={CC_TABS} /><CallCenterWholesale /></>}</Route>
+          <Route path="/realpeptides/call-center/settings">{() => <><SubTabs tabs={CC_TABS} /><CallCenterSettings /></>}</Route>
           <Route path="/realpeptides/leads">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesLeads /></>}</Route>
           <Route path="/realpeptides/marketing">{() => <><SubTabs tabs={RP_TABS.marketing} /><RealPeptidesMarketing /></>}</Route>
           <Route path="/realpeptides/traffic">{() => <><SubTabs tabs={RP_TABS.marketing} /><CompanyTraffic {...RP} /></>}</Route>

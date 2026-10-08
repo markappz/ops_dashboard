@@ -1,3 +1,6 @@
+import { createHash } from "crypto";
+import { startEmailSchedulerLoop } from "./email-scheduler";
+import { readFileSync } from "fs";
 import "dotenv/config";
 import express from "express";
 import cookieParser from "cookie-parser";
@@ -30,12 +33,16 @@ import { registerPeptideURoutes } from "./peptideu";
 import { verifyPeptideuConnection } from "./db";
 import { registerPawgenRoutes } from "./pawgen";
 import { registerPawgenCommand } from "./pawgen-command";
+import { registerReverra } from "./reverra-site";
 import { registerPeptideUCommand } from "./peptideu-command";
 import { registerRealPeptidesRoutes } from "./realpeptides";
 import { registerRealPeptidesOrders } from "./realpeptides-orders";
 import { registerRpInventoryRoutes, startRpInventorySyncLoop } from "./realpeptides-inventory";
 import { startStockConsumeLoops } from "./stock-consume";
 import { registerRealPeptidesEmail } from "./realpeptides-email";
+import { registerRealPeptidesMarketing } from "./realpeptides-marketing";
+import { registerEngineRoutes } from "./brand-engines";
+import { registerRpEmailMcp } from "./rp-email-mcp";
 import { registerBrandEmail } from "./brand-email";
 import { registerRealPeptidesContacts } from "./realpeptides-contacts";
 import { registerRpImageSync, startRpImageSyncLoop } from "./realpeptides-images";
@@ -54,9 +61,20 @@ import { registerPagesRoutes } from "./pages";
 import { registerRpRankingRoutes, startRpRankingLoop } from "./rp-ranking";
 import { registerRpContentLive } from "./rp-content-live";
 import { verifyPawgenConnection } from "./db";
+import { registerCallCenterWebhook } from "./callcenter-webhook";
+import { registerCallCenterTools } from "./callcenter-tools";
+import { registerCallCenterRoutes } from "./callcenter";
+import { startCallCenterLoops } from "./callcenter-worker";
+import { ensureCallCenterTables } from "./callcenter-db";
+import { registerFinanceRoutes } from "./finance";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
+
+// Retell webhook + agent-tool routes verify an HMAC over the EXACT raw body,
+// so they must mount before the global JSON parser consumes the stream.
+registerCallCenterWebhook(app, pool);
+registerCallCenterTools(app, pool);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -114,12 +132,22 @@ registerPeptideURoutes(app);
 registerPawgenRoutes(app);
 registerPawgenCommand(app);
 registerPeptideUCommand(app);
+registerReverra(app);
 registerRealPeptidesRoutes(app);
 registerRealPeptidesOrders(app);
 registerRpRankingRoutes(app);
 registerRpContentLive(app);
 registerRpInventoryRoutes(app);
 registerRealPeptidesEmail(app);
+registerRealPeptidesMarketing(app);
+registerEngineRoutes(app);
+registerRpEmailMcp(app);
+
+// Build identity for the client's stale-bundle toast (facelift P2): the running server
+// bundle's hash changes exactly when a deploy ships new code, and client+server ship together.
+let BUILD_ID = "dev";
+try { BUILD_ID = createHash("sha1").update(readFileSync(process.argv[1] ?? "")).digest("hex").slice(0, 12); } catch { /* dev mode */ }
+app.get("/api/ops/version", (_req, res) => res.json({ build: BUILD_ID }));
 registerBrandEmail(app);
 registerRealPeptidesContacts(app);
 registerRpImageSync(app);
@@ -135,6 +163,8 @@ registerRealPeptidesWholesale(app);
 registerRealPeptidesAffiliates(app);
 registerRpPaid(app);
 registerPagesRoutes(app);
+registerCallCenterRoutes(app);
+registerFinanceRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.
 pool.on("error", (err) => {
@@ -198,6 +228,12 @@ async function start() {
   }
 
   await ensureTrackingTables();
+  try {
+    await ensureCallCenterTables(pool);
+    console.log("[OPS] Call Center tables verified");
+  } catch (e: any) {
+    console.warn("[OPS] Call Center tables setup warning:", e.message);
+  }
   await verifyPeptideuConnection(); // non-fatal — PeptideU section degrades gracefully
   await verifyPawgenConnection(); // non-fatal — pawgen section degrades gracefully
   await setupClient();
@@ -208,10 +244,12 @@ async function start() {
     startDirtDailyReportLoop();
     startEmailReportWarmer();
     startRpInventorySyncLoop();
+    startEmailSchedulerLoop();
     startStockConsumeLoops();
     startRpImageSyncLoop();
     startTargetRefreshLoop();
     startRpRankingLoop();
+    startCallCenterLoops();
   });
 }
 

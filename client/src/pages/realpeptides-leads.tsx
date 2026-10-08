@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange } from "../components/date-range-picker";
 
 /**
  * Leads for Real Peptides.
@@ -24,7 +25,7 @@ interface Contacts {
   bySource?: { source: string; count: number }[];
   listBuilding?: { source: string; today: number; week: number; month: number; total: number }[];
   daily?: { date: string; count: number }[];
-  recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean }[];
+  recent?: { email: string; name: string | null; source: string; createdAt: string; unsubscribed: boolean; buyer: boolean; utm?: { source: string | null; medium: string | null; campaign: string | null; offer: string | null; landing: string | null } | null }[];
 }
 
 interface Legacy {
@@ -38,14 +39,7 @@ const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => 
 const MINUTE = 60_000;
 
 function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "good" | "muted" | "accent" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "muted" ? "text-ops-text-muted" : tone === "accent" ? "text-brand-blue-500" : "text-ops-text";
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} tone={tone === "good" ? "good" : undefined} accent={tone === "accent"} />;
 }
 
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -174,6 +168,12 @@ function Recent({ rows }: { rows: NonNullable<Contacts["recent"]> }) {
           <span className="flex shrink-0 items-center gap-2 text-xs text-ops-text-muted">
             {c.buyer && <span className="rounded-full bg-fitscript-green/15 px-2 py-0.5 text-[10px] font-semibold text-fitscript-green">buyer</span>}
             {c.unsubscribed && <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">unsub</span>}
+            {(c.utm?.source || c.utm?.campaign) && (
+              <span className="truncate rounded-full border border-brand-blue-500/30 bg-brand-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-brand-blue-400"
+                title={`utm_source=${c.utm?.source ?? "—"} · utm_medium=${c.utm?.medium ?? "—"} · utm_campaign=${c.utm?.campaign ?? "—"}${c.utm?.offer ? ` · offer=${c.utm.offer}` : ""}${c.utm?.landing ? ` · landing=${c.utm.landing}` : ""}`}>
+                {c.utm?.source ?? "utm"}{c.utm?.campaign ? ` / ${c.utm.campaign}` : ""}
+              </span>
+            )}
             <span className="truncate" title={c.source}>{label(c.source)}</span>
             <span>{new Date(c.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           </span>
@@ -199,10 +199,9 @@ function LegacyLists({ range }: { range: number }) {
 
 export default function RealPeptidesLeads() {
   const [range, setRange] = useDateRange("realpeptides");
-  const rq = rangeQuery(range);
   const days = rangeDays(range);
   const rlabel = range.key === "custom" ? `${days}d custom` : range.key === "today" ? "today" : range.label.replace("Last ", "").replace(" days", "d").replace(" hours", "h").toLowerCase();
-  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
+  const q = useQuery<Contacts>({ queryKey: ["rp-contacts", rangeKey(range)], queryFn: () => get(`/api/ops/realpeptides/contacts?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const c = q.data;
   const asOf = c?.generatedAt ? new Date(c.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
 

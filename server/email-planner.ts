@@ -9,10 +9,12 @@
  * the broadcast and schedules it for the plan's date, all from ops.
  */
 import type { Express } from "express";
+import { wallClock } from "./email-scheduler";
+import { hasEngine } from "./brand-engines";
 import { pool } from "./db";
 
-const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen"]);
-const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sent"]);
+const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen", "northblu", "reverra"]);
+const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sending", "sent", "send_failed", "missed"]);
 const RESEND = "https://api.resend.com";
 
 function resendKey(company: string): string | null {
@@ -145,6 +147,16 @@ async function ensureTable() {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  // Scheduler timezone (2026-10-02): which wall clock send_date+send_time mean. Default ET
+  // matches the UI's historical label; the calendar/builder now write it explicitly.
+  await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS send_tz TEXT`);
+}
+
+/** Rich HTML in JSON gets eaten by the Cloudflare WAF in front of ops, so clients send it
+ * base64-encoded; decode here before storage. Raw `html` still accepted for old callers. */
+function bodyHtml(body: any): string | null {
+  if (body?.html_b64) { try { return Buffer.from(String(body.html_b64), "base64").toString("utf8"); } catch { /* fall through */ } }
+  return body?.html ?? null;
 }
 
 export function registerEmailPlannerRoutes(app: Express) {
@@ -154,10 +166,13 @@ export function registerEmailPlannerRoutes(app: Express) {
       await ensureTable();
       const company = String(req.query.company || "");
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
-      try { await pullFromResend(company); }
-      catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
+      // Engine brands (brand-engines registry) left Resend; their plans are born in ops now.
+      if (!hasEngine(company)) {
+        try { await pullFromResend(company); }
+        catch (e: any) { console.warn(`[OPS][EMAIL-PLAN] resend pull failed (${company}):`, e.message); }
+      }
       const { rows } = await pool.query(
-        `SELECT id, company, title, subject, preheader, status, send_date, send_time,
+        `SELECT id, company, title, subject, preheader, status, send_date, send_time, send_tz,
                 from_address, audience_id, notes, resend_broadcast_id,
                 (html IS NOT NULL AND html != '') AS has_design,
                 created_by, created_at, updated_at
@@ -187,9 +202,22 @@ export function registerEmailPlannerRoutes(app: Express) {
       const title = String(b.title || "").trim();
       if (!COMPANIES.has(company)) return res.status(400).json({ error: "company required" });
       if (!title) return res.status(400).json({ error: "The email needs a working title" });
+      // Agent-scheduled sends get a mandatory human veto window: at least 2h between now and
+      // fire time IN THE PLAN'S OWN TIMEZONE (same wall-clock string compare the scheduler
+      // fires on, so guard and alarm can never disagree), keeping every agent campaign visible
+      // in Drafts & scheduled long before it can send.
+      if (req.adminEmail === "automation:claude" && b.status === "scheduled") {
+        if (!b.send_date || !b.send_time) return res.status(400).json({ error: "agent scheduling requires send_date and send_time" });
+        const tz = b.send_tz ? String(b.send_tz) : "America/New_York";
+        const schedAt = `${b.send_date} ${String(b.send_time).slice(0, 5)}`;
+        const vetoFloor = wallClock(tz, new Date(Date.now() + 2 * 3600_000));
+        if (schedAt < vetoFloor) {
+          return res.status(400).json({ error: `agent-scheduled campaigns need a 2h veto window — earliest allowed is ${vetoFloor} ${tz}` });
+        }
+      }
       const { rows } = await pool.query(
-        `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, from_address, audience_id, html, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        `INSERT INTO ops_email_plans (company, title, subject, preheader, status, send_date, send_time, send_tz, from_address, audience_id, html, notes, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [
           company, title,
           b.subject ? String(b.subject) : null,
@@ -197,9 +225,10 @@ export function registerEmailPlannerRoutes(app: Express) {
           STATUSES.has(b.status) ? b.status : "idea",
           b.send_date || null,
           b.send_time ? String(b.send_time) : null,
+          b.send_tz ? String(b.send_tz) : null,
           b.from_address ? String(b.from_address) : defaultFrom(company),
           b.audience_id ? String(b.audience_id) : null,
-          b.html ? String(b.html) : null,
+          bodyHtml(b),
           b.notes ? String(b.notes) : null,
           req.adminEmail || null,
         ],
@@ -226,6 +255,8 @@ export function registerEmailPlannerRoutes(app: Express) {
            audience_id  = CASE WHEN $14 THEN $15 ELSE audience_id END,
            html         = CASE WHEN $16 THEN $17 ELSE html END,
            notes        = CASE WHEN $18 THEN $19 ELSE notes END,
+           send_tz      = CASE WHEN $20 THEN $21 ELSE send_tz END,
+           resend_broadcast_id = CASE WHEN $22 THEN $23 ELSE resend_broadcast_id END,
            updated_at   = NOW()
          WHERE id = $1 RETURNING id`,
         [
@@ -238,8 +269,10 @@ export function registerEmailPlannerRoutes(app: Express) {
           b.send_time !== undefined, b.send_time ? String(b.send_time) : null,
           b.from_address !== undefined, b.from_address ? String(b.from_address) : null,
           b.audience_id !== undefined, b.audience_id ? String(b.audience_id) : null,
-          b.html !== undefined, b.html ? String(b.html) : null,
+          b.html !== undefined || b.html_b64 !== undefined, bodyHtml(b),
           b.notes !== undefined, b.notes ? String(b.notes) : null,
+          b.send_tz !== undefined, b.send_tz ? String(b.send_tz) : null,
+          b.resend_broadcast_id !== undefined, b.resend_broadcast_id ? String(b.resend_broadcast_id) : null,
         ],
       );
       if (!rows[0]) return res.status(404).json({ error: "Plan not found" });
@@ -283,6 +316,9 @@ export function registerEmailPlannerRoutes(app: Express) {
       const { rows } = await pool.query("SELECT * FROM ops_email_plans WHERE id = $1", [parseInt(req.params.id, 10)]);
       const p = rows[0];
       if (!p) return res.status(404).json({ error: "Plan not found" });
+      if (hasEngine(p.company)) {
+        return res.status(400).json({ error: `${p.company} sends through its own engine — use Review & send on the plan, not Push to Resend.` });
+      }
       const key = resendKey(p.company);
       if (!key) return res.status(503).json({ error: `Resend isn't connected for ${p.company} yet — set RESEND_API_KEY_${p.company.toUpperCase()} on ops.` });
       if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });

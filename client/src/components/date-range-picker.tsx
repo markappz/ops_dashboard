@@ -35,8 +35,32 @@ export function presetRange(key: string, now = new Date()): DateRange {
   return { from, to, label: p.label, key: p.key };
 }
 
+/**
+ * Re-resolve a preset at query time, quantized to the minute. A preset picked
+ * at page load is a pair of frozen instants; in an always-open ops tab the
+ * "Today" / to-date windows must track the clock, not the load time (Paul,
+ * 10-06: PeptideU "Today" served the window from whenever the tab opened).
+ * Quantizing keeps the query key stable between minutes so re-renders don't
+ * refetch. Custom ranges are explicit instants and stay fixed.
+ */
+export function liveRange(r: DateRange): DateRange {
+  if (r.key === "custom") return r;
+  return presetRange(r.key, new Date(Math.floor(Date.now() / 60_000) * 60_000));
+}
+
 export function rangeQuery(r: DateRange): string {
-  return `from=${encodeURIComponent(r.from.toISOString())}&to=${encodeURIComponent(r.to.toISOString())}`;
+  const live = liveRange(r);
+  return `from=${encodeURIComponent(live.from.toISOString())}&to=${encodeURIComponent(live.to.toISOString())}`;
+}
+
+/**
+ * Stable react-query cache key for a selection. Key on this and call
+ * rangeQuery() INSIDE the queryFn: the key then changes only when the user
+ * picks a different range, while every interval refetch re-resolves the
+ * window — no skeleton flash from instants churning in the key.
+ */
+export function rangeKey(r: DateRange): string {
+  return r.key === "custom" ? `custom:${r.from.toISOString()}..${r.to.toISOString()}` : r.key;
 }
 
 /** Whole days in the range, ≥ 1 — for "per day" math and per-day labels. */
@@ -112,6 +136,7 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
   const ref = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; right: number; left?: number }>({ top: 0, right: 0 });
+  const [isPhone, setIsPhone] = useState(false);
   const now = useMemo(() => new Date(), [open]);
 
   // The panel is portaled to <body> and fixed-positioned under the button, so
@@ -122,9 +147,21 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
     const place = () => {
       const r = ref.current?.getBoundingClientRect();
       if (!r) return;
-      // Phones: full-width sheet under the button. Desktop: right-aligned to the button.
-      if (window.innerWidth < 768) setPos({ top: r.bottom + 8, left: 16, right: 16 });
-      else setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right) });
+      // Phones: a bottom sheet with the Apply bar pinned - a dropdown under the button ran past
+      // the bottom of the screen and hid Apply (Paul, 2026-10-02). Desktop: right-aligned dropdown.
+      const phone = window.innerWidth < 768;
+      setIsPhone(phone);
+      // Anchor to whichever edge keeps the panel on screen: right-aligning
+      // under a LEFT-side trigger (FitScript's Growth row, Paul 10-07) pushed
+      // the panel to left:-193px over the sidebar. Buttons in the left half
+      // anchor left; right-half buttons keep the original right alignment.
+      if (!phone) {
+        if (r.left < window.innerWidth / 2) {
+          setPos({ top: r.bottom + 8, left: Math.max(16, r.left), right: 0 });
+        } else {
+          setPos({ top: r.bottom + 8, right: Math.max(16, window.innerWidth - r.right), left: undefined });
+        }
+      }
     };
     place();
     const onDoc = (e: MouseEvent) => {
@@ -163,8 +200,24 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
         <Calendar size={14} className="text-ops-text-muted" /> {fmtRange(value)} <ChevronDown size={14} className="text-ops-text-muted" />
       </button>
       {open && createPortal(
-        <div ref={panelRef} style={{ top: pos.top, right: pos.right, left: pos.left }} className="fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col overflow-auto rounded-2xl border border-ops-border bg-ops-surface shadow-2xl md:flex-row">
-          <div className="flex max-h-[220px] flex-row flex-wrap gap-1 overflow-y-auto border-b border-ops-border p-2 md:max-h-none md:w-44 md:flex-col md:flex-nowrap md:border-b-0 md:border-r">
+        <>
+          {/* Phones: a CENTERED modal card (Paul, 10-02 — the bottom sheet read as misplaced),
+              with the Cancel/Apply bar pinned below the scrolling calendar. */}
+          {isPhone && <div className="fixed inset-0 z-[59] bg-black/50 backdrop-blur-[2px]" onClick={() => setOpen(false)} />}
+          <div ref={panelRef} style={isPhone ? undefined : pos.left != null ? { top: pos.top, left: pos.left } : { top: pos.top, right: pos.right }}
+            className={isPhone
+              ? "fixed left-1/2 top-1/2 z-[60] flex max-h-[82vh] w-[calc(100vw-2rem)] max-w-[380px] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"
+              : "fixed z-[60] flex max-h-[calc(100vh-1rem)] max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-ops-border bg-ops-surface shadow-2xl"}>
+          {isPhone && (
+            <div className="flex shrink-0 items-center justify-between border-b border-ops-border px-4 py-3">
+              <span className="text-sm font-semibold text-ops-text">Date range</span>
+              <button type="button" onClick={() => setOpen(false)} className="rounded p-1 text-ops-text-muted hover:text-ops-text" aria-label="Close">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" strokeLinecap="round"/></svg>
+              </button>
+            </div>
+          )}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:flex-row md:overflow-visible">
+          <div className="flex max-h-[180px] shrink-0 flex-row flex-wrap gap-1 overflow-y-auto border-b border-ops-border p-2 md:max-h-none md:w-44 md:flex-col md:flex-nowrap md:overflow-y-auto md:border-b-0 md:border-r">
             {PRESETS.map((p) => (
               <button key={p.key} type="button" onClick={() => pickPreset(p.key)} className={`rounded-lg px-3 py-1.5 text-left text-sm ${draft.key === p.key ? "bg-fitscript-green/10 font-medium text-fitscript-green" : "text-ops-text hover:bg-ops-border/60"}`}>{p.label}</button>
             ))}
@@ -182,15 +235,18 @@ export function DateRangePicker({ value, onChange }: { value: DateRange; onChang
               <Month month={leftMonth} start={start} end={end} hover={hover} onPick={pickDay} onHover={setHover} max={now} />
               <div className="hidden md:block"><Month month={addMonths(leftMonth, 1)} start={start} end={end} hover={hover} onPick={pickDay} onHover={setHover} max={now} /></div>
             </div>
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-ops-border pt-3">
-              <span className="text-xs text-ops-text-muted">{start && end ? `${rangeDays({ from: start, to: end, label: "", key: "" })} days` : "Pick a start and end day"}</span>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-ops-border px-3 py-1.5 text-sm text-ops-text hover:bg-ops-border/60">Cancel</button>
-                <button type="button" onClick={apply} disabled={!canApply} className="rounded-lg bg-fitscript-green px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">Apply</button>
-              </div>
+          </div>
+          </div>
+          {/* Pinned action bar: visible no matter how tall the calendar is - the whole point. */}
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-ops-border px-4 py-3">
+            <span className="text-xs text-ops-text-muted">{start && end ? `${rangeDays({ from: start, to: end, label: "", key: "" })} days` : "Pick a start and end day"}</span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setOpen(false)} className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-border/60">Cancel</button>
+              <button type="button" onClick={apply} disabled={!canApply} className="rounded-lg bg-fitscript-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">Apply</button>
             </div>
           </div>
-        </div>,
+          </div>
+        </>,
         document.body,
       )}
     </div>

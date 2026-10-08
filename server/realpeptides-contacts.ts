@@ -5,7 +5,7 @@
  * Campaign Refinery froze at the 2026-08-24 launch and is legacy only.
  */
 import type { Express } from "express";
-import { windowOf, type Window } from "./lib/window";
+import { windowOf, type Window, pruneCache } from "./lib/window";
 
 const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 60_000;
@@ -31,6 +31,7 @@ export async function siteContacts(win: Window): Promise<any> {
   const text = await r.text();
   if (!r.ok) throw new Error(`ops-contacts ${r.status}: ${text.slice(0, 160)}`);
   const data = { configured: true, ...JSON.parse(text) };
+  pruneCache(cache, CACHE_MS);
   cache.set(win.key, { at: Date.now(), data });
   return data;
 }

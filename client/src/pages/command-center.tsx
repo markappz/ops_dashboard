@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
 import { PageHero } from "../components/page-hero";
+import { DateRangePicker, rangeDays, useDateRange } from "../components/date-range-picker";
 
 interface Snapshot {
   totalUsers: number;
@@ -32,30 +33,13 @@ interface ActivityItem {
   timestamp: string | null;
 }
 
-function MetricCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <div className="text-[10.5px] text-ops-text-muted font-medium uppercase tracking-[0.1em] mb-2">
-        {label}
-      </div>
-      <div className={`text-2xl font-bold tracking-tight ${accent ? "text-brand-blue-500" : "text-ops-text"}`}>
-        {value}
-      </div>
-      {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
-    </div>
-  );
+// Facelift P3: both legacy tiles ride the shared StatCard.
+function MetricCard({ label, value, sub, accent, i }: { label: string; value: string | number; sub?: string; accent?: boolean; i?: number }) {
+  return <StatCard label={label} value={value} sub={sub} accent={accent} i={i} />;
 }
 
 function GrowthCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-4 shadow-card hover:border-brand-blue-400/40 hover:bg-ops-surface-hover transition-colors cursor-pointer h-full">
-      <div className="text-[10px] text-ops-text-subtle font-semibold uppercase tracking-[0.14em] mb-1.5">
-        {label}
-      </div>
-      <div className="text-xl font-bold tracking-tight text-ops-text tabular-nums">{value}</div>
-      {sub && <div className="text-[10.5px] text-ops-text-muted mt-0.5">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} />;
 }
 
 function ActivityFeed({ items }: { items: ActivityItem[] }) {
@@ -104,14 +88,13 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
 }
 
-const GROWTH_RANGES = [
-  { days: 1, label: "Today" },
-  { days: 7, label: "7d" },
-  { days: 30, label: "30d" },
-] as const;
-
 export default function CommandCenter() {
-  const [growthDays, setGrowthDays] = useState<1 | 7 | 30>(30);
+  // Same calendar widget as every other brand (Paul, 10-07: FitScript had
+  // Today/7d/30d chips while RP/pawgen/PU/NB run the DateRangePicker). The
+  // reports endpoints take a day count, so a custom calendar range maps to
+  // its span ending today — presets behave identically to the other brands.
+  const [growthRange, setGrowthRange] = useDateRange("fitscript-overview");
+  const growthDays = rangeDays(growthRange);
   const { data: snapshot, isLoading } = useQuery<Snapshot>({
     queryKey: ["ops-snapshot"],
     queryFn: () => fetch("/api/ops/snapshot").then((r) => r.json()),
@@ -250,21 +233,7 @@ export default function CommandCenter() {
             <div className="text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
               Growth Overview
             </div>
-            <div className="inline-flex rounded-lg border border-ops-border bg-ops-surface p-0.5">
-              {GROWTH_RANGES.map((r) => (
-                <button
-                  key={r.days}
-                  type="button"
-                  onClick={() => setGrowthDays(r.days)}
-                  title={r.days === 1 ? "Last 24 hours" : `Last ${r.days} days`}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
-                    growthDays === r.days ? "bg-brand-blue-500 text-white" : "text-ops-text-muted hover:text-ops-text"
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
+            <DateRangePicker value={growthRange} onChange={setGrowthRange} />
           </div>
           <Link href="/reports/traffic">
             <span className="text-[11px] text-ops-text-muted hover:text-brand-blue-500 cursor-pointer">

@@ -69,6 +69,9 @@ const WS_SKU_MAP: Record<string, string> = {
 
 const WOLVE_10_SKU = "RP-WOLV10V";
 const BAC_SKU = "RP-BAC10V";
+// pawgen oral drops (live 2026-10-06, pre-order ships 10-15): own stock line,
+// 500 opening units. Tracker SKU id 116, created 2026-10-06.
+const K9_DROPS_SKU = "PG-K9DROP30";
 
 interface ConsumeOrder { id: string; number: string; createdAt: string; status: string; items: { sku?: string; name: string; qty: number }[] }
 export interface ConsumeResult { at: string; applied: number; alreadyApplied: number; unmatched: string[]; error?: string }
@@ -146,15 +149,22 @@ export async function runPawgenConsume(): Promise<ConsumeResult | null> {
         ORDER BY created_at DESC LIMIT 500`, [PG_SINCE]);
     const orders: ConsumeOrder[] = [];
     for (const o of rows) {
-      // "2-pack" × quantity → vials of the stack; pack id's leading integer is the pack size.
+      // "2-pack" / "2-dropper" × quantity → units; the pack id's leading integer is
+      // the pack size either way. Oral drops deduct their OWN stock line
+      // (PG-K9DROP30, no BAC); injectables stay WOLVE vials + BAC.
+      const isDropper = String(o.pack_id ?? "").endsWith("-dropper");
       const packSize = Math.max(1, parseInt(String(o.pack_id), 10) || 1);
-      const vials = packSize * Math.max(1, Number(o.quantity ?? 1));
-      const items: ConsumeOrder["items"] = [{ sku: WOLVE_10_SKU, name: "Wolverine Peptide Stack - BPC-157 10mg / TB-500 10mg", qty: vials }];
-      // Every order ships ONE free BAC vial plus paid add-ons — mirrors the
-      // ShippingEasy slip (pawgen shippingeasy.server.ts: quantity 1 + bacExtra).
-      // Paul 09-18: the free vial deducts too.
-      const bac = 1 + Math.max(0, Number(o.bac_addon_qty ?? 0));
-      items.push({ sku: BAC_SKU, name: "Bacteriostatic Water - 10ml", qty: bac });
+      const units = packSize * Math.max(1, Number(o.quantity ?? 1));
+      const items: ConsumeOrder["items"] = isDropper
+        ? [{ sku: K9_DROPS_SKU, name: "pawgen K9-REPAIR Oral Drops - 30ml (salmon)", qty: units }]
+        : [{ sku: WOLVE_10_SKU, name: "Wolverine Peptide Stack - BPC-157 10mg / TB-500 10mg", qty: units }];
+      if (!isDropper) {
+        // Every injectable order ships ONE free BAC vial plus paid add-ons — mirrors
+        // the ShippingEasy slip (pawgen shippingeasy.server.ts: quantity 1 + bacExtra).
+        // Paul 09-18: the free vial deducts too. The dropper never ships BAC.
+        const bac = 1 + Math.max(0, Number(o.bac_addon_qty ?? 0));
+        items.push({ sku: BAC_SKU, name: "Bacteriostatic Water - 10ml", qty: bac });
+      }
       orders.push({
         id: `PG-${o.id}`,
         number: String(o.order_no ?? o.id),

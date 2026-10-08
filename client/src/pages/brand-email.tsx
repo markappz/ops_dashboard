@@ -1,9 +1,14 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Mail, Users, UserMinus, ShieldAlert, MousePointerClick, Info } from "lucide-react";
 import { Link } from "wouter";
 import { PageHero } from "../components/page-hero";
 import { EmailCalendar } from "./email-calendar";
+import { SegmentsCard } from "../components/segments-card";
+import { CampaignDetail, type CampaignLike } from "../components/campaign-detail";
+import { EmailHealthCard, type EmailHealthData } from "../components/email-health-card";
+import { useEngine } from "../hooks/use-engines";
 
 /**
  * Generic brand email analytics page — identical layout to the Real Peptides
@@ -20,7 +25,7 @@ interface Flow {
   attributedOrders: number; attributedRevenueCents: number; steps: Step[];
 }
 interface Campaign {
-  broadcastId: string; name: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
+  broadcastId: string; name: string; sentAt?: string; sends: number; trackedSends?: number; uniqueOpens: number; uniqueClicks: number;
   openRate: number | null; clickRate: number | null; bounces: number; complaints: number; lastSeen: string;
   attributedOrders: number; attributedRevenueCents: number;
 }
@@ -32,6 +37,7 @@ interface Payload {
     lifetime: { sends: number; opens: number; clicks: number };
   };
   flows: Flow[]; campaigns: Campaign[];
+  health?: EmailHealthData | null;
 }
 
 const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -50,6 +56,23 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
   });
   const d = q.data;
   const t = d?.totals;
+
+  // Engine brands get the segments card + the campaign performance drawer, same as RP.
+  const engine = useEngine(slug);
+  const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
+  const plansQ = useQuery({
+    queryKey: ["email-plans-names", slug],
+    queryFn: async () => (await fetch(`/api/ops/email-plans?company=${slug}`, { credentials: "include" })).json() as
+      Promise<{ plans?: { id: number; title: string; subject: string | null }[] }>,
+    enabled: !!engine?.configured,
+    staleTime: 5 * 60_000,
+  });
+  // ops-<planId>-<slug> tags map back to the plan's human title/subject.
+  const prettyName = (tag: string, fallback: string) => {
+    const m = /^ops-(\d+)-/.exec(tag);
+    const plan = m ? plansQ.data?.plans?.find((x) => x.id === Number(m[1])) : undefined;
+    return plan?.subject || plan?.title || fallback;
+  };
 
   return (
     <div>
@@ -73,6 +96,8 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
       />
 
       <EmailCalendar company={slug} />
+      {engine?.configured && <SegmentsCard company={slug} />}
+      {openCampaign && <CampaignDetail c={openCampaign} onClose={() => setOpenCampaign(null)} />}
 
       {q.isLoading && <div className="py-16 text-center text-sm text-ops-text-muted">Loading email analytics…</div>}
       {q.error && <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">{(q.error as Error).message}</div>}
@@ -84,6 +109,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
 
       {d?.configured && t && (
         <>
+          <EmailHealthCard health={d.health} rangeLabel={`${range}d`} />
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <Stat icon={<Users size={16} />} label="Marketable contacts" value={t.marketableContacts.toLocaleString()} />
             <Stat icon={<UserMinus size={16} />} label="Unsubscribed" value={t.unsubscribed.toLocaleString()} />
@@ -96,7 +122,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
           <div className="mb-6 flex flex-wrap items-start gap-2 rounded-xl border border-ops-border bg-ops-bg/40 px-4 py-3 text-[12px] text-ops-text-muted">
             <Info size={13} className="mt-0.5 shrink-0" />
             <span>
-              Open and click rates count only sends made after Resend tracking was switched on ({d.trackingSince ? new Date(d.trackingSince).toLocaleString() : "pending"}).
+              Open and click rates count only sends made after provider tracking was switched on ({d.trackingSince ? new Date(d.trackingSince).toLocaleString() : "pending"}).
               Lifetime: {t.lifetime.sends.toLocaleString()} sends · {t.lifetime.opens.toLocaleString()} opens · {t.lifetime.clicks.toLocaleString()} clicks. Timestamps are UTC.
             </span>
           </div>
@@ -121,7 +147,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
             </table>
           </div>
 
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-ops-text-muted">Campaigns (Resend broadcasts)</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-ops-text-muted">Campaigns (broadcasts)</h2>
           <div className="overflow-x-auto rounded-2xl border border-ops-border bg-ops-surface shadow-card">
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
@@ -137,10 +163,12 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
               </thead>
               <tbody className="divide-y divide-ops-border/50">
                 {d.campaigns.map((c) => (
-                  <tr key={c.broadcastId}>
+                  <tr key={c.broadcastId}
+                    onClick={() => setOpenCampaign({ ...c, prettyName: prettyName(c.broadcastId, c.name) })}
+                    className="cursor-pointer transition-colors hover:bg-ops-bg/40">
                     <td className="max-w-[280px] px-4 py-3">
-                      <div className="truncate font-medium text-ops-text" title={c.broadcastId}>{c.name}</div>
-                      <div className="text-[11px] text-ops-text-muted">{new Date(c.lastSeen).toLocaleDateString()}</div>
+                      <div className="truncate font-medium text-brand-blue-400" title={c.broadcastId}>{prettyName(c.broadcastId, c.name)}</div>
+                      <div className="text-[11px] text-ops-text-muted">{new Date(c.sentAt ?? c.lastSeen).toLocaleDateString()}</div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text">{c.sends.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{c.uniqueOpens.toLocaleString()}</td>
@@ -161,14 +189,7 @@ export function BrandEmail({ slug, brand, subtitle, flowLabels = {} }: {
 }
 
 function Stat({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: string; sub?: string; tone?: "good" | "warn" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
-  return (
-    <div className="rounded-2xl border border-ops-border bg-ops-surface p-3.5 shadow-card">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-ops-text-muted">{icon} {label}</div>
-      <div className={`mt-1.5 text-lg font-bold leading-none tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard icon={icon} label={label} value={value} sub={sub} tone={tone} />;
 }
 
 function BadCounts({ bounces, complaints }: { bounces: number; complaints: number }) {
@@ -217,6 +238,16 @@ export function PeptideuEmail() {
       brand="PeptideU"
       subtitle="Campaign blasts and guide funnels from the app's own send log — open rates, clicks, bounces, one tracking system across every brand."
       flowLabels={{ hair: "Hair guide funnel", metabolic: "Metabolic guide funnel", "peptide-101": "Peptide 101 funnel" }}
+    />
+  );
+}
+
+export function NorthbluEmail() {
+  return (
+    <BrandEmail
+      slug="northblu"
+      brand="North Blu"
+      subtitle="Founding-list growth and campaign email from the northblu.com site's own send instrumentation — same tracking as every other brand."
     />
   );
 }

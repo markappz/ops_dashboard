@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { StatCard as SharedStatCard } from "../components/stat";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { InlineError, hasApiError } from "../components/query-error";
 import { CostVsRevenueChart } from "../components/charts/cost-vs-revenue-chart";
@@ -43,13 +44,7 @@ interface Campaign {
 const PIE_COLORS = ["#2E5BFF", "#5C7FFF", "#9FB6FF", "#1E4FE0", "#16263E", "#0EA57A", "#D97706", "#6B7280", "#1DA1F2", "#0A66C2"];
 
 function StatCard({ label, value, sub, accent }: { label: string; value: string | number; sub?: string; accent?: boolean }) {
-  return (
-    <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card">
-      <div className="text-[11px] text-ops-text-muted font-medium uppercase tracking-[0.1em] mb-2">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight ${accent ? "text-brand-blue-500" : "text-ops-text"}`}>{value}</div>
-      {sub && <div className="text-xs text-ops-text-muted mt-1">{sub}</div>}
-    </div>
-  );
+  return <SharedStatCard label={label} value={value} sub={sub} accent={accent} />;
 }
 
 function FunnelBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
@@ -308,36 +303,38 @@ export default function Marketing() {
             <h3 className="text-sm font-semibold text-ops-text">Campaign Performance</h3>
             <p className="text-xs text-ops-text-muted mt-0.5">First-party UTM tracking</p>
           </div>
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-ops-border">
-                <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Campaign</th>
-                <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Channel</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Visitors</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Signups</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Paid</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Revenue</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Spend</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">ROAS</th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">CPA</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ops-border">
-              {campaignData!.campaigns.map((c) => (
-                <tr key={c.id} className="hover:bg-ops-surface-hover">
-                  <td className="px-5 py-3 text-sm font-medium text-ops-text">{c.name}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted">{c.channel}/{c.medium}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.visitors}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.signups}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.paid_conversions}</td>
-                  <td className="px-5 py-3 text-sm text-brand-blue-500 text-right font-medium">${parseFloat(c.revenue).toLocaleString()}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">${parseFloat(c.spend).toLocaleString()}</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.roas}x</td>
-                  <td className="px-5 py-3 text-sm text-ops-text-muted text-right">${c.cpa}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-ops-border">
+                  <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Campaign</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Channel</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Visitors</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Signups</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Paid</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Revenue</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">Spend</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">ROAS</th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ops-text-muted uppercase tracking-wider">CPA</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-ops-border">
+                {campaignData!.campaigns.map((c) => (
+                  <tr key={c.id} className="hover:bg-ops-surface-hover">
+                    <td className="px-5 py-3 text-sm font-medium text-ops-text">{c.name}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted">{c.channel}/{c.medium}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.visitors}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.signups}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.paid_conversions}</td>
+                    <td className="px-5 py-3 text-sm text-brand-blue-500 text-right font-medium">${parseFloat(c.revenue).toLocaleString()}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">${parseFloat(c.spend).toLocaleString()}</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">{c.roas}x</td>
+                    <td className="px-5 py-3 text-sm text-ops-text-muted text-right">${c.cpa}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -360,28 +357,30 @@ export default function Marketing() {
 function ChannelTable({ channels }: { channels: ChannelData[] }) {
   if (channels.length === 0) return null;
   return (
-    <table className="w-full">
-      <thead>
-        <tr className="border-b border-ops-border">
-          <th className="text-left px-4 py-2 text-xs font-medium text-ops-text-muted">Channel</th>
-          <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Users</th>
-          <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Paying</th>
-          <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Revenue</th>
-          <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Avg LTV</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-ops-border">
-        {channels.map((ch) => (
-          <tr key={ch.channel} className="hover:bg-ops-surface-hover">
-            <td className="px-4 py-2 text-sm text-ops-text font-medium">{ch.channel}</td>
-            <td className="px-4 py-2 text-sm text-ops-text-muted text-right">{ch.users}</td>
-            <td className="px-4 py-2 text-sm text-ops-text-muted text-right">{ch.paying}</td>
-            <td className="px-4 py-2 text-sm text-brand-blue-500 text-right font-medium">${parseFloat(ch.total_revenue).toLocaleString()}</td>
-            <td className="px-4 py-2 text-sm text-ops-text-muted text-right">${parseFloat(ch.avg_ltv).toFixed(0)}</td>
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-ops-border">
+            <th className="text-left px-4 py-2 text-xs font-medium text-ops-text-muted">Channel</th>
+            <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Users</th>
+            <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Paying</th>
+            <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Revenue</th>
+            <th className="text-right px-4 py-2 text-xs font-medium text-ops-text-muted">Avg LTV</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody className="divide-y divide-ops-border">
+          {channels.map((ch) => (
+            <tr key={ch.channel} className="hover:bg-ops-surface-hover">
+              <td className="px-4 py-2 text-sm text-ops-text font-medium">{ch.channel}</td>
+              <td className="px-4 py-2 text-sm text-ops-text-muted text-right">{ch.users}</td>
+              <td className="px-4 py-2 text-sm text-ops-text-muted text-right">{ch.paying}</td>
+              <td className="px-4 py-2 text-sm text-brand-blue-500 text-right font-medium">${parseFloat(ch.total_revenue).toLocaleString()}</td>
+              <td className="px-4 py-2 text-sm text-ops-text-muted text-right">${parseFloat(ch.avg_ltv).toFixed(0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

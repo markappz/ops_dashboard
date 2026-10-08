@@ -6,6 +6,7 @@
  *   PAWGEN_EMAIL_API_URL   / PAWGEN_EMAIL_TOKEN
  */
 import type { Express } from "express";
+import { computeEmailHealth } from "./email-health";
 
 const CACHE_MS = 10 * 60_000;
 
@@ -25,7 +26,8 @@ function register(app: Express, slug: string, envPrefix: string, hint: string) {
       });
       const text = await r.text();
       if (!r.ok) throw new Error(`${slug} email summary ${r.status}: ${text.slice(0, 160)}`);
-      const data = { configured: true, ...JSON.parse(text) };
+      const summary = JSON.parse(text);
+      const data = { configured: true, ...summary, health: computeEmailHealth(summary) };
       cache.set(days, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
@@ -50,6 +52,7 @@ const BLENDED_BRANDS: Array<{ slug: string; label: string; env: () => { base?: s
   { slug: "realpeptides", label: "Real Peptides", env: () => ({ base: process.env.RP_SITE_API_URL ? `${process.env.RP_SITE_API_URL.replace(/\/$/, "")}/api/ops-email-summary` : undefined, token: process.env.RP_SITE_OPS_TOKEN }) },
   { slug: "peptideu", label: "PeptideU", env: () => ({ base: process.env.PEPTIDEU_EMAIL_API_URL, token: process.env.PEPTIDEU_EMAIL_TOKEN }) },
   { slug: "pawgen", label: "pawgen", env: () => ({ base: process.env.PAWGEN_EMAIL_API_URL, token: process.env.PAWGEN_EMAIL_TOKEN }) },
+  { slug: "northblu", label: "North Blu", env: () => ({ base: process.env.NORTHBLU_EMAIL_API_URL, token: process.env.NORTHBLU_EMAIL_TOKEN }) },
 ];
 
 /**
@@ -69,7 +72,7 @@ function registerBlended(app: Express) {
       if (!base || !token) return { slug: b.slug, label: b.label, configured: false as const };
       try {
         const s = await fetchSummary(base, token, days);
-        return { slug: b.slug, label: b.label, configured: true as const, totals: s.totals, flows: s.flows ?? [], campaigns: s.campaigns ?? [] };
+        return { slug: b.slug, label: b.label, configured: true as const, totals: s.totals, flows: s.flows ?? [], campaigns: s.campaigns ?? [], health: computeEmailHealth(s) };
       } catch (e: any) {
         console.error(`[OPS][blended] ${b.slug}:`, e.message);
         return { slug: b.slug, label: b.label, configured: false as const, error: e.message };
@@ -113,4 +116,6 @@ export function registerBrandEmail(app: Express) {
     "Set PEPTIDEU_EMAIL_API_URL + PEPTIDEU_EMAIL_TOKEN (the ops-email-summary edge function) to light this up.");
   register(app, "pawgen", "PAWGEN",
     "Ops is wired and waiting — pawgen's /api/ops-email-summary isn't deployed yet. Analytics appear automatically once the pawgen repo ships its email instrumentation.");
+  register(app, "northblu", "NORTHBLU",
+    "Set NORTHBLU_EMAIL_API_URL + NORTHBLU_EMAIL_TOKEN (the site's /api/ops-email-summary) to light this up.");
 }

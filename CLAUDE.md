@@ -50,6 +50,17 @@ Internal admin dashboard for FitScript. Reads from the same RDS as the main app,
 - Cookie: `ops_session` httpOnly, signed JSON `{email, exp}` with HMAC-SHA256
 - Logout: `POST /api/ops/auth/logout` clears cookie
 
+## Facelift conventions (2026-10-02)
+- Stat tiles: ALWAYS `StatCard` from `client/src/components/stat.tsx` (count-up, delta pill,
+  sparkline, skeleton come free). Page-local stat cards are retired; new ones are a regression.
+- Nav: one section taxonomy per brand in `ops-layout.tsx`; FitScript routes exist under BOTH
+  `/` and `/fitscript/*` (keep both; aliases drive highlighting).
+- `/api/ops/version` + the layout's poll = stale-bundle refresh toast. Server bundle sha is the
+  build id — don't remove the endpoint.
+- RP flow builder: `flow-canvas.tsx` (map) + `flow-builder.tsx` (editor) over
+  `/api/ops/realpeptides/marketing/custom-flow*` proxies; engine truth lives in the
+  real-peptides repo (CustomFlow tables, drafts never send).
+
 ## Companies
 Four brands share the shell: **fitscript · peptideu · pawgen · realpeptides**. Adding one means a
 `Company` union member, a nav section + routes, and the `COMPANIES` set in `server/google-auth.ts`.
@@ -82,6 +93,15 @@ Website orders decrement stock live: `server/realpeptides-inventory.ts` polls th
 RP_ORDER_SYNC_SINCE=2026-08-26T13:00Z — never lower it). Velocity/forecast from the same feed
 (/api/ops/realpeptides/inventory-stats). POs live on the tracker (/pos): ordered qty = on-order,
 receiving stocks in. Tap any product for the mobile-friendly manage sheet.
+
+**Call Center** (`/realpeptides/call-center`, 2026-10-06) — Retell voice/chat layer; full
+runbook in CALLCENTER.md. Public signature-verified routes `/api/integrations/retell/webhook`
++ `/tools/:tool` MUST stay registered BEFORE `app.use(express.json())` (raw-body HMAC).
+Tables `cc_*` from `server/callcenter-schema.sql` at boot. Env: `RETELL_API_KEY` (+optional
+`RETELL_WEBHOOK_API_KEY`, `RETELL_TOOL_AUTH_SECRET`), `OPS_PUBLIC_BASE_URL`. Retell agent
+config ships ONLY via `scripts/retell-sync.ts` (diff→apply→rollback, snapshots gitignored) —
+never hand-edit tools/prompts in the Retell dashboard or rerun old deploy scripts. Tests:
+`createdb ops_callcenter_dev && npm test` (vitest, scratch pg, never the RDS).
 
 ## Clomark per brand
 `server/clomark.ts` maps company → Clomark business profile id (`COMPANY_BUSINESS`, override with

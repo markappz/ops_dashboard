@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Mail, Users, UserMinus, ShieldAlert, MousePointerClick, DollarSign } from "lucide-react";
 import { PageHero } from "../components/page-hero";
+import { HealthChip, type EmailHealthData } from "../components/email-health-card";
 
 /**
  * Blended email view — every brand's list health and performance in one tab,
@@ -18,6 +20,7 @@ interface BrandRow {
     sends: number; trackedSends?: number; openRate: number | null; clickRate: number | null;
     attributedOrders: number; attributedRevenueCents: number;
   };
+  health?: EmailHealthData | null;
 }
 interface Payload {
   days: number;
@@ -38,6 +41,7 @@ const BRAND_TONE: Record<string, string> = {
   realpeptides: "bg-blue-500/15 text-blue-400",
   peptideu: "bg-amber-500/15 text-amber-400",
   pawgen: "bg-orange-500/15 text-orange-400",
+  northblu: "bg-cyan-500/15 text-cyan-400",
 };
 
 export default function EmailBlended() {
@@ -91,6 +95,7 @@ export default function EmailBlended() {
               <thead>
                 <tr className="border-b border-ops-border bg-ops-bg/40 text-[11px] uppercase tracking-wider text-ops-text-muted">
                   <th className="px-4 py-3 font-medium">Brand</th>
+                  <th className="px-4 py-3 text-right font-medium">Health</th>
                   <th className="px-4 py-3 text-right font-medium">Contacts</th>
                   <th className="px-4 py-3 text-right font-medium">Unsubs</th>
                   <th className="px-4 py-3 text-right font-medium">Sends · {d.days}d</th>
@@ -106,6 +111,9 @@ export default function EmailBlended() {
                     <td className="px-4 py-3">
                       <span className={`rounded-md px-2 py-0.5 text-xs font-semibold ${BRAND_TONE[b.slug] ?? "bg-ops-bg text-ops-text"}`}>{b.label}</span>
                       {!b.configured && <span className="ml-2 text-[11px] text-yellow-500">{b.error ? "endpoint error" : "not wired"}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <HealthChip health={b.configured ? b.health : null} />
                     </td>
                     {b.configured && b.totals ? (
                       <>
@@ -174,12 +182,5 @@ export default function EmailBlended() {
 }
 
 function Stat({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; tone?: "good" | "warn" }) {
-  const color = tone === "good" ? "text-fitscript-green" : tone === "warn" ? "text-yellow-500" : "text-ops-text";
-  return (
-    <div className="rounded-2xl border border-ops-border bg-ops-surface p-3.5 shadow-card">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium text-ops-text-muted">{icon} {label}</div>
-      <div className={`mt-1.5 text-lg font-bold leading-none tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-[11px] text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard icon={icon} label={label} value={value} sub={sub} tone={tone} />;
 }

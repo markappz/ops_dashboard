@@ -281,51 +281,53 @@ function AuditTab() {
             <Link href="/email" className="text-brand-blue-500 hover:underline">Email</Link>{" "}to write the first row.
           </div>
         ) : (
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
-              <tr>
-                <th className="text-left px-5 py-3 font-medium">When</th>
-                <th className="text-left px-5 py-3 font-medium">Admin</th>
-                <th className="text-left px-5 py-3 font-medium">Action</th>
-                <th className="text-left px-5 py-3 font-medium">Target</th>
-                <th className="text-left px-5 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-ops-border">
-              {actions.map((a) => (
-                <tr key={a.id} className="hover:bg-ops-surface-hover">
-                  <td className="px-5 py-3 text-ops-text-muted text-xs">
-                    <div>{timeAgo(a.created_at)}</div>
-                    <div className="text-[10px] opacity-60">{new Date(a.created_at).toLocaleString()}</div>
-                  </td>
-                  <td className="px-5 py-3 text-ops-text text-xs">{a.admin_email}</td>
-                  <td className="px-5 py-3 text-ops-text font-medium">{formatActionType(a.action_type)}</td>
-                  <td className="px-5 py-3">
-                    <div className="text-sm text-ops-text">
-                      {a.target_label || <span className="text-ops-text-muted italic">unnamed</span>}
-                    </div>
-                    <div className="text-[10px] text-ops-text-muted font-mono">
-                      {formatTargetKind(a.target_kind)} · {a.target_id}
-                    </div>
-                  </td>
-                  <td className="px-5 py-3">
-                    {a.status === "ok" ? (
-                      <span className="text-xs font-medium text-brand-blue-500">OK</span>
-                    ) : (
-                      <div>
-                        <span className="text-xs font-medium text-red-400">Failed</span>
-                        {a.error && (
-                          <div className="text-[10px] text-red-300/70 max-w-[200px] truncate" title={a.error}>
-                            {a.error}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-ops-bg/40 text-xs uppercase text-ops-text-muted tracking-wider">
+                <tr>
+                  <th className="text-left px-5 py-3 font-medium">When</th>
+                  <th className="text-left px-5 py-3 font-medium">Admin</th>
+                  <th className="text-left px-5 py-3 font-medium">Action</th>
+                  <th className="text-left px-5 py-3 font-medium">Target</th>
+                  <th className="text-left px-5 py-3 font-medium">Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-ops-border">
+                {actions.map((a) => (
+                  <tr key={a.id} className="hover:bg-ops-surface-hover">
+                    <td className="px-5 py-3 text-ops-text-muted text-xs">
+                      <div>{timeAgo(a.created_at)}</div>
+                      <div className="text-[10px] opacity-60">{new Date(a.created_at).toLocaleString()}</div>
+                    </td>
+                    <td className="px-5 py-3 text-ops-text text-xs">{a.admin_email}</td>
+                    <td className="px-5 py-3 text-ops-text font-medium">{formatActionType(a.action_type)}</td>
+                    <td className="px-5 py-3">
+                      <div className="text-sm text-ops-text">
+                        {a.target_label || <span className="text-ops-text-muted italic">unnamed</span>}
+                      </div>
+                      <div className="text-[10px] text-ops-text-muted font-mono">
+                        {formatTargetKind(a.target_kind)} · {a.target_id}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3">
+                      {a.status === "ok" ? (
+                        <span className="text-xs font-medium text-brand-blue-500">OK</span>
+                      ) : (
+                        <div>
+                          <span className="text-xs font-medium text-red-400">Failed</span>
+                          {a.error && (
+                            <div className="text-[10px] text-red-300/70 max-w-[200px] truncate" title={a.error}>
+                              {a.error}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </>

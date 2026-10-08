@@ -4,6 +4,19 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-09-30 — Orders tile on the RP + pawgen command centers
+
+Paul: "add a box to command center that says orders" for the selected period. Both overview
+endpoints already returned current/previous `orders`; the count was buried in the Revenue tile's
+subtitle. Top rows went 4 → 5 tiles (`lg:grid-cols-5`): Orders gets its own card with a
+period-over-period Delta, a per-day rate on RP for multi-day windows, the pending count, and a
+link to the Orders tab. Revenue subtitle now carries net-vs-gross (RP) / all-time (pawgen).
+Deployed (2f5575d) and verified live — RP read 91 orders today at the time. Flagged to Paul in
+passing: 88 pending orders looked high (site's paid-but-unshipped figure, untouched by this).
+Note: ops session cookie expired mid-verify; Google OAuth re-login hit "invalid oauth state" once
+(login page served by the pre-deploy task, callback by the new one) — a second attempt went
+straight through.
+
 ## 2026-09-28 — Members page (and Dirt member tools) down: FitScript dropped Stripe columns
 
 Paul: Members tab errored ("a lot of pages are getting errors"). ECS logs (CloudWatch via a
@@ -3389,3 +3402,412 @@ hairgrowthprotocol.com, peptide101guide.com, sexualhealthguide.com), a live "sho
 readout, and the convention explainer. Pairs with the site classifier fix (realpeptides 501cdcc)
 that routes utm_medium=social → Social. Desktop reference doc also written for Paul. Build clean.
 Awaiting push go.
+
+## 2026-10-01 — Lead tiles disambiguated; pawgen attribution surfaced + Campaign Links (Autom)
+Paul/Michael: "new leads today" showed twice on RP with different numbers, and pawgen leads felt
+low/disconnected. Diagnosis: the two RP tiles are the SAME metric (marketing captures) over two
+windows — selected range vs rolling 24h — wearing one label. Relabeled: second tile is now
+"New leads · 24h · same captures · rolling last 24 hours" (pawgen overview too). pawgen's
+15-18/day IS real (queried Supabase directly: 255 leads/14d, 97% guide-magnet; 1,353 total, well
+under the 10k REST cap — ops is accurate). Half of pawgen leads are "direct/untagged" because DM
+in-app browsers strip referrers → built /pawgen/campaign-links (UTM builder like RP's guide one;
+site already captures utm_* first-touch via lib/attribution.ts) and surfaced lead attribution on
+Email ▸ Leads: By signup form / By first-touch source / By campaign bars (leads endpoint +
+fetchLeads now carry ref_source/ref_medium/ref_campaign).
+
+## 2026-10-01 later — Campaign Links point at /optin (Autom)
+Paul: "utm links need to lead to the optin pages not the actual guide pages." On the guide
+funnel sites the ROOT serves the guide itself (/optin captures, root delivers — docs/
+GUIDE-OPTIN-EMBED.md in realpeptides) — so the builder's root links were giving the guides away
+uncaptured. All four bases now /optin (verified 200 + form renders on fatlossbible). Desktop
+reference doc updated to match.
+
+## 2026-10-01 (late) — RP email: in-house engine door in ops (Resend deactivated RP's account)
+
+Resend killed the RP account tonight; the site now sends over Mailgun through its own engine
+(see realpeptides repo SESSION_LOG, commits 81f2419/26b8ad4/1609894). Ops side of the cutover:
+
+- `server/realpeptides-marketing.ts` — NEW bridge to the site's token-gated /api/ops-marketing:
+  GET segments (live counts), POST test send, and POST /api/ops/email-plans/:id/send-rp — the
+  RP send door for calendar plans. Two-step enforced server-side on BOTH ends: no confirm, no
+  send. Sent plans refuse a re-send (duplicate a new plan instead). The engine tag is stored in
+  resend_broadcast_id (column keeps its historic name) and matches EmailEvent.broadcastId on
+  the site, so the Email tab's campaign stats pick up ops sends automatically.
+- `email-calendar.tsx` — for company=realpeptides the plan editor now shows: engine segments
+  with live counts (suppressions excluded) instead of Resend audiences, a "Send test" inbox
+  field, and "Review & send" -> amber confirm bar showing the real recipient count. Other
+  brands' Push-to-Resend is untouched.
+- email-planner's Resend pull loop still warns for realpeptides every cycle (dead key, caught);
+  harmless — silence it by unsetting RESEND_API_KEY_REALPEPTIDES on ops when convenient.
+
+UX direction from Paul: the email surface should become a Klaviyo-meets-Resend hybrid
+(composer + segments + proper campaign analytics). This commit is the send plumbing; the
+composer/analytics polish is the next phase.
+
+## 2026-10-02 (overnight, cont.) — Flow review gallery + unsubscribe import
+
+Paul's hold: nothing sends until reviewed in-browser. New /realpeptides/flows (Email → Flows
+subtab): every engine flow step rendered via the bridge's exact-render endpoint in an iframe
+(hand-authored salvage badged "Josh's copy"), plus the Resend-contacts-CSV unsubscribe import
+(client parses, filters unsubscribed=true, chunks 2000/POST; set-only server-side). Proxies in
+realpeptides-marketing.ts: GET flows, POST render, POST import-unsubscribes. The site's
+FLOW_SENDS_PAUSED stays true until Paul reviews + imports, then the site repo flips it.
+
+## 2026-10-02 (pre-dawn) — Attribution, analytics-in-review, Activity, exports, Josh's MCP
+
+- Leads: recent leads now carry first-touch UTM chips (site's ops-contacts select gained
+  `capture`; chips show source/campaign, hover = full set). The data was always stored.
+- Flows review page: per-step Sends·90d + open·click columns and per-flow attributed revenue,
+  joined from the email summary — review and performance on one page.
+- /realpeptides/activity: per-contact engagement timeline (ledger events + flow sends + status
+  chips). Segments table gained per-segment CSV export.
+- server/rp-email-mcp.ts: MCP server at POST /api/mcp/rp-email (bearer RP_EMAIL_MCP_TOKEN,
+  secret rev'd by Paul → task-def rev 321, workflow_dispatch redeploy). Tools: list_segments,
+  preview_audience, create/update_campaign (DRAFTS ONLY — mass send stays human in Review &
+  send), list_campaigns, test_send, campaign_stats. Verified: 401 bare, initialize/tools/list/
+  tools/call live; preview_audience(vip)=430 matches export. Token for Josh:
+  ~/rp-email-mcp-token.txt on Paul's Mac.
+- AI composer: /email/compose?company=realpeptides saves drafts into ops_email_plans.
+
+STILL HELD: flow sends paused site-side until Paul finishes review + runs both imports on
+/realpeptides/flows and says go. Next design phase: dedicated two-pane broadcast builder.
+
+## 2026-10-02 (~2:30am PT) — Copy editor live, builder polish, calendar mobile fix
+
+- EmailOverride layer (site repo, additive migration applied via CodeBuild): enabled overrides
+  beat hand-authored salvage and code renders; 60s cache; fail-open. Bridge: override CRUD +
+  render-draft (sample values). Ops: ✏️ Edit copy on every previewable email — fork current
+  render, live draft preview, Save draft / make LIVE / Remove; step rows badge edited copy.
+  VERIFIED on prod: draft save → substituted preview → gallery stayed default → delete clean.
+- Broadcasts builder polish: numbered sections, subject/preheader char guidance, segment
+  definition + live reach (echoed on the send button), Gmail-style inbox row, Desktop/Phone
+  toggle (device frame), remembered test inbox, stat pills on Sent, 🤖 agent badges.
+- Order-confirmation sample preview in the site-email catalog (fixture-rendered).
+- date-range-picker: phone = bottom sheet w/ PINNED Apply bar (was running off-screen —
+  Paul's report); desktop footer pinned too. Shared component → all command centers fixed.
+- Mobile email audit: 21/30 salvaged docs carry their own @media blocks (byte-exact migration);
+  engine renders share emailTheme's 600px breakpoint; Phone preview = one-click mobile QA.
+
+## 2026-10-02 (~4am PT) — Facelift P0 audit + P1 flagship increment
+
+Paul greenlit the full ops facelift (his private brief; audit artifact is Paul-only — the
+makeover is a surprise for Michael/team, keep findings out of team channels). Shipped tonight:
+components/stat.tsx (CountUp, DeltaPill, Sparkline, StatCard v2 with stagger/lift) + motion
+primitives in index.css (ops-rise, ops-skeleton, reduced-motion safe) + flagship refit of the
+RP Command Center hero row (revenue/orders/AOV: count-ups, deltas, daily-series sparklines).
+Verified on the live bundle at 30d range. Next: Paul reacts to the flagship → calibrate →
+P2 IA migration per the audit. Audit headlines: 4 brands/4 nav models, unwrapped tables
+everywhere (crit), sub-36px touch targets (crit), stale-bundle toast needed, icon unification.
+
+## 2026-10-02 (morning) — Facelift P2–P6 first increments shipped
+
+Paul: "move on p2 and the rest of everything". Shipped serially (commits 19e5e62, 19a74c0,
+009c65b, 0539b47, 4b39865): P2 unified nav taxonomy across all 4 brands + /fitscript/* URL
+symmetry + 18 tables wrapped + /api/ops/version stale-bundle toast; fixes for Paul's two morning
+catches (search tile now labels its real clamped GSC window; phone date picker is a centered
+modal); P3 StatCard consolidation (kit Card + FS tiles + RP Card → one component, central
+skeletons, pawgen hero sparklines); P4 calendar v2 (Month/List views, Today, polished cells —
+send machinery untouched); P5 Dirt voice chat (auto-send on pause + spoken answers + mute
+toggle); P6 coarse-pointer hit-area expansion. P2/P3 browser-verified live (all 4 brand navs,
+19-20 StatCards/page animating, pawgen sparks). P4-P6 awaiting the tip deploy, verify next.
+
+## 2026-10-02 (~10am PT) — Facelift P2–P6 COMPLETE, all verified live
+
+Final deploy (010698f) landed and the full browser sweep passed on bundle Dqhad1i9:
+every stat tile in the app now rides the one shared StatCard (rp-leads 8, rp-affiliates 4,
+fs-marketing 4, rp-pages 5, peptideu 20 + 2 sparks, fitscript command center 20,
+pawgen-marketing 4, email/blended 6, brand-email 5, rp-traffic 4 — zero errors).
+Calendar v2, Dirt voice chat, coarse-pointer hit areas, unified nav, stale-bundle toast:
+all live and browser-verified. Deploy-watch lesson encoded: watch runs by sha
+(`gh run list --commit`), never "newest run". Facelift backlog now: Paul's calibration
+feedback, drag-to-reschedule calendar, /chat retirement (Paul's call), true-390 device pass.
+
+## 2026-10-02 (midday) — Klaviyo-style flow builder SHIPPED + E2E green
+
+Phase 1 (2bbcb9d): React Flow canvas view on /realpeptides/flows (44 nodes across engine flows,
+live stats, click-to-preview). Phase 2 (ops 2ec9b35 + RP 4b08e4d/0fde863): CustomFlow tables +
+custom flows ride the SAME engine sweep (dedupe/suppression/exit-on-purchase/copy-editor free);
+triggers optin + first-purchase + segment-oneshot (two-step, server-enforced); full-screen
+builder (trigger picker, add/reorder/delete steps, delay/subject/HTML, test sends,
+activate/pause). E2E on prod: created QA draft → saved → card correct → reopened w/ HTML
+round-trip → deleted. Caught pre-ship: list omitted step html → edit+save would wipe bodies
+(html_b64 added). Post-QA: delete button added to builder (inline confirm). Drafts never send —
+engine-level. Backlog: branch nodes, canvas drag-reorder, per-step stats on custom flows,
+subject personalization.
+
+## 2026-10-02 (afternoon) — Split node on the builder canvas (24703fb)
+
+Violet split node with YES/NO handles feeding two arm columns (green/red edges), condition
+picker (opened/clicked), one wait-before-checking on the split (arm-first steps show a note,
+not a delay input — both arms evaluate at that one moment), per-arm add/reorder, guards, and
+branch/splitOn round-tripping. Full prod E2E green incl. the new in-builder delete confirm.
+
+## 2026-10-02 (evening) — FIRST IN-HOUSE BROADCAST SENT + scheduler shipped
+
+Paul fired the first broadcast through the new engine: "The three everyone is researching
+right now" → warmup-a, 8,901/8,901 accepted, opens flowing within minutes (plan 72, tag
+ops-72-...). A "[TEST] in the subject" scare was Gmail threading the earlier test with the real
+send — plan row + HTML verified clean. Then shipped same evening: send_tz column + 60s
+scheduler loop (fires status=scheduled RP plans in their own wall clock; DST-safe string
+compare; atomic claim; >3h late = missed; failures = send_failed, no retries); fireRpPlan
+shared by click + clock; builder "Send later" (date/time/PT-MT-CT-ET) with server-counted
+two-step; post-send the builder CLEARS into a confirmation screen (count/tag/View analytics);
+.ops-warn high-contrast confirm bars. Email design: hero reworked fluid-hybrid (stacks without
+media queries — Gmail strips <style> in some contexts). Warm-up plan: B tomorrow 9am PT,
+C 4pm PT (Paul queues via Send later); gates opens >20%, complaints <0.1%.
+
+## 2026-10-02 (night) — Agent scheduling pipe LIVE; warm-up B/C queued hands-off
+
+Campaign history UX shipped (clickable campaigns → StatCards + funnel drawer; ledger full-width
+newest-first w/ Drafts sub-tab; New ESP stats window on Flows; sub-10% rates show decimals —
+"0% click" was 0.47% rounding, clicks/tagging were always correct; orders attribute over 7d).
+Flow "no sends yet" scare = failed stats fetch cached as success → now throws+retries; flows
+verified sending 2,463/day. AGENT PIPE: OPS_AUTOMATION_TOKEN (task-def rev 354, Paul staged)
+authorizes plan create/read/update ONLY; scripts/schedule-campaign.mjs; Josh's MCP gains
+schedule_campaign; BOTH enforce a server-side 2h veto window on the plan's own wall clock.
+Paul granted the Bash allow rule. First hands-off campaigns: plans 73 (warmup-b, 10-03 09:00
+PT) + 74 (warmup-c, 16:00 PT) scheduled by automation:claude, visible in Drafts & scheduled.
+Warm-up A day-1: 26.5% open, 45 clicks, 4 bounces, 0 complaints — gates passing.
+
+## 2026-10-04 — open-180d failure → chunk fix + never-again package
+
+Scheduled plan 76 (GH-axis pt2 → open-180d 33.3k) FAILED at 10:00 fire: Postgres 32,767
+bind-variable cap — resolveBroadcastAudience passed every member email as a bind var; 180d was
+the first segment over the cap (warm-ups 9k + open-60d 27k slid under). Rails worked: claim →
+instant fail → send_failed, ZERO sends (verified against raw Mailgun events). Fix: 20k-chunked
+IN queries (RP f64fdce); preview re-proved live at 33,592 in 2.9s. NEVER-AGAIN (ops): schedule-
+time preflight in the agent script + Josh's MCP (resolve the real audience at queue time;
+failures revert to draft); send_failed/missed plans EMAIL Paul a red alert through the engine
+pipe; red attention banner on Broadcasts; automation bearer = preview-only on send-rp (confirm
+→ 403). Paul fires plan 75 (re-pointed to open-180d) manually — human clicks have no veto rail.
+Warm-up ramp totals pre-rung-4: ~28k sends, 46-49% opens, 0 complaints, $6.3k/22 orders.
+
+## 2026-10-05 — Full email-suite sweep + fixes (Autom)
+Paul: "all of them need to have no glitches." Swept all 17 surfaces (pawgen/PU/RP email,
+broadcasts, audience, activity, compose, RP flows, both Leads, blended) in-browser. Found+fixed:
+(1) audience/activity crashed on engine brands — brand engines didn't emit the RP contact-row
+contract; pawgen (3818fbb) + PU fn now emit {firstName, segments[], createdAt, counters}, client
+nullish-guarded (459796b). (2) /peptideu/leads built (f4ec302): guide_leads via peptidePool,
+converted = has profiles row; Leads page parameterized per brand. (3) compose brand-profile
+auto-pick raced the global default (b027f9e) — and the real gap was data: only FitScript existed.
+Created pawgen/PeptideU/Real Peptides brand profiles in ops (colors/voice/footer from the real
+brand tokens; pawgen voice encodes the HEAL15 15% standing offer). Verified: auto-pick works both
+brands; blended renders grades RP A·99 / PU C·75 / pawgen C·73 over $323K attributed revenue.
+Lesson re-learned: "load every page in the browser before handover" means EVERY page.
+
+### 2026-10-06 — Real Peptides Call Center tab (Retell) — BUILT + LOCALLY VERIFIED, NOT pushed
+
+Paul: "I need a call center tab built for real peptides" + Joshua's implementation prompt
+(~/Downloads/PAUL-CALL-CENTER-IMPLEMENTATION-PROMPT.md) + Retell API key (in .env, never committed).
+Full runbook: CALLCENTER.md. Everything on main (uncommitted working tree this session).
+
+Built: cc_* schema (server/callcenter-schema.sql, boot-applied); webhook receiver
+(callcenter-webhook.ts — raw-body BEFORE express.json, retell-sdk HMAC verify, agent allowlist,
+durable inbox→2xx); worker (callcenter-worker.ts — 10s inbox loop w/ claim-by-UPDATE, field-level
+monotonic guards for dupes/out-of-order/end-without-start, analysis→queue routing that never
+reopens staff outcomes or duplicates live-tool saves, 10m reconcile w/ watermark+overlap, resumable
+backfill, optional CC_RETENTION_DAYS scrub); 9 live tools (callcenter-tools.ts — per-agent
+server-side capability map, idempotent receipts via cc_tool_calls, verification grants bound to
+conversation+order+expiry w/ attempt limits, honest unavailable states); commerce adapters
+(callcenter-commerce.ts — public /api/search = price/stock authority w/ bromatane→Bromantane +
+letter-spelling matcher; ops-orders/ops-wholesale token feeds; existing-quote matcher so known
+partners never re-enter as leads); staff API (callcenter.ts); UI pages client/src/pages/callcenter/*
+(Overview/Conversations+detail/Follow-ups/Wholesale/Settings&health behind SubTabs, new Support nav
+section + phone icon); RBAC grant realpeptides:call-center; Retell IntegrationSpec; config sync
+scripts/retell-sync.ts (export/diff/apply/rollback, ops_cc_ namespaced tools merged into
+general_tools preserving end_call/agent_swap, marked prompt block, refuses to clobber foreign
+webhook URLs; snapshots gitignored).
+
+Verified: tsc clean; vite+esbuild build clean; vitest 21/21 (scratch pg ops_callcenter_dev —
+signature valid/wrong-key/replay, inbox dedupe/out-of-order, staff-edit preservation, live-tool
+suppression, dead-letter after 5, allowlist incl. spoofed-args case, idempotent create-followup,
+verification gating+rate-limit, declined-contact respected, product matching); live local run on
+:5005 w/ signed seed fixtures — webhooks 204, wholesale inquiry receipt, search-products returned
+live Bromantane price from realpeptides.co; browser-verified all 5 pages via LAN IP (Chrome is on
+the laptop — localhost unreachable from it), exercised assign-owner + no-answer attempt (state →
+in_progress, task NOT closed); retell-sync diff dry-run against the live workspace printed the
+correct per-agent plan (8 agents draft v0, 0 phone numbers — public line still Google Voice).
+
+Deps added: retell-sdk ^6.1.1 (verifier/signer), vitest ^3 (dev) + "test" script.
+
+NEXT (gated on Paul): (1) push-go → deploy; FIRST add RETELL_API_KEY + OPS_PUBLIC_BASE_URL to
+prod/ops-secrets AND task-def secrets list; (2) after live: npx tsx scripts/retell-sync.ts apply,
+test-call each agent, flag tests, run backfill; (3) decisions: phone port into Retell (nothing
+automated), CC_VERIFY_WEBHOOK_URL once RP email engine ships transactional hook, SMS provider,
+Twilio for browser dialer. Hades doesn't exist anywhere — sales_recovery queue stands in.
+**Deployed 2026-10-06 (Paul: "push go"):** 404534b pushed, Deploy run 37502473761 green 17:22Z;
+live-verified: served bundle index-CY13zztA.js carries Call Center, webhook/tools answer 503
+(Retell not configured — correct until key injected), callcenter health 401 unauth.
+BLOCKED FOR CLAUDE (classifier: Secret-Store Writes + Production Deploy): merging RETELL_API_KEY +
+OPS_PUBLIC_BASE_URL into prod/ops-secrets and adding the task-def secret ref/env. Paul does this
+(console or `!`), then roll the service; webhook flips 503→401. Then:
+npx tsx scripts/retell-sync.ts diff → apply; test-call agents; backfill.
+
+## 2026-10-06 — Flows tab generalized to pawgen + PeptideU (commit 2911eee, LOCAL — not pushed)
+
+realpeptides-flows.tsx → email-flows.tsx with a company prop; FlowBuilder posts to
+/api/ops/:company/marketing/custom-flow; query keys carry the company; RP's
+rp-test-inbox localStorage key kept (other brands get ops-test-inbox-<company>).
+UnsubImport (Resend salvage tooling) stays RP-only. brand-engines.ts: pawgen+peptideu
+declare flows/overrides/custom-flows (their engines serve the contract as of today —
+pawgen 4eb91c7, peptideu 0f295d0). Flows subtab + routes for both brands; flows added
+to the pawgen/PU nav alias list. Server proxy routes were ALREADY company-generic with
+capGate — zero server route changes. ⚠️ render stays gated by custom-flows (both brands
+declare it, so no behavior gap). tsc clean, build green. Push only after both brand
+engines are deployed, or the tab 501s/404s against live engines.
+**Enablement completed 2026-10-06 ~18:30Z (Paul ran the gated steps):** Paul merged-via-Claude
+RETELL_API_KEY + OPS_PUBLIC_BASE_URL into prod/ops-secrets (49 keys) and ran the task-def
+register+roll via `!` (revision 371). Webhook flipped 503→401 (5 consecutive checks). Schema-copy
+bug found live (prod image ships dist/ only → cc_ tables never created; "relation does not exist"
+in UI) → build now cps both .sql files into dist (a2be748, run 37509750667 green; fresh-DB boot
+test printed "Call Center tables verified", 11 tables). retell-sync APPLIED + verified: all 8 LLMs
+carry ops_cc_ tools + prompt block (end_call/agent_swap intact), all 8 agents webhook'd; snapshots
+pre/post in scripts/retell-snapshots/. LIVE E2E: API test chat with the chat desk → agent called
+ops_cc_search_products on prod and quoted Bromantane $120/100mg from the live catalog; chat ended;
+reconcile imported it + Joshua's Oct-5 test calls (med-spa decline etc.) with summaries; flagged my
+test chat as test session in prod UI. Cross-terminal note: pull --rebase collided with the Flows
+terminal's 2911eee (my earlier SESSION_LOG commit had swept their uncommitted log text — shared
+checkout); resolved by restoring their paragraph as its own commit (33bf0df). REMAINING (Paul):
+publish agent versions + phone porting, CC_VERIFY_WEBHOOK_URL when RP email engine ships, SMS
+provider, Twilio dialer. This log entry committed locally — push with next deploy go.
+
+## 2026-10-06 (later) — Flows generalization LIVE
+My 2911eee was rebased into the call-center seat's stack (content verified intact, zero
+diff) and deployed 18:14Z; my push 9346091 was just the log commit. Prod JS verified
+carrying the pawgen/flows route. Both brand engines + crons live before ops — order held.
+
+### 2026-10-06 — Order-verification email 2FA wired to the RP engine (Josh's handoff) — COMMITTED, awaiting push go
+Josh's RP-CALL-CENTER-EMAIL-HANDOFF-FOR-PAUL.md. Ops side: keyed-HMAC code hashes
+(CC_VERIFY_HASH_SECRET→OPS_SESSION_SECRET fallback), single-use atomic consumption, supersede,
+60s cooldown, 3/hr per order+recipient caps, delivery_status/provider_message_id on
+cc_verifications, generic no-enumeration replies (masked hint removed from agent responses),
+adapter+ping default to {RP_SITE_API_URL}/api/ops-transactional with RP_SITE_OPS_TOKEN — ZERO new
+prod secrets. Health now separates configured/reachable/lastSend/lastConfirmedDelivery. Site side
+(real-peptides repo, committed there): /api/ops-transactional route (authoriseOps, ping + strict
+validation, no caller-chosen content), sendOrderVerificationCodeEmail sender (override-aware,
+returns messageId; transport files untouched — SES WIP frozen by other terminal), alias
+order-verification-code + catalog/sample rows. Tests: ops 26/26 (happy path w/ code captured in
+transit, enumeration, cooldown+supersede, attempt lock, provider failure, per-order cap); site
+1013/1013 + tsc clean (local next build fails only on storefront static export — no DB from this
+network; CI gates it). DEPLOY ORDER: site FIRST, then ops. Retell NOT touched (agents published
+10-06 by Josh; no prompt change needed — tool messages carry the new wording). E2E after deploys:
+code to a staff test order inbox (order 112 = josh), verify receipt, flag session as test.
+**2FA live E2E 2026-10-06 evening:** site 28e3a28 deployed (run 37537242450 green; /api/ops-transactional
+404→401 unauth = live + token-gated); ops health verification {configured:true, reachable:true} —
+authenticated ping green. Live support-chat test: Grace triggered start-order-verification for
+"order 112" → correct generic no-enumeration reply; lastSend stayed null because 112 doesn't exist —
+real refs are RP-XXXXXXXX hex. Matcher fixed (cfa477d, 27/27 tests): alphanumeric compare, optional
+RP prefix, exact-equality only. Awaiting push-go for cfa477d. Inbox-receipt E2E = Josh's ask #1:
+verify one of his own orders on a test call, confirm the code lands, flag session as test. No staff
+orders exist in the 365d feed to do it without him.
+**Matcher fix deployed 2026-10-06 22:2xZ (Paul: "push"):** 8fca4be, run 37540235362 green, webhook
+stable 401 post-roll. 2FA fully live both sides. Deliberately NOT live-tested with a real ref —
+any real order would email a real customer; spoken-format matching is test-covered (27/27).
+Remaining on Josh: inbox-receipt E2E with his own order + agent test calls; remaining on Paul:
+phone port + publish routing, SMS, dialer. Log entry committed locally, rides next push.
+
+## 2026-10-06 — "Today" range frozen in long-lived tabs (Paul report, PeptideU)
+- Symptom: PeptideU Command Center "Today" showed data not unique to today. PU database verified fresh (per-day counts distinct; 11 signups today) — serving-layer bug, not data.
+- Root cause: useDateRange resolves presets to fixed instants ONCE at mount; minute refetches replay that frozen from/to forever. Every to-date preset (Today/7d/MTD/…) drifts in an always-open tab, all brands.
+- Fix 8dd1d26 (LOCAL, tsc + build green): liveRange() re-resolves presets at query time (minute-quantized); new rangeKey() keys react-query on the selection so no skeleton flash; 7 pages converted; pruneCache() evicts the five window-keyed server caches that would otherwise grow a key per minute.
+- Interim workaround on current prod bundle: refreshing the tab re-resolves the preset correctly.
+- Dev-boot note: `npm run dev` hung pre-listen in this sandbox (RDS connect) — verification = tsc, prod build, and a date-fns simulation of old vs new window resolution. Browser-verify on the live bundle post-deploy per standing rule.
+- Deploy: rides the next ops deploy together with the pawgen dropper stock-consume fix (a461f80/6147e17, other seat, time-sensitive).
+
+### 2026-10-06 — agent_swap handoff 403 fix (Josh's RP-WHOLESALE-403-FIX doc) — committed, awaiting push go
+BIG CONTEXT CHANGE: +1 833-698-6936 is LIVE in Retell, agents PUBLISHED (FD V3, wholesale V1) —
+Josh is phone-testing. Root cause VERIFIED from Retell get-call on both failing calls
+(call_798ca0ff… wholesale intake, call_68e534ce… support verification): Retell keeps one call
+across agent_swap and the signed custom-function envelope carries the call's ORIGINAL agent_id —
+the wholesale LLM invoked ops_cc_create_wholesale_inquiry (only its engine registers it) while
+the envelope still said front desk → my per-agent capability check 403'd. NOT the email adapter.
+Fix: effectiveCapabilities() = entry agent's tools ∪ swap-reachable agents' (server-side
+HANDOFF_GRAPH mirroring the voice agent_swap tools; chat agents never swap, so chat scoping is
+unchanged; unknown agents + spoofed args still 403; send-requested-resource still granted to no
+one). Tests 28/28 incl. both live-call reproductions. retell-sync confirmed safe for Josh's
+tuning: it only writes general_tools/general_prompt/webhook_url, preserves agent_swap version
+pins verbatim, never touches model/voice/speech. NOTE health phone tile flips to connected
+automatically (listPhoneNumbers is live).
+**Handoff fix deployed 2026-10-06 23:30Z (Paul: "push"):** fcb0e33 live. ⚠️ GH run 37546563002
+shows FAILED but that's a false negative — two deploys raced, the action lost its deployment id
+("not found after stabilization"); ECS PRIMARY completed with image fcb0e33… (task-def rev 377),
+behaviorally verified: signed front-desk envelope on get-order-status → 200 verification_required
+(was 403). Do NOT redeploy to "fix" the red run. Josh unblocked: FD→wholesale intake + FD→support
+verification both authorize; he retests by phone and flags sessions as tests.
+
+### 2026-10-06 — BRANDMAXXER rebrand of the ops shell (Paul + partner) — committed, awaiting push go
+Shell renamed FitScript Ops → BRANDMAXXER (OPS chip kept as-is; the four brand workspaces inside
+keep their names). Direction iterated live with Paul: started with XX-as-infinity loop monograms
+(spec sheet artifact 3PcJjT3d292w3gMAXqrtzA, v2), Paul pulled back to PURE TYPE — Archivo Black
+wordmark with the XX slightly larger, tracked tight and text-stroke-thickened (components/
+brand-logo.tsx: BrandWordmark/BrandXX/BrandLogo). Applied: sidebar lockup (ops-layout),
+login hero, index.html title "BRANDMAXXER Ops" + Archivo Black font + inline-SVG favicon
+(dark tile, bold double-X strokes — no loops). fitscript-logo-white.png left on disk,
+unreferenced. tsc + build + 28/28 tests green. NOT browser-verified locally (Chrome on the
+laptop refused LAN nav tonight — worked this morning; don't rabbit-hole rule) → verify the
+served bundle in prod browser right after deploy per standing rule.
+**Deployed 2026-10-07 02:3xZ (Paul: "i love it. push it!"):** a72a5cf live, run 37562018866 green;
+browser-verified on prod — sidebar BRANDMAXXER lockup w/ heavier XX + OPS chip, tab title
+"BRANDMAXXER Ops", Archivo Black served, favicon tile live. Brand spec/archive artifact:
+3PcJjT3d292w3gMAXqrtzA (v3 = final on top). Log committed locally, rides next push.
+
+### 2026-10-07 — BRANDMAXXER rebrand sprint complete (all deployed + browser-verified)
+Iterated live with Paul across 4 deploys: a72a5cf type-only wordmark → 4999978 stacked twin-loops
+→ 3e5f43a loops sized up + CENTERED over wordmark (final lockup; gradient infinity XX 18px
+sidebar/22px login, favicon keeps bold plain-XX tile) → c90c1af Workspace switcher facelift
+(eyebrow, per-brand monogram tiles FS/PU/PW/RP/NB in own hues, tinted+ringed active state) →
+e0d2836 Real Peptides takes the full-width row (label truncated in half-column). All verified on
+served bundles in Paul's browser; final bundle index-b7ncPC4c.js. Brand spec/archive artifact:
+3PcJjT3d292w3gMAXqrtzA (v6 = final on top, exploration archived). Partner = source of the
+BRANDMAXXER name/direction.
+
+### 2026-10-07 — Finance system Phase 1 (Paul + Michael ask) — committed, awaiting push go
+Per-brand Financials tabs (all 5 brand sidebars, Finance section) + MASTER roll-up at
+/admin/financials. ops_finance_entries (cents; kinds expense/revenue/retainer; recurring monthly
+expansion in SQL — retainers count once per covered month). Access model STRICTER than admin:
+finance:master (seed FINANCE_MASTER_EMAILS env, default paulclotar@gmail.com — Paul grants
+Michael in Settings→Team; master link renders only for masters) and finance:entry (Josh/Justin/
+CFO Mike Burnett: view brands, add, edit-own; no cross-brand). Enforced server-side in every
+route incl. summary?brand=all and entries?brand=all; admins WITHOUT the grant get 403 by design.
+Dirt tools: add_finance_entry + finance_summary (grant-checked per call — Dirt never widens
+access). Grants in PERMISSION_CATALOG/ROUTES. v1 revenue = tracked entries only; per-brand live
+sales auto-join = next pass (honest copy everywhere). E2E on scratch pg: master add/summary,
+entry-level add OK + master-summary 403 + delete 403; allowlist-cache warm quirk only for
+SQL-inserted test users. NEXT PHASES: brand sales auto-join; team activity tab (work systems of
+record: ops_admin_actions, tasks, change requests, tickets, GitHub commits/PRs per person — NOT
+terminal surveillance).
+**Deployed 2026-10-07 ~21:00Z (Paul's go via "i'm not seeing finance tab" + "let's push"):**
+24dd756..39be36c live, run 37684743882 green, bundle index-K178-V_6.js. Browser-verified on prod:
+calendar panel left-anchors on /fitscript (was left:-193px off-screen — measured live before fix);
+Master Financials link renders for paulclotar (master seed); pawgen leads off the 1000 pin →
+REAL total 1,476 (today 17 / week 143 — 476 leads had been invisible). Local preview for Paul ran
+on :5005 w/ scratch data. NOTE: reverra brand work seen UNCOMMITTED in this checkout (another
+seat's lane — reverra-site.ts + use-company/google-auth/pages/tracking/index edits + touches to
+finance files); my commits staged file-specific to avoid sweeping it. Paul still to grant
+Michael finance:master + entry grants for Josh/Justin/Mike Burnett in Settings → Team.
+
+## 2026-10-07 (later) — Reverra added as 6th brand (committed c21a62f, NOT pushed)
+
+Reverra = new D2C peptide oral-strip brand, 49% under BRANDMAXXER (partner repo
+alfredintel/reverra-d2c-store, cloned to ~/Projects/reverra, dev on :3001).
+
+- Company union + switcher tile (RV, hue 164,38,68) — 6 brands makes the 2-col grid
+  even, so RP's full-width lastOdd row is naturally gone (layout stays clean).
+- REVERRA_NAV_SECTIONS: Overview / Traffic / SEO / Finance / Integrations. Orders nav
+  deferred (no dead links) until the store grows /api/ops-orders.
+- server/reverra-site.ts: proxies store's token-gated /api/ops-summary (same contract
+  as RP's). Env REVERRA_SITE_API_URL + REVERRA_SITE_OPS_TOKEN; unset → configured:false.
+- pages/reverra-overview.tsx on the command-center kit (pawgen-style Sales row,
+  GA4/GSC connect-state tiles, DailyBars + Breakdown panels).
+- Allowlists: google-auth, email-planner, pages SITE_ROOTS, finance (+client lists),
+  dirt tool description, tracking ORIGIN_SITE (+ reverrahealth.com, confirmed from
+  the product packaging QR, both apex and www).
+- Store side: reverra repo commit d4df52a adds /api/ops-summary (Bearer OPS_API_TOKEN).
+- Verified E2E in browser on :5002 (scratch ops_dev_scratch pg, seeded dev admin):
+  sandbox order RV-2026-0001 → $174 revenue / 1 order / backlog 1 / Glow top product.
+  tsc --noEmit clean. Dev-start gotcha: email-scheduler import runs before
+  dotenv/config, so cold `npm run dev` needs env exported (set -a; source .env).
+
+**Pending Paul:** push approval (ops deploy), then a setup-reverra-env.mjs secrets
+pass when the store has a prod URL + prod OPS_API_TOKEN. GA4/GSC connect waits on
+the Google account decision; Clomark business profile + pixel at relaunch.

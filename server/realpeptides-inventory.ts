@@ -196,6 +196,40 @@ export async function velocityBySku(windows: number[]) {
   return data;
 }
 
+/** Authenticated tracker call that returns parsed JSON (throws on non-2xx). */
+async function trackerJson(path: string, init?: RequestInit): Promise<any> {
+  const cfg = trackerCfg();
+  if (!cfg) throw new Error("tracker not configured");
+  const r = await fetch(`${cfg.base}/api${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json", ...(init?.headers as Record<string, string>) },
+    signal: AbortSignal.timeout(30_000),
+  });
+  const raw = await r.text();
+  let j: any = {};
+  try { j = raw ? JSON.parse(raw) : {}; } catch { j = { error: raw.slice(0, 120) }; }
+  if (!r.ok) throw new Error(j.error || `tracker ${r.status}`);
+  return j;
+}
+
+/**
+ * Discard a closed-short PO. The tracker refuses to delete a 'received' PO
+ * outright ("cancel instead"), so we cancel it first, then delete; if the
+ * tracker still declines the delete, the PO stays cancelled — either way it
+ * stops counting as on-order.
+ */
+async function discardEmptyPo(po: any, by: string): Promise<{ po_id: number; deleted: boolean; cancelled: boolean }> {
+  const poId = Number(po.id);
+  const open = po.status === "draft" || po.status === "ordered";
+  if (!open && po.status !== "cancelled") await trackerJson(`/pos/${poId}`, { method: "PATCH", body: JSON.stringify({ status: "cancelled", by }) });
+  try {
+    await trackerJson(`/pos/${poId}`, { method: "DELETE" });
+    return { po_id: poId, deleted: true, cancelled: !open };
+  } catch {
+    return { po_id: poId, deleted: false, cancelled: true };
+  }
+}
+
 async function ensurePoLotTable() {
   await pool.query(`CREATE TABLE IF NOT EXISTS rp_po_lots (
     po_id integer NOT NULL,
@@ -254,6 +288,28 @@ export function registerRpInventoryRoutes(app: Express) {
       res.json({ configured: true, lastSync, wholesaleSync: lastWholesaleSync, pawgenSync: lastPawgenSync, ...(await velocityBySku(windows.sort((a, b) => a - b))) });
     } catch (e: any) {
       res.json({ configured: true, lastSync, wholesaleSync: lastWholesaleSync, pawgenSync: lastPawgenSync, error: e.message, bySku: {} });
+    }
+  });
+
+  /**
+   * Delete a purchase order that never took stock (SUM of received_qty is 0),
+   * whatever its status. Draft/ordered POs delete straight through; a
+   * closed-short 'received' PO is cancelled first, then deleted. POs with any
+   * receipts are refused — those must be cancelled, not deleted.
+   */
+  app.delete("/api/ops/realpeptides/inventory/pos/:id", async (req, res) => {
+    const poId = parseInt(req.params.id, 10);
+    if (!Number.isInteger(poId) || poId <= 0) return res.status(400).json({ error: "Bad PO id." });
+    if (!trackerCfg()) return res.status(503).json({ error: "COA tracker not configured." });
+    try {
+      const { pos } = await trackerJson("/pos");
+      const po = (pos ?? []).find((p: any) => Number(p.id) === poId);
+      if (!po) return res.status(404).json({ error: `PO #${poId} not found.` });
+      const received = (po.items ?? []).reduce((a: number, i: any) => a + Number(i.received_qty ?? 0), 0);
+      if (received > 0) return res.status(409).json({ error: "PO has received stock — cancel it, don't delete." });
+      res.json(await discardEmptyPo(po, (req as any).adminEmail || "unknown"));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
     }
   });
 

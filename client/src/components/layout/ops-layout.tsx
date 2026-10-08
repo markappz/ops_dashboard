@@ -2,104 +2,185 @@ import { Link, useLocation } from "wouter";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { useTheme } from "../../hooks/use-theme";
 import { useCompany, type Company } from "../../hooks/use-company";
-import logoWhite from "../../assets/fitscript-logo-white.png";
+import { BrandLogo } from "../brand-logo";
 import { Dirt } from "../dirt/Dirt";
 
 type NavItem = { path: string; label: string; icon: string };
 type NavSection = { label: string; items: NavItem[] };
 
-const COMPANY_ROOTS = new Set(["/", "/peptideu", "/pawgen", "/realpeptides"]);
+const COMPANY_ROOTS = new Set(["/", "/fitscript", "/peptideu", "/pawgen", "/realpeptides", "/northblu", "/reverra"]);
+let ALL_ALIASES: Record<string, string> = {};
 
 // Consolidated nav (2026-09-16): these URLs still route, but live as sub-tabs
 // inside a merged sidebar entry — highlight that entry, not nothing.
 const NAV_ALIASES: Record<string, string> = { "/peptideu/content": "/peptideu/seo", "/peptideu/pages": "/peptideu/seo" };
 for (const b of ["realpeptides", "pawgen"]) {
-  NAV_ALIASES[`/${b}/traffic`] = `/${b}/marketing`;
   NAV_ALIASES[`/${b}/content`] = `/${b}/seo`;
   NAV_ALIASES[`/${b}/pages`] = `/${b}/seo`;
-  NAV_ALIASES[`/${b}/leads`] = `/${b}/email`;
 }
+// RP's email suite pages highlight the Email entry (Audience/Leads/Activity have their own).
+for (const sub of ["flows", "broadcasts", "compose"]) {
+  NAV_ALIASES[`/realpeptides/${sub}`] = "/realpeptides/email";
+}
+// Call Center sub-tabs highlight the one Call Center entry.
+for (const sub of ["conversations", "follow-ups", "wholesale", "settings"]) {
+  NAV_ALIASES[`/realpeptides/call-center/${sub}`] = "/realpeptides/call-center";
+}
+// pawgen/PeptideU email suites (engine generalization): everything highlights their one
+// Email nav entry — these brands have no separate Audience/Activity sidebar items.
+for (const b of ["pawgen", "peptideu"]) {
+  for (const sub of ["flows", "broadcasts", "audience", "activity", "compose"]) {
+    NAV_ALIASES[`/${b}/${sub}`] = `/${b}/email`;
+  }
+}
+// North Blu (waitlist brand, 2026-10-06; flows added 10-07): full email suite.
+for (const sub of ["broadcasts", "flows", "audience", "activity", "compose"]) {
+  NAV_ALIASES[`/northblu/${sub}`] = "/northblu/email";
+}
+NAV_ALIASES["/northblu/pages"] = "/northblu/seo";
+// Reverra (D2C peptide strips, 2026-10-07): SEO sub-tabs under one entry.
+NAV_ALIASES["/reverra/pages"] = "/reverra/seo";
+NAV_ALIASES["/reverra/content"] = "/reverra/seo";
+// PeptideU's Leads lives under Email too (pawgen has its own sidebar entry).
+NAV_ALIASES['/peptideu/leads'] = '/peptideu/email';
 
 const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/peptideu", label: "Overview", icon: "grid" }] },
   {
-    label: "PeptideU",
+    label: "Customers",
     items: [
-      { path: "/peptideu", label: "Overview", icon: "grid" },
-      { path: "/peptideu/email", label: "Email", icon: "mail" },
       { path: "/peptideu/members", label: "Members", icon: "users" },
       { path: "/peptideu/requests", label: "Requests", icon: "file-text" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/peptideu/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/peptideu/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/peptideu/seo", label: "SEO", icon: "file-text" }] },
+  {
+    label: "Community",
+    items: [
       { path: "/peptideu/moderation", label: "Moderation", icon: "shield" },
-      { path: "/peptideu/drawing", label: "Drawing", icon: "gift" },
       { path: "/peptideu/questions", label: "Questions", icon: "chat" },
+      { path: "/peptideu/drawing", label: "Drawing", icon: "gift" },
       { path: "/peptideu/features", label: "Features", icon: "zap" },
       { path: "/peptideu/curriculum", label: "Curriculum", icon: "file-text" },
       { path: "/peptideu/ap", label: "AP Class", icon: "clipboard" },
       { path: "/peptideu/library", label: "Library Updates", icon: "flask" },
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
-      { path: "/peptideu/traffic", label: "Site Traffic", icon: "chart" },
-      { path: "/peptideu/seo", label: "SEO", icon: "file-text" },
-      { path: "/peptideu/integrations", label: "Integrations", icon: "link" },
     ],
   },
+  { label: "Finance", items: [{ path: "/peptideu/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/peptideu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const PAWGEN_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/pawgen", label: "Overview", icon: "grid" }] },
+  { label: "Sales", items: [{ path: "/pawgen/orders", label: "Orders", icon: "package" }] },
+  { label: "Customers", items: [{ path: "/pawgen/leads", label: "Leads", icon: "funnel" }] },
+  { label: "Email", items: [{ path: "/pawgen/email", label: "Email", icon: "mail" }] },
   {
-    label: "pawgen",
+    label: "Marketing",
     items: [
-      { path: "/pawgen", label: "Overview", icon: "grid" },
-      { path: "/pawgen/email", label: "Email", icon: "mail" },
-      { path: "/pawgen/orders", label: "Orders & Refunds", icon: "package" },
-      { path: "/pawgen/marketing", label: "Marketing", icon: "chart" },
-      { path: "/pawgen/seo", label: "SEO", icon: "file-text" },
-      { path: "/pawgen/integrations", label: "Integrations", icon: "link" },
+      { path: "/pawgen/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/pawgen/campaign-links", label: "Campaign Links", icon: "link" },
+      { path: "/pawgen/traffic", label: "Traffic", icon: "chart" },
     ],
   },
+  { label: "SEO", items: [{ path: "/pawgen/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/pawgen/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/pawgen/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const NORTHBLU_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/northblu", label: "Overview", icon: "grid" }] },
+  { label: "Email", items: [{ path: "/northblu/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/northblu/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/northblu/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/northblu/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/northblu/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const REVERRA_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/reverra", label: "Overview", icon: "grid" }] },
+  // Orders tab lands with the store's /api/ops-orders feed (post-relaunch);
+  // until then sales tiles on the Overview carry the order counts.
+  { label: "Marketing", items: [{ path: "/reverra/traffic", label: "Traffic", icon: "chart" }] },
+  { label: "SEO", items: [{ path: "/reverra/seo", label: "SEO", icon: "file-text" }] },
+  { label: "Finance", items: [{ path: "/reverra/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/reverra/integrations", label: "Integrations", icon: "link" }] },
 ];
 
 const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/realpeptides", label: "Overview", icon: "grid" }] },
   {
-    label: "Real Peptides",
+    label: "Sales",
     items: [
-      { path: "/realpeptides", label: "Overview", icon: "grid" },
       { path: "/realpeptides/orders", label: "Orders", icon: "package" },
-      { path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" },
-      { path: "/realpeptides/email", label: "Email", icon: "mail" },
       { path: "/realpeptides/wholesale", label: "Wholesale", icon: "users" },
-      { path: "/realpeptides/paid", label: "Paid", icon: "megaphone" },
-      { path: "/realpeptides/affiliates", label: "Affiliates", icon: "users" },
-      { path: "/realpeptides/marketing", label: "Marketing", icon: "chart" },
-      { path: "/realpeptides/seo", label: "SEO", icon: "file-text" },
-      { path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" },
       { path: "/realpeptides/inventory", label: "Inventory", icon: "package" },
       { path: "/realpeptides/purchase-orders", label: "Purchase Orders", icon: "clipboard" },
-      { path: "/realpeptides/integrations", label: "Integrations", icon: "link" },
     ],
   },
-];
-
-const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Overview",
-    items: [{ path: "/", label: "Command Center", icon: "grid" }],
+    label: "Support",
+    items: [{ path: "/realpeptides/call-center", label: "Call Center", icon: "phone" }],
   },
   {
     label: "Customers",
     items: [
-      { path: "/leads", label: "Leads", icon: "funnel" },
-      { path: "/members", label: "Members", icon: "users" },
-      { path: "/orders", label: "Orders", icon: "package" },
-      { path: "/labs", label: "Labs", icon: "flask" },
-      { path: "/supplements", label: "Supplements", icon: "pill" },
+      { path: "/realpeptides/audience", label: "Audience", icon: "users" },
+      { path: "/realpeptides/leads", label: "Leads", icon: "funnel" },
+      { path: "/realpeptides/activity", label: "Activity", icon: "chart" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/realpeptides/email", label: "Email", icon: "mail" }] },
+  {
+    label: "Marketing",
+    items: [
+      { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/realpeptides/paid", label: "Paid", icon: "dollar" },
+      { path: "/realpeptides/campaign-links", label: "Campaign Links", icon: "link" },
+      { path: "/realpeptides/affiliates", label: "Affiliates", icon: "users" },
+      { path: "/realpeptides/traffic", label: "Traffic", icon: "chart" },
+    ],
+  },
+  { label: "SEO", items: [{ path: "/realpeptides/seo", label: "SEO", icon: "file-text" }] },
+  {
+    label: "Lab",
+    items: [{ path: "/realpeptides/coa", label: "COA Tracker", icon: "flask" }],
+  },
+  {
+    label: "Workspace",
+    items: [{ path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" }],
+  },
+  { label: "Finance", items: [{ path: "/realpeptides/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/realpeptides/integrations", label: "Integrations", icon: "link" }] },
+];
+
+const NAV_SECTIONS: NavSection[] = [
+  { label: "Overview", items: [{ path: "/fitscript", label: "Command Center", icon: "grid" }] },
+  { label: "Sales", items: [{ path: "/fitscript/orders", label: "Orders", icon: "package" }] },
+  {
+    label: "Customers",
+    items: [
+      { path: "/fitscript/leads", label: "Leads", icon: "funnel" },
+      { path: "/fitscript/members", label: "Members", icon: "users" },
+    ],
+  },
+  { label: "Email", items: [{ path: "/fitscript/email", label: "Email", icon: "mail" }] },
+  { label: "Marketing", items: [{ path: "/fitscript/marketing", label: "Marketing", icon: "megaphone" }] },
+  {
+    label: "SEO",
+    items: [
+      { path: "/fitscript/content", label: "SEO", icon: "file-text" },
+      { path: "/fitscript/pages", label: "Pages", icon: "chart" },
     ],
   },
   {
-    label: "Growth",
+    label: "Health",
     items: [
-      { path: "/marketing", label: "Marketing", icon: "megaphone" },
-      { path: "/content", label: "Content & SEO", icon: "file-text" },
-      { path: "/pages", label: "Pages", icon: "chart" },
-      { path: "/email", label: "Email", icon: "mail" },
+      { path: "/fitscript/labs", label: "Labs", icon: "flask" },
+      { path: "/fitscript/supplements", label: "Supplements", icon: "pill" },
     ],
   },
   {
@@ -122,17 +203,30 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/content-library", label: "Content Library", icon: "folder" },
     ],
   },
-  {
-    label: "System",
-    items: [
-      { path: "/integrations", label: "Integrations", icon: "link" },
-      { path: "/settings", label: "Settings", icon: "settings" },
-    ],
-  },
+  { label: "Finance", items: [{ path: "/fitscript/financials", label: "Financials", icon: "dollar" }] },
+  { label: "System", items: [{ path: "/integrations", label: "Integrations", icon: "link" }] },
 ];
 
+ALL_ALIASES = {}; // populated below once both maps exist
+/** Old FitScript root paths → their /fitscript/* nav twins, so deep links and internal
+ * navigation keep highlighting the right entry while both URL families route. */
+const FITSCRIPT_PATH_ALIASES: Record<string, string> = {
+  "/": "/fitscript",
+  "/leads": "/fitscript/leads",
+  "/members": "/fitscript/members",
+  "/orders": "/fitscript/orders",
+  "/labs": "/fitscript/labs",
+  "/supplements": "/fitscript/supplements",
+  "/marketing": "/fitscript/marketing",
+  "/content": "/fitscript/content",
+  "/pages": "/fitscript/pages",
+  "/email": "/fitscript/email",
+};
+ALL_ALIASES = { ...NAV_ALIASES, ...FITSCRIPT_PATH_ALIASES };
+
 const ICONS: Record<string, ReactNode> = {
-  shield: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12.75L11.25 15 15 9.75M21 12c0 5.591-3.824 10.29-9 11.622C6.824 22.29 3 17.591 3 12V5.25a.75.75 0 01.53-.717 11.209 11.209 0 007.877-3.08.75.75 0 011.185 0 11.209 11.209 0 007.877 3.08.75.75 0 01.531.717V12z" /></svg>,
+  phone: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" /></svg>,
+  shield:<svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M9 12.75L11.25 15 15 9.75M21 12c0 5.591-3.824 10.29-9 11.622C6.824 22.29 3 17.591 3 12V5.25a.75.75 0 01.53-.717 11.209 11.209 0 007.877-3.08.75.75 0 011.185 0 11.209 11.209 0 007.877 3.08.75.75 0 01.531.717V12z" /></svg>,
   gift: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M21 11.25v8.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 109.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1114.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" /></svg>,
   grid: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>,
   users: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>,
@@ -169,6 +263,15 @@ export function OpsLayout({
 }) {
   const [location, navigate] = useLocation();
   const { theme, toggle } = useTheme();
+  // Master Financials link is finance:master only (Paul + Michael). The server
+  // enforces the gate; this just keeps the link out of everyone else's sidebar.
+  const [financeMaster, setFinanceMaster] = useState(false);
+  useEffect(() => {
+    fetch("/api/ops/finance/access", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setFinanceMaster(j?.level === "master"))
+      .catch(() => {});
+  }, []);
   const { company, setCompany } = useCompany();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -179,7 +282,11 @@ export function OpsLayout({
       ? "pawgen"
       : location.startsWith("/realpeptides")
         ? "realpeptides"
-        : "fitscript";
+        : location.startsWith("/northblu")
+          ? "northblu"
+          : location.startsWith("/reverra")
+            ? "reverra"
+            : "fitscript";
   const sections =
     activeCompany === "peptideu"
       ? PEPTIDEU_NAV_SECTIONS
@@ -187,25 +294,52 @@ export function OpsLayout({
         ? PAWGEN_NAV_SECTIONS
         : activeCompany === "realpeptides"
           ? REALPEPTIDES_NAV_SECTIONS
-          : NAV_SECTIONS;
+          : activeCompany === "northblu"
+            ? NORTHBLU_NAV_SECTIONS
+            : activeCompany === "reverra"
+              ? REVERRA_NAV_SECTIONS
+              : NAV_SECTIONS;
 
   // Every brand lands on its Overview — the top tab (RP's Leads-as-home era
   // ended when its Overview got real order data).
   const companyHome = (c: Company) =>
-    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : "/";
+    c === "peptideu" ? "/peptideu" : c === "pawgen" ? "/pawgen" : c === "realpeptides" ? "/realpeptides" : c === "northblu" ? "/northblu" : c === "reverra" ? "/reverra" : "/fitscript";
 
-  // On first load, honor the remembered company preference.
+  // On first load, honor the remembered company preference ("/" now always forwards to a home).
   const didRedirect = useRef(false);
   useEffect(() => {
     if (didRedirect.current) return;
     didRedirect.current = true;
-    if (company !== "fitscript" && location === "/") navigate(companyHome(company));
+    if (location === "/") navigate(companyHome(company));
   }, [company, location, navigate]);
 
   const selectCompany = (c: Company) => {
     setCompany(c);
     navigate(companyHome(c));
   };
+
+  // Stale-bundle beacon (facelift P2): open tabs kept serving old JS after deploys all week.
+  // Poll the server's build id; when it changes, offer one tap to refresh.
+  const [staleBuild, setStaleBuild] = useState(false);
+  useEffect(() => {
+    let baseline: string | null = null;
+    let stop = false;
+    const check = async () => {
+      try {
+        const r = await fetch("/api/ops/version", { credentials: "include" });
+        if (!r.ok) return;
+        const { build } = await r.json();
+        if (!build) return;
+        if (baseline === null) baseline = build;
+        else if (build !== baseline && !stop) setStaleBuild(true);
+      } catch { /* offline blips are fine */ }
+    };
+    check();
+    const t = setInterval(check, 4 * 60_000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; clearInterval(t); document.removeEventListener("visibilitychange", onVis); };
+  }, []);
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -224,41 +358,63 @@ export function OpsLayout({
 
       {/* Sidebar — fixed slide-out on mobile, static column on lg+ */}
       <aside className={`fixed lg:static lg:translate-x-0 inset-y-0 left-0 z-40 w-64 bg-ops-surface border-r border-ops-border flex flex-col shrink-0 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
-        {/* Logo */}
-        <div className="h-16 flex items-center px-6 border-b border-ops-border gap-2.5">
-          <img
-            src={logoWhite}
-            alt="FITSCRIPT"
-            className="h-5 w-auto"
-            style={theme === "light" ? { filter: "invert(1)" } : undefined}
-          />
-          <span className="text-[10px] tracking-[0.14em] uppercase text-ops-text-subtle font-semibold bg-ops-accent-soft px-1.5 py-0.5 rounded">
-            Ops
-          </span>
+        {/* Logo — BRANDMAXXER rebrand 2026-10-06 (twin-loop XX, OPS chip as-is) */}
+        <div className="h-16 flex items-center px-5 border-b border-ops-border">
+          <BrandLogo />
         </div>
 
-        {/* Company switcher */}
+        {/* Company switcher — "Workspace" (facelift pass 2026-10-07, Paul).
+            Each brand gets a monogram tile in its own hue; the active chip
+            carries a tinted fill + hued ring instead of one generic blue pill.
+            Grid stays 2-col (labels wrap in a 256px sidebar); the odd fifth
+            brand spans the full row on purpose. */}
         <div className="px-4 py-3 border-b border-ops-border">
-          {/* 2×2 grid, not a row — a fourth brand in a 256px sidebar wraps the labels. */}
-          <div className="grid grid-cols-2 bg-ops-bg rounded-lg p-1 gap-1">
+          <div className="px-1 mb-2 flex items-center justify-between">
+            <span className="text-[10px] tracking-[0.16em] uppercase font-semibold text-ops-text-subtle">Workspace</span>
+            <span className="h-1 w-1 rounded-full bg-ops-border" aria-hidden />
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
             {([
-              { key: "fitscript" as Company, label: "FitScript" },
-              { key: "peptideu" as Company, label: "PeptideU" },
-              { key: "pawgen" as Company, label: "pawgen" },
-              { key: "realpeptides" as Company, label: "Real Peptides" },
-            ]).map((o) => (
-              <button
-                key={o.key}
-                onClick={() => selectCompany(o.key)}
-                className={`w-full text-xs font-semibold py-1.5 rounded-md transition-all ${
-                  activeCompany === o.key
-                    ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"
-                    : "text-ops-text-muted hover:text-ops-text"
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
+              { key: "fitscript" as Company, label: "FitScript", mono: "FS", hue: "46,91,255" },
+              { key: "peptideu" as Company, label: "PeptideU", mono: "PU", hue: "139,92,246" },
+              { key: "pawgen" as Company, label: "pawgen", mono: "PW", hue: "16,185,129" },
+              { key: "northblu" as Company, label: "North Blu", mono: "NB", hue: "34,211,238" },
+              { key: "reverra" as Company, label: "Reverra", mono: "RV", hue: "164,38,68" },
+              // longest label rides the full-width row so it never truncates
+              { key: "realpeptides" as Company, label: "Real Peptides", mono: "RP", hue: "212,166,47" },
+            ]).map((o, i, all) => {
+              const active = activeCompany === o.key;
+              const lastOdd = i === all.length - 1 && all.length % 2 === 1;
+              return (
+                <button
+                  key={o.key}
+                  onClick={() => selectCompany(o.key)}
+                  aria-pressed={active}
+                  className={`group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-all border ${lastOdd ? "col-span-2" : ""} ${
+                    active
+                      ? "border-transparent"
+                      : "border-transparent hover:bg-ops-bg hover:border-ops-border"
+                  }`}
+                  style={active ? {
+                    backgroundColor: `rgba(${o.hue},0.12)`,
+                    borderColor: `rgba(${o.hue},0.45)`,
+                    boxShadow: `0 4px 16px -6px rgba(${o.hue},0.45)`,
+                  } : undefined}
+                >
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[9px] font-black tracking-wide transition-all"
+                    style={active
+                      ? { backgroundColor: `rgb(${o.hue})`, color: "#fff" }
+                      : { backgroundColor: `rgba(${o.hue},0.14)`, color: `rgb(${o.hue})` }}
+                  >
+                    {o.mono}
+                  </span>
+                  <span className={`min-w-0 truncate text-xs font-semibold ${active ? "text-ops-text" : "text-ops-text-muted group-hover:text-ops-text"}`}>
+                    {o.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -273,7 +429,8 @@ export function OpsLayout({
                 // A company root must match exactly, or every child route lights it up
                 // too (/pawgen was already doing that — /pawgen/orders lit Overview).
                 const isHome = COMPANY_ROOTS.has(item.path);
-                const effective = NAV_ALIASES[location] ?? location;
+                const aliasKey = Object.keys(ALL_ALIASES).find((k) => location === k || (k !== "/" && location.startsWith(k + "/")));
+                const effective = aliasKey ? ALL_ALIASES[aliasKey] : location;
                 const isActive = isHome ? effective === item.path : effective.startsWith(item.path);
                 return (
                   <Link key={item.path} href={item.path}>
@@ -298,6 +455,18 @@ export function OpsLayout({
 
         {/* Footer — Settings stays reachable from every company tab */}
         <div className="p-3 border-t border-ops-border">
+          {financeMaster && (
+            <Link href="/admin/financials">
+              <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
+                location.startsWith("/admin/financials")
+                  ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500"
+                  : "text-ops-text-muted hover:text-ops-text hover:bg-ops-surface-hover"
+              }`} onClick={() => setSidebarOpen(false)}>
+                {ICONS.dollar}
+                <span>Master Financials</span>
+              </div>
+            </Link>
+          )}
           <Link href="/settings">
             <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors ${
               location.startsWith("/settings")
@@ -335,7 +504,18 @@ export function OpsLayout({
           </div>
 
           {/* Center: Talk Dirt command bar */}
-          <DirtCommandBar />
+          {staleBuild && (
+        <div className="ops-rise fixed inset-x-4 bottom-4 z-[70] mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl border border-ops-border bg-ops-surface-raised px-4 py-3 shadow-card-lg">
+          <span className="text-sm text-ops-text">Ops was updated — refresh for the latest version.</span>
+          {/* window. is load-bearing: bare `location` here is wouter's path STRING, and
+              calling .reload() on it threw at click time — the toast's button did nothing. */}
+          <button type="button" onClick={() => window.location.reload()}
+            className="shrink-0 rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-3 py-1.5 text-xs font-semibold text-white">
+            Refresh
+          </button>
+        </div>
+      )}
+      <DirtCommandBar />
 
           <div className="flex items-center gap-3 shrink-0">
             <DirtNotifications />

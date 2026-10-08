@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { StatCard } from "../components/stat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
 
@@ -39,14 +40,7 @@ function Delta({ cur, prev, invert }: { cur: number; prev: number; invert?: bool
 }
 
 function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: React.ReactNode; tone?: "good" | "warn" | "bad" }) {
-  const c = tone === "bad" ? "text-red-400" : tone === "warn" ? "text-yellow-500" : tone === "good" ? "text-fitscript-green" : "text-ops-text";
-  return (
-    <div className="rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
-      <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold tabular-nums ${c}`}>{value}</div>
-      {sub && <div className="mt-0.5 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
+  return <StatCard label={label} value={value} sub={sub} tone={tone} />;
 }
 
 export default function CompanyPages({ company, label, hasPixel = true }: { company: string; label: string; hasPixel?: boolean }) {

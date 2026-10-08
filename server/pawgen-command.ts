@@ -7,7 +7,7 @@
 import type { Express, Request, Response } from "express";
 import { pool, pawgenPool } from "./db";
 import * as rest from "./pawgen-rest";
-import { windowOf, type Window } from "./lib/window";
+import { windowOf, type Window, pruneCache } from "./lib/window";
 
 const DAY = 86_400_000;
 const cache = new Map<string, { at: number; data: any }>();
@@ -145,6 +145,7 @@ export function registerPawgenCommand(app: Express) {
     if (hit && Date.now() - hit.at < CACHE_MS) return res.json(hit.data);
     try {
       const data = { configured: true, ...(await build(win)) };
+      pruneCache(cache, CACHE_MS);
       cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {

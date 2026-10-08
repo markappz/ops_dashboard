@@ -190,6 +190,29 @@ const PERMISSION_ROUTES: Record<string, { method: string; pattern: RegExp }[]> =
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/pos\/\d+\/items\/\d+\/?$/ },
     // Remove a product (soft), or a wrong certificate / vault file (permanent).
     { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/coa\/api\/(skus|documents|coas|pos)\/\d+\/?$/ },
+    // Delete/discard a closed-short PO (nothing received) via the inventory helper.
+    { method: "DELETE", pattern: /^\/api\/ops\/realpeptides\/inventory\/pos\/\d+\/?$/ },
+  ],
+  // Finance entry (Josh / Justin / CFO Mike Burnett): add + edit-own entries.
+  // Views are gated inside server/finance.ts (financeLevel), including the
+  // master-only cross-brand roll-up — these patterns only open the writes
+  // for viewer-role accounts.
+  "finance:entry": [
+    { method: "POST", pattern: /^\/api\/ops\/finance\/entries\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+  ],
+  "finance:master": [
+    { method: "POST", pattern: /^\/api\/ops\/finance\/entries\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+    { method: "DELETE", pattern: /^\/api\/ops\/finance\/entries\/\d+\/?$/ },
+  ],
+  // Work the Call Center queues (follow-ups, callback attempts, test flags).
+  // No settings, no replay/backfill, no webhook administration.
+  "realpeptides:call-center": [
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/\d+\/?$/ },
+    { method: "POST", pattern: /^\/api\/ops\/realpeptides\/callcenter\/requests\/\d+\/attempts\/?$/ },
+    { method: "PATCH", pattern: /^\/api\/ops\/realpeptides\/callcenter\/conversations\/\d+\/?$/ },
   ],
 };
 
@@ -208,6 +231,21 @@ export const PERMISSION_CATALOG: Array<{ key: string; label: string; detail: str
     label: "pawgen — refund orders",
     detail: "Issue refunds on pawgen orders. Nothing else under pawgen.",
   },
+  {
+    key: "realpeptides:call-center",
+    label: "Real Peptides — Call Center queues",
+    detail: "Work follow-ups: assign, schedule, snooze, record callback attempts, mark outcomes. No settings or replay controls.",
+  },
+  {
+    key: "finance:entry",
+    label: "Finance — log expenses & retainers",
+    detail: "See brand Financials tabs and add entries (edit own). For Josh, Justin and CFO Mike Burnett. No master roll-up.",
+  },
+  {
+    key: "finance:master",
+    label: "Finance — MASTER (Paul & Michael only)",
+    detail: "Everything: cross-brand roll-up, all edits and deletes. Being an admin is deliberately not enough for this view.",
+  },
 ];
 
 function permitsRequest(granted: string[], method: string, path: string): boolean {
@@ -221,6 +259,16 @@ function permitsRequest(granted: string[], method: string, path: string): boolea
 
 function permissionsFor(email: string): string[] {
   return allowlistCache?.perms.get(email.toLowerCase()) ?? [];
+}
+
+/**
+ * Grant check for modules that gate BEYOND role=admin (finance: the master
+ * view is Paul+Michael only, so being an admin is deliberately not enough).
+ * Reads the same 60s allowlist cache requireAuth uses.
+ */
+export function emailHasPermission(email: string | undefined, perm: string): boolean {
+  if (!email) return false;
+  return permissionsFor(email).includes(perm);
 }
 
 function getAllowlist(): Set<string> {
@@ -446,6 +494,20 @@ export function requireAuth(
 export function opsGate(req: Request, res: Response, next: NextFunction) {
   if (!req.path.startsWith("/api/ops/")) return next();
   if (req.path.startsWith("/api/ops/auth/")) return next();
+  // Agent scheduling pipe (2026-10-02, Paul: "tell you to make the campaigns and schedule
+  // them"): OPS_AUTOMATION_TOKEN authorizes EXACTLY plan create/update — never send-rp, never
+  // test sends, never any other route. Campaigns it schedules are additionally throttled by a
+  // server-enforced 2-hour veto window (email-planner) and badge as agent-created in the UI.
+  const auto = process.env.OPS_AUTOMATION_TOKEN;
+  if (auto && (req.headers.authorization === `Bearer ${auto}`)
+      && (/^\/api\/ops\/email-plans\/?$/.test(req.path) && req.method === "POST"
+          || /^\/api\/ops\/email-plans\/\d+\/?$/.test(req.path) && (req.method === "PATCH" || req.method === "GET")
+          // preview-only: the route refuses confirm:true from automation, so this is the
+          // schedule-time preflight (resolve the audience NOW, fail NOW — not at fire time).
+          || /^\/api\/ops\/email-plans\/\d+\/send-rp\/?$/.test(req.path) && req.method === "POST")) {
+    (req as AdminRequest).adminEmail = "automation:claude";
+    return next();
+  }
   // The change-request GitHub job reports back with its own bearer token (checked in the route).
   if (/^\/api\/ops\/change-requests\/\d+\/result\/?$/.test(req.path) && req.method === "POST") return next();
   return requireAuth(req as AdminRequest, res, next);

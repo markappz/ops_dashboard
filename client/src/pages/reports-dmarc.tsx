@@ -324,46 +324,48 @@ export default function ReportsDmarc() {
             </div>
           ) : (
             <div className="rounded-xl border border-ops-border bg-ops-surface overflow-hidden">
-              <table className="w-full text-[12px]">
-                <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle border-b border-ops-border">
-                  <tr>
-                    <th className="text-left font-medium px-3 py-2">Source IP</th>
-                    <th className="text-left font-medium px-3 py-2">Header From</th>
-                    <th className="text-right font-medium px-3 py-2">Messages</th>
-                    <th className="text-right font-medium px-3 py-2">Aligned %</th>
-                    <th className="text-right font-medium px-3 py-2">DKIM %</th>
-                    <th className="text-right font-medium px-3 py-2">SPF %</th>
-                  </tr>
-                </thead>
-                <tbody className="text-ops-text">
-                  {r.senders.map((sn) => (
-                    <tr key={sn.source_ip + sn.header_from} className="border-t border-ops-border">
-                      <td className="px-3 py-2 font-mono text-[11.5px]">{sn.source_ip}</td>
-                      <td className="px-3 py-2 text-ops-text-muted">{sn.header_from || "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="h-1.5 w-20 rounded-full bg-ops-bg overflow-hidden">
-                            <div
-                              className="h-full bg-brand-blue-500"
-                              style={{ width: `${(sn.messages / maxSenderMessages) * 100}%` }}
-                            />
-                          </div>
-                          <span>{fmtInt(sn.messages)}</span>
-                        </div>
-                      </td>
-                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${
-                        sn.pct_aligned !== null && sn.pct_aligned < 80 ? "text-red-400" :
-                        sn.pct_aligned !== null && sn.pct_aligned < 95 ? "text-amber-500" :
-                        "text-emerald-500"
-                      }`}>
-                        {fmtPct(sn.pct_aligned)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ops-text-muted">{fmtPct(sn.dkim_pass_pct)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ops-text-muted">{fmtPct(sn.spf_pass_pct)}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle border-b border-ops-border">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-2">Source IP</th>
+                      <th className="text-left font-medium px-3 py-2">Header From</th>
+                      <th className="text-right font-medium px-3 py-2">Messages</th>
+                      <th className="text-right font-medium px-3 py-2">Aligned %</th>
+                      <th className="text-right font-medium px-3 py-2">DKIM %</th>
+                      <th className="text-right font-medium px-3 py-2">SPF %</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="text-ops-text">
+                    {r.senders.map((sn) => (
+                      <tr key={sn.source_ip + sn.header_from} className="border-t border-ops-border">
+                        <td className="px-3 py-2 font-mono text-[11.5px]">{sn.source_ip}</td>
+                        <td className="px-3 py-2 text-ops-text-muted">{sn.header_from || "—"}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="h-1.5 w-20 rounded-full bg-ops-bg overflow-hidden">
+                              <div
+                                className="h-full bg-brand-blue-500"
+                                style={{ width: `${(sn.messages / maxSenderMessages) * 100}%` }}
+                              />
+                            </div>
+                            <span>{fmtInt(sn.messages)}</span>
+                          </div>
+                        </td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-medium ${
+                          sn.pct_aligned !== null && sn.pct_aligned < 80 ? "text-red-400" :
+                          sn.pct_aligned !== null && sn.pct_aligned < 95 ? "text-amber-500" :
+                          "text-emerald-500"
+                        }`}>
+                          {fmtPct(sn.pct_aligned)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-ops-text-muted">{fmtPct(sn.dkim_pass_pct)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-ops-text-muted">{fmtPct(sn.spf_pass_pct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
@@ -399,32 +401,34 @@ export default function ReportsDmarc() {
                 Recent reports
               </SectionTitle>
               <div className="rounded-xl border border-ops-border bg-ops-surface overflow-hidden">
-                <table className="w-full text-[12px]">
-                  <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle border-b border-ops-border">
-                    <tr>
-                      <th className="text-left font-medium px-3 py-2">Reporter</th>
-                      <th className="text-left font-medium px-3 py-2">Domain</th>
-                      <th className="text-left font-medium px-3 py-2">Window</th>
-                      <th className="text-right font-medium px-3 py-2">Messages</th>
-                      <th className="text-left font-medium px-3 py-2">Policy</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-ops-text">
-                    {r.recent_reports.map((rep) => (
-                      <tr key={rep.id} className="border-t border-ops-border">
-                        <td className="px-3 py-2">{rep.org_name}</td>
-                        <td className="px-3 py-2 text-ops-text-muted">{rep.domain}</td>
-                        <td className="px-3 py-2 text-ops-text-muted">
-                          {rep.date_range_start} → {rep.date_range_end}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(rep.total_messages)}</td>
-                        <td className="px-3 py-2 font-mono text-[11px] text-ops-text-muted">
-                          p={rep.policy_p ?? "—"}
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12px]">
+                    <thead className="text-[10px] tracking-wider uppercase text-ops-text-subtle border-b border-ops-border">
+                      <tr>
+                        <th className="text-left font-medium px-3 py-2">Reporter</th>
+                        <th className="text-left font-medium px-3 py-2">Domain</th>
+                        <th className="text-left font-medium px-3 py-2">Window</th>
+                        <th className="text-right font-medium px-3 py-2">Messages</th>
+                        <th className="text-left font-medium px-3 py-2">Policy</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="text-ops-text">
+                      {r.recent_reports.map((rep) => (
+                        <tr key={rep.id} className="border-t border-ops-border">
+                          <td className="px-3 py-2">{rep.org_name}</td>
+                          <td className="px-3 py-2 text-ops-text-muted">{rep.domain}</td>
+                          <td className="px-3 py-2 text-ops-text-muted">
+                            {rep.date_range_start} → {rep.date_range_end}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums">{fmtInt(rep.total_messages)}</td>
+                          <td className="px-3 py-2 font-mono text-[11px] text-ops-text-muted">
+                            p={rep.policy_p ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}

@@ -27,6 +27,7 @@ import type { Express, Request } from "express";
 import { randomUUID } from "crypto";
 import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
 import { logAiCost } from "./aiCostLogger";
+import { hasEngine } from "./brand-engines";
 import { pool } from "./db";
 
 interface AdminReq extends Request {
@@ -685,13 +686,34 @@ export function registerEmailComposeRoutes(app: Express) {
   // ─── Save final email to Klaviyo ─────────────────────────────────
 
   app.post("/api/ops/email/compose/save", async (req: AdminReq, res) => {
-    const { name, html, subject, preheader, text } = req.body ?? {};
+    const { name, subject, preheader, text, company } = req.body ?? {};
+    // The Cloudflare WAF in front of ops rejects rich HTML inside JSON, so the client base64s it.
+    let html = req.body?.html;
+    if (req.body?.html_b64) { try { html = Buffer.from(String(req.body.html_b64), "base64").toString("utf8"); } catch { /* keep raw */ } }
     if (!name || typeof name !== "string") {
       return res.status(400).json({ error: "name required" });
     }
     const isPlainText = !html && typeof text === "string" && text.length > 0;
     if (!isPlainText && (!html || typeof html !== "string" || html.length < 100)) {
       return res.status(400).json({ error: "html (≥100 chars) or text required" });
+    }
+
+    // Engine brands (brand-engines registry) compose into the email calendar (ops_email_plans) -
+    // the in-house engine's send door (Review & send) picks it up from there. Klaviyo below stays
+    // the destination for the rest.
+    if (typeof company === "string" && hasEngine(company)) {
+      try {
+        const bodyHtml = html || `<pre style="font-family:inherit;white-space:pre-wrap">${String(text).replace(/</g, "&lt;")}</pre>`;
+        const { rows } = await pool.query(
+          `INSERT INTO ops_email_plans (company, title, subject, preheader, status, html, created_by)
+           VALUES ($1, $2, $3, $4, 'draft', $5, $6) RETURNING id`,
+          [company, name.trim(), subject || null, preheader || null, bodyHtml, req.adminEmail || "compose"],
+        );
+        console.log(`[OPS][EMAIL-COMPOSE] ${company} plan ${rows[0].id} "${name.trim()}" drafted by ${req.adminEmail}`);
+        return res.json({ ok: true, destination: "plan", planId: rows[0].id });
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+      }
     }
 
     const key = process.env.KLAVIYO_API_KEY;

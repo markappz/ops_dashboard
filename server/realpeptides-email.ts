@@ -6,15 +6,17 @@
  * ops caches and renders.
  */
 import type { Express } from "express";
-import { windowOf } from "./lib/window";
+import { windowOf, pruneCache } from "./lib/window";
+import { ENGINES } from "./brand-engines";
+import { computeEmailHealth } from "./email-health";
 
 const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 10 * 60_000;
 
+// Same credentials as the marketing bridge — one registry entry per brand, no second source.
 function cfg() {
-  const base = process.env.RP_SITE_API_URL;
-  const token = process.env.RP_SITE_OPS_TOKEN;
-  return base && token ? { base: base.replace(/\/$/, ""), token } : null;
+  const e = ENGINES.realpeptides;
+  return e?.base && e.token ? { base: e.base.replace(/\/$/, ""), token: e.token } : null;
 }
 
 export function registerRealPeptidesEmail(app: Express) {
@@ -37,8 +39,10 @@ export function registerRealPeptidesEmail(app: Express) {
       }
       const text = await r.text();
       if (!r.ok) throw new Error(`ops-email-summary ${r.status}: ${text.slice(0, 160)}`);
-      const data = { configured: true, ...JSON.parse(text) };
-      cache.set(win.key, { at: Date.now(), data });
+      const summary = JSON.parse(text);
+      const data = { configured: true, ...summary, health: computeEmailHealth(summary) };
+      pruneCache(cache, CACHE_MS);
+  cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {
       console.error("[OPS][RP] email:", e.message);

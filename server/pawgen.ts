@@ -364,7 +364,7 @@ export function registerPawgenRoutes(app: Express) {
       const [leads, orders] = await Promise.all([
         src === "rest"
           ? rest.fetchLeads()
-          : (await pawgenPool!.query(`SELECT id,email,source,created_at,guide_sent FROM leads ORDER BY created_at DESC`)).rows,
+          : (await pawgenPool!.query(`SELECT id,email,source,created_at,guide_sent,ref_source,ref_medium,ref_campaign FROM leads ORDER BY created_at DESC`)).rows,
         src === "rest"
           ? rest.ordersForAnalytics()
           : (await pawgenPool!.query(`SELECT customer_email, amount_usd, payment_status FROM orders`)).rows,
@@ -394,6 +394,15 @@ export function registerPawgenRoutes(app: Express) {
       const converted = rows.filter((r) => r.converted);
       const bySource: Record<string, number> = {};
       for (const l of rows) bySource[l.source || "—"] = (bySource[l.source || "—"] ?? 0) + 1;
+      // First-touch attribution (same ref_* the orders carry): which traffic source and which
+      // tagged campaign each signup came from. "direct / untagged" is the honest label for a
+      // bare link - DM clicks from in-app browsers land there until the link carries UTMs.
+      const byRef: Record<string, number> = {};
+      const byCampaign: Record<string, number> = {};
+      for (const l of leads as any[]) {
+        byRef[l.ref_source || "direct / untagged"] = (byRef[l.ref_source || "direct / untagged"] ?? 0) + 1;
+        if (l.ref_campaign) byCampaign[l.ref_campaign] = (byCampaign[l.ref_campaign] ?? 0) + 1;
+      }
 
       // Zero-filled 30-day signup series.
       const byDay = new Map<string, number>();
@@ -411,6 +420,8 @@ export function registerPawgenRoutes(app: Express) {
           revenueFromLeads: Math.round(converted.reduce((s, r) => s + r.revenue, 0) * 100) / 100,
         },
         bySource,
+        byRef,
+        byCampaign,
         series: [...byDay.entries()].map(([date, n]) => ({ date, leads: n })),
         recent: rows.slice(0, 100),
       });

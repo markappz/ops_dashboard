@@ -6,7 +6,7 @@
  */
 import type { Express, Request, Response } from "express";
 import { peptidePool } from "./db";
-import { windowOf, type Window } from "./lib/window";
+import { windowOf, type Window, pruneCache } from "./lib/window";
 
 const cache = new Map<string, { at: number; data: any }>();
 const CACHE_MS = 60_000;
@@ -97,6 +97,7 @@ export function registerPeptideUCommand(app: Express) {
     if (hit && Date.now() - hit.at < CACHE_MS) return res.json(hit.data);
     try {
       const data = { configured: true, ...(await build(win)) };
+      pruneCache(cache, CACHE_MS);
       cache.set(win.key, { at: Date.now(), data });
       res.json(data);
     } catch (e: any) {

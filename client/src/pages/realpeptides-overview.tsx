@@ -1,9 +1,10 @@
 import { useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { StatCard, type Tone } from "../components/stat";
 import { Link } from "wouter";
 import { RefreshCw } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeKey, rangeQuery, rangeDays, useDateRange, type DateRange } from "../components/date-range-picker";
 import { api as coaApi, type Sku } from "./coa/api";
 import { groupFamilies, familyCounts } from "./coa/families";
 
@@ -27,18 +28,8 @@ function Delta({ cur, prev, invert }: { cur: number; prev: number; invert?: bool
   return <span className={`ml-1.5 text-xs font-medium ${cls}`}>{d > 0 ? "+" : ""}{d.toFixed(0)}%</span>;
 }
 
-type Tone = "warn" | "bad" | "good" | "info";
-function Card({ label, value, sub, accent, tone, to }: { label: string; value: React.ReactNode; sub?: React.ReactNode; accent?: boolean; tone?: Tone; to?: string }) {
-  const color = tone === "bad" ? "text-red-400" : tone === "warn" ? "text-yellow-500" : tone === "good" ? "text-fitscript-green" : tone === "info" ? "text-violet-400" : accent ? "text-brand-blue-500" : "text-ops-text";
-  const body = (
-    <div className="h-full rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card transition hover:border-ops-text-muted/40">
-      <div className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">{label}</div>
-      <div className={`text-2xl font-bold tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-xs text-ops-text-muted">{sub}</div>}
-    </div>
-  );
-  return to ? <Link href={to} className="block">{body}</Link> : body;
-}
+// All stat tiles ride the shared StatCard (facelift P3) — same props the local Card took.
+const Card = StatCard;
 
 function Section({ title, hint, children }: { title: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -56,10 +47,10 @@ const get = (url: string) => fetch(url, { credentials: "include" }).then((r) => 
 const MINUTE = 60_000;
 
 function useOverviewData(range: DateRange, forceRef: React.MutableRefObject<boolean>) {
-  const rq = rangeQuery(range);
+  const rk = rangeKey(range);
   const pageDays = Math.min(90, Math.max(7, rangeDays(range)));
-  const ov = useQuery({ queryKey: ["rp-overview", rq], queryFn: () => get(`/api/ops/realpeptides/overview?${rq}`), refetchInterval: MINUTE });
-  const contacts = useQuery({ queryKey: ["rp-contacts", rq], queryFn: () => get(`/api/ops/realpeptides/contacts?${rq}`), refetchInterval: MINUTE });
+  const ov = useQuery({ queryKey: ["rp-overview", rk], queryFn: () => get(`/api/ops/realpeptides/overview?${rangeQuery(range)}`), refetchInterval: MINUTE });
+  const contacts = useQuery({ queryKey: ["rp-contacts", rk], queryFn: () => get(`/api/ops/realpeptides/contacts?${rangeQuery(range)}`), refetchInterval: MINUTE });
   const skus = useQuery({ queryKey: ["coa-skus"], queryFn: () => coaApi<{ skus: Sku[] }>("/skus"), retry: false, refetchInterval: MINUTE });
   const pages = useQuery({
     queryKey: ["rp-pages-summary", pageDays],
@@ -75,18 +66,31 @@ function useOverviewData(range: DateRange, forceRef: React.MutableRefObject<bool
   return { ov, contacts, skus, pages, clomark };
 }
 
-function SalesCards({ ov, rlabel }: { ov: ReturnType<typeof useOverviewData>["ov"]; rlabel: string }) {
+function SalesCards({ ov, rlabel, days }: { ov: ReturnType<typeof useOverviewData>["ov"]; rlabel: string; days: number }) {
   const sales = ov.data?.sales;
   if (sales?.configured) {
+    const perDay = days > 1 ? `${(sales.current.orders / days).toFixed(1)}/day · ` : "";
     return (
       <>
-        <Card label={`Revenue · ${rlabel}`} accent value={<>{usd(sales.current.revenue)}<Delta cur={sales.current.revenue} prev={sales.previous.revenue} /></>} sub={`${num(sales.current.orders)} orders · net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
-        <Card label="Average order" value={<>{usd(sales.current.aov)}<Delta cur={sales.current.aov} prev={sales.previous.aov} /></>} sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+        <StatCard i={0} label={`Revenue · ${rlabel}`} accent
+          number={sales.current.revenue} format={(n) => usd(n)}
+          delta={{ cur: sales.current.revenue, prev: sales.previous.revenue }}
+          spark={(sales.daily ?? []).map((d: { revenue: number }) => d.revenue)}
+          sub={`net of coupons & refunds · gross ${usd(sales.current.grossSales)}`} />
+        <StatCard i={1} label={`Orders · ${rlabel}`} to="/realpeptides/orders"
+          number={sales.current.orders}
+          delta={{ cur: sales.current.orders, prev: sales.previous.orders }}
+          spark={(sales.daily ?? []).map((d: { orders: number }) => d.orders)}
+          sub={`${perDay}paid${sales.pending ? ` · ${sales.pending} pending` : ""}`} />
+        <StatCard i={2} label="Average order"
+          number={sales.current.aov} format={(n) => usd(n)}
+          delta={{ cur: sales.current.aov, prev: sales.previous.aov }}
+          sub={`${num(sales.current.customers)} customers · ${num(sales.current.itemsSold)} items`} />
       </>
     );
   }
   return (
-    <div className="col-span-2 rounded-xl border border-dashed border-ops-border bg-ops-surface p-5">
+    <div className="col-span-2 rounded-xl border border-dashed border-ops-border bg-ops-surface p-5 lg:col-span-3">
       <div className="mb-1 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">Sales</div>
       <div className="text-sm font-semibold text-ops-text">{ov.isLoading ? "Loading realpeptides.co sales…" : ov.isError ? "Sales feed failed" : "Not connected yet"}</div>
       {!ov.isLoading && (
@@ -108,8 +112,8 @@ function LeadCards({ contacts, rlabel, days }: { contacts: ReturnType<typeof use
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Card label="Contacts" to="/realpeptides/leads" value={v(c?.totals?.total)} sub={off ? c?.hint : c ? `${num(c.totals.marketable)} mailable · ${num(c.totals.buyers)} buyers` : "Resend list"} />
-      <Card label={`New leads · ${rlabel}`} to="/realpeptides/leads" value={v(c?.new?.window)} tone={c?.new?.window ? "good" : undefined} sub={perDay(c?.new?.window) ?? "marketing captures"} />
-      <Card label="New leads · today" to="/realpeptides/leads" value={v(c?.new?.today)} sub="last 24 hours" />
+      <Card label={`New leads · ${rlabel}`} to="/realpeptides/leads" value={v(c?.new?.window)} tone={c?.new?.window ? "good" : undefined} sub={perDay(c?.new?.window) ?? "marketing captures · selected range"} />
+      <Card label="New leads · 24h" to="/realpeptides/leads" value={v(c?.new?.today)} sub="same captures · rolling last 24 hours" />
       <Card label={`Top source · ${rlabel}`} to="/realpeptides/leads" value={off || !c ? v(undefined) : topSource ? num(topSource.count) : "0"} sub={topSource ? topSource.source : "no captures in this window"} />
       <Card label={`New customers · ${rlabel}`} to="/realpeptides/orders" value={v(nc?.window)} accent sub={nc ? `${num(nc.today)} today · first paid order` : "first paid order"} />
     </div>
@@ -228,14 +232,20 @@ export default function RealPeptidesOverview() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <SalesCards ov={d.ov} rlabel={rlabel} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <SalesCards ov={d.ov} rlabel={rlabel} days={rangeDays(range)} />
         <Card label={`Sessions · ${rlabel}`} to="/realpeptides/traffic"
           value={traffic?.pixelInstalled ? <>{num(traffic.current.sessions)}<Delta cur={traffic.current.sessions} prev={traffic.previous.sessions} /></> : "—"}
           sub={traffic?.pixelInstalled ? `${num(traffic.current.visitors)} visitors · pixel` : "pixel not reporting yet"} />
-        <Card label={`Search clicks · ${rlabel}`} to="/realpeptides/pages"
+        <Card
+          // Search Console publishes ~2 days late and short windows are clamped to 7 days, so
+          // this tile labels the window it ACTUALLY shows instead of echoing the page range
+          // (it used to read "today" while showing a trailing week — Paul caught it 10-02).
+          label={`Search clicks · ${rangeDays(range) < 7 ? "7d" : rlabel}`} to="/realpeptides/pages"
           value={d.pages.data?.gsc?.connected ? <>{num(pg?.clicks)}<Delta cur={pg?.clicks ?? 0} prev={pg?.prevClicks ?? 0} /></> : d.pages.isLoading ? "…" : "—"}
-          sub={d.pages.data?.gsc?.connected ? `${num(pg?.impressions)} impressions · Search Console` : d.pages.data?.gsc?.error ?? "Search Console"} />
+          sub={d.pages.data?.gsc?.connected
+            ? `${num(pg?.impressions)} impressions · GSC through ${d.pages.data?.window?.end ?? "—"} (lags ~2 days)`
+            : d.pages.data?.gsc?.error ?? "Search Console"} />
       </div>
 
       <Section title="Leads" hint={<>realpeptides.co CRM → Resend · same window as the tiles above{d.contacts.data?.generatedAt ? ` · as of ${clock(d.contacts.data.generatedAt)}` : ""}</>}>

@@ -70,16 +70,38 @@ export function Dirt() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Voice input — Web Speech API, browser-native, no API cost
+  // Voice chat (facelift P5): speaking a question sends it on pause and the answer is
+  // read back (toggle persists). sendRef dodges the send-callback ordering.
+  const sendRef = useRef<(t: string) => void>(() => {});
+  const voiceAskRef = useRef(false);
+  const [speakBack, setSpeakBack] = useState(() => {
+    try { return localStorage.getItem("dirt-speak") !== "off"; } catch { return true; }
+  });
+  const speakBackRef = useRef(speakBack);
+  speakBackRef.current = speakBack;
   const voice = useVoiceInput({
     onTranscript: (text, isFinal) => {
       setInput(text);
-      if (isFinal) {
-        // Auto-focus textarea so user can edit or hit Enter
+      if (isFinal && text.trim()) {
+        voiceAskRef.current = true;
+        sendRef.current(text);
+      } else if (isFinal) {
         inputRef.current?.focus();
       }
     },
   });
+  const speak = useCallback((raw: string) => {
+    if (!speakBackRef.current || !voiceAskRef.current) return;
+    voiceAskRef.current = false;
+    try {
+      const text = raw.replace(/```[\s\S]*?```/g, " code block omitted. ").replace(/[*_#`>|]/g, "").replace(/\[(.*?)\]\(.*?\)/g, "$1").slice(0, 1200);
+      if (!text.trim()) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      window.speechSynthesis.speak(u);
+    } catch { /* no synthesis — silent */ }
+  }, []);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -277,15 +299,20 @@ export function Dirt() {
           prev.map((m) => (m.id === assistantMsg.id ? { ...m, content: m.content + (m.content ? "\n\n" : "") + errMsg, streaming: false } : m)),
         );
       } finally {
-        setMessages((prev) => prev.map((m) => (m.id === assistantMsg.id ? { ...m, streaming: false } : m)));
+        setMessages((prev) => {
+          const done = prev.find((m) => m.id === assistantMsg.id);
+          if (done?.content) speak(done.content);
+          return prev.map((m) => (m.id === assistantMsg.id ? { ...m, streaming: false } : m));
+        });
         setStreaming(false);
         abortRef.current = null;
       }
     },
-    [streaming, messages, readOnly, reset, conversationId, loadHistory],
+    [streaming, messages, readOnly, reset, conversationId, loadHistory, speak],
   );
+  sendRef.current = send;
 
-  const cancel = () => abortRef.current?.abort();
+  const cancel = () => { abortRef.current?.abort(); try { window.speechSynthesis.cancel(); } catch {} };
 
   const copy = async (msg: Message) => {
     await navigator.clipboard.writeText(msg.content);
@@ -464,6 +491,20 @@ export function Dirt() {
                 )}
               </div>
               <VoiceButton voice={voice} disabled={streaming} />
+              {voice.supported && (
+                <button type="button"
+                  onClick={() => setSpeakBack((v) => { const n = !v; try { localStorage.setItem("dirt-speak", n ? "on" : "off"); } catch {} if (!n) try { window.speechSynthesis.cancel(); } catch {} return n; })}
+                  title={speakBack ? "Answers are read aloud after voice questions — tap to mute" : "Spoken answers muted — tap to enable"}
+                  className={`h-[44px] w-[44px] flex items-center justify-center rounded-xl border transition-all shrink-0 ${
+                    speakBack ? "border-brand-blue-400/40 bg-brand-blue-500/10 text-brand-blue-400" : "border-ops-border bg-ops-surface text-ops-text-subtle hover:text-ops-text"
+                  }`}>
+                  {speakBack ? (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 5L6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 010 7M19 5a9 9 0 010 14" /></svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11 5L6 9H2v6h4l5 4V5zM22 9l-6 6M16 9l6 6" /></svg>
+                  )}
+                </button>
+              )}
               {streaming ? (
                 <button
                   type="button"
