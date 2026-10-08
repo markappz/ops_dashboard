@@ -3828,3 +3828,10 @@ regridded (note/Add collapse fixed), phone-width stacking via standard grid coll
 browser-verified, phone eyeball = Paul post-deploy. Mobile window-resize check impossible
 (Chrome full-screen refuses programmatic resize). Switcher label truncation at 6 brands = paul-62's
 accepted tradeoff.
+**2026-10-08 — change-request #16 "Retry merge never works" (Paul):** diagnosed as a zombie
+duplicate: Justin filed the PO-tab ask twice (#16 → PR #15 on 9/30; #17 → PR #16 on 10/8). The
+newer twin merged + deployed (4403249), so PR #15 is permanently CONFLICTING against the shipped
+same-files change — Retry merge can never succeed. Rejected #16 via /decide from Paul's session
+(PR #15 closed, branch deleted, Slack notice). Approvals pipeline itself confirmed working (#15,
+#17 LIVE). Only delta lost: per-status chips (live Open/Completed covers hide-received) — fresh
+request if Justin wants granularity.
