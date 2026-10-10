@@ -3835,3 +3835,16 @@ same-files change — Retry merge can never succeed. Rejected #16 via /decide fr
 (PR #15 closed, branch deleted, Slack notice). Approvals pipeline itself confirmed working (#15,
 #17 LIVE). Only delta lost: per-status chips (live Open/Completed covers hide-received) — fresh
 request if Justin wants granularity.
+
+### 2026-10-10 — Global Command Center (Paul) — committed, awaiting push go
+New /command: whole-portfolio page — per-brand revenue+growth+trend spark, sessions, leads,
+tracked expenses → net (finance-grant holders only; server scrub() strips money for others),
+leaderboard cards (portfolio revenue, best brand, fastest growth w/ ≥$500 prior-window floor),
+computed opportunity flags (conversion slipping / lead surge not converting / negative net /
+momentum / connect), honest basis labels per brand (PU = MRR estimate; NB = waitlist). Server
+aggregator /api/ops/command/overview reuses each brand's own tab feeds (siteSalesSummary,
+pawgen/peptideu command builds exported additively, NB engine summary, reverra proxy, FitScript
+lab_orders ledger SQL + pixel sessions by site) with Promise.allSettled fault isolation + 60s
+cache. Sidebar gets a COMMAND CENTER bar ABOVE the Workspace switcher. Local E2E impossible
+(all upstreams are prod-only) — verify on prod in browser right after deploy per standing rule;
+pawgen traffic field shape accessed defensively, check its row matches the pawgen tab.

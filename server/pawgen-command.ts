@@ -154,3 +154,6 @@ export function registerPawgenCommand(app: Express) {
     }
   });
 }
+
+// Exported for the global Command Center aggregator (additive — no behavior change).
+export const pawgenCommandBuild = build;

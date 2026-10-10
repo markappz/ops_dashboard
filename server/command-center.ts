@@ -1,0 +1,273 @@
+/**
+ * Global Command Center (2026-10-10, Paul): every brand's vitals on one page —
+ * revenue, growth, traffic, leads, tracked expenses → net — plus computed
+ * rankings and opportunity callouts.
+ *
+ * Aggregation rules:
+ *  - Each brand block reuses the SAME source its own tabs read (the 09-04
+ *    decision), through exported builders or the same upstream feeds. No new
+ *    math definitions.
+ *  - Per-brand fault isolation: one dead feed returns {configured:false,
+ *    error} for that brand and never blanks the page.
+ *  - Numbers that are estimates or partial are labeled as such in `basis`
+ *    (PeptideU revenue = MRR estimate; North Blu is a waitlist brand).
+ */
+import type { Express, Request, Response } from "express";
+import { pool, peptidePool } from "./db";
+import { windowOf, type Window, pruneCache } from "./lib/window";
+import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
+import { pawgenCommandBuild } from "./pawgen-command";
+import { peptideuCommandBuild } from "./peptideu-command";
+import { financeLevel, ensureFinanceTables } from "./finance";
+
+const cache = new Map<string, { at: number; data: any }>();
+const CACHE_MS = 60_000;
+
+export interface BrandVitals {
+  key: string;
+  label: string;
+  configured: boolean;
+  error?: string;
+  basis?: string;                 // how to read the numbers — shown in UI
+  revenue: number; revenuePrev: number;
+  orders?: number;
+  sessions?: number | null; sessionsPrev?: number | null;
+  leads?: number | null; leadsPrev?: number | null;
+  series?: number[];              // daily revenue (or leads for non-commerce)
+}
+
+const pct = (cur: number, prev: number): number | null =>
+  prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
+
+/** Pixel sessions per site for current + previous window, one query. */
+async function pixelSessions(win: Window): Promise<Record<string, { cur: number; prev: number }>> {
+  const r = await pool.query(
+    `SELECT site,
+            COUNT(*) FILTER (WHERE started_at >= $1 AND started_at <= $2)::int AS cur,
+            COUNT(*) FILTER (WHERE started_at >= $3 AND started_at <= $4)::int AS prev
+       FROM visitor_sessions
+      WHERE started_at >= $3
+      GROUP BY site`,
+    [win.from, win.to, win.prevFrom, win.prevTo],
+  );
+  return Object.fromEntries(r.rows.map((x) => [x.site, { cur: x.cur, prev: x.prev }]));
+}
+
+async function fitscriptVitals(win: Window, px: Record<string, { cur: number; prev: number }>): Promise<BrandVitals> {
+  // Same ledger the Reports → Sales tab reads: lab_orders, paid, not refunded.
+  const rev = await pool.query(
+    `SELECT
+       COALESCE(SUM(price_cents - COALESCE(discount_cents,0)) FILTER (WHERE paid_at >= $1 AND paid_at <= $2), 0)::bigint AS cur,
+       COALESCE(SUM(price_cents - COALESCE(discount_cents,0)) FILTER (WHERE paid_at >= $3 AND paid_at <= $4), 0)::bigint AS prev,
+       COUNT(*) FILTER (WHERE paid_at >= $1 AND paid_at <= $2)::int AS orders
+     FROM lab_orders WHERE refunded_at IS NULL AND paid_at >= $3`,
+    [win.from, win.to, win.prevFrom, win.prevTo],
+  );
+  const signups = await pool.query(
+    `SELECT COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
+            COUNT(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
+       FROM users WHERE created_at >= $3`,
+    [win.from, win.to, win.prevFrom, win.prevTo],
+  );
+  const daily = await pool.query(
+    `SELECT to_char(paid_at::date, 'YYYY-MM-DD') AS d, SUM(price_cents - COALESCE(discount_cents,0))::bigint AS c
+       FROM lab_orders WHERE refunded_at IS NULL AND paid_at >= $1 AND paid_at <= $2 GROUP BY 1 ORDER BY 1`,
+    [win.from, win.to],
+  );
+  return {
+    key: "fitscript", label: "FitScript", configured: true,
+    basis: "lab revenue (paid, net of refunds); leads = app signups",
+    revenue: Number(rev.rows[0].cur) / 100, revenuePrev: Number(rev.rows[0].prev) / 100,
+    orders: rev.rows[0].orders,
+    sessions: px.fitscript?.cur ?? null, sessionsPrev: px.fitscript?.prev ?? null,
+    leads: signups.rows[0].cur, leadsPrev: signups.rows[0].prev,
+    series: daily.rows.map((r) => Number(r.c) / 100),
+  };
+}
+
+async function realpeptidesVitals(win: Window, px: Record<string, { cur: number; prev: number }>): Promise<BrandVitals> {
+  if (!siteConfigured()) return { key: "realpeptides", label: "Real Peptides", configured: false, error: "site feed not configured", revenue: 0, revenuePrev: 0 };
+  const s = await siteSalesSummary(win);
+  return {
+    key: "realpeptides", label: "Real Peptides", configured: true,
+    basis: "storefront paid orders, net of coupons & refunds",
+    revenue: s.current.revenue, revenuePrev: s.previous.revenue, orders: s.current.orders,
+    sessions: px.realpeptides?.cur ?? null, sessionsPrev: px.realpeptides?.prev ?? null,
+    leads: null, leadsPrev: null,
+    series: (s.daily ?? []).map((d: any) => d.revenue),
+  };
+}
+
+async function pawgenVitals(win: Window): Promise<BrandVitals> {
+  const d: any = await pawgenCommandBuild(win);
+  return {
+    key: "pawgen", label: "pawgen", configured: true,
+    basis: "paid orders; leads = guide magnet",
+    revenue: Number(d.sales?.current?.revenue ?? 0), revenuePrev: Number(d.sales?.previous?.revenue ?? 0),
+    orders: Number(d.sales?.current?.orders ?? 0),
+    sessions: d.traffic?.pixelInstalled ? Number(d.traffic?.current?.sessions ?? d.traffic?.current?.rows?.[0]?.sessions ?? 0) || null : null,
+    sessionsPrev: d.traffic?.pixelInstalled ? Number(d.traffic?.previous?.sessions ?? 0) || null : null,
+    leads: Number(d.leads?.window ?? 0), leadsPrev: Number(d.leads?.previous ?? 0),
+    series: (d.sales?.series ?? []).map((r: any) => Number(r.revenue ?? r.value ?? 0)),
+  };
+}
+
+async function peptideuVitals(win: Window): Promise<BrandVitals> {
+  if (!peptidePool) return { key: "peptideu", label: "PeptideU", configured: false, error: "PeptideU DB not connected", revenue: 0, revenuePrev: 0 };
+  const d: any = await peptideuCommandBuild(win);
+  // Subscription app: "revenue" is the MRR estimate, not window sales — labeled.
+  return {
+    key: "peptideu", label: "PeptideU", configured: true,
+    basis: "revenue = MRR estimate (paying members × plan); leads = app signups",
+    revenue: Number(d.members?.mrrEstimate ?? 0), revenuePrev: Number(d.members?.mrrEstimate ?? 0),
+    sessions: null, sessionsPrev: null,
+    leads: Number(d.current?.signups ?? 0), leadsPrev: Number(d.previous?.signups ?? 0),
+    series: (d.series ?? []).map((r: any) => Number(r.signups ?? 0)),
+  };
+}
+
+async function northbluVitals(win: Window): Promise<BrandVitals> {
+  const base = process.env.NORTHBLU_EMAIL_API_URL;
+  const token = process.env.NORTHBLU_EMAIL_TOKEN;
+  if (!base || !token) return { key: "northblu", label: "North Blu", configured: false, error: "email engine not configured", revenue: 0, revenuePrev: 0 };
+  const r = await fetch(`${base.replace(/\/$/, "")}?days=${win.days}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+  if (!r.ok) throw new Error(`northblu email summary ${r.status}`);
+  const j: any = await r.json();
+  return {
+    key: "northblu", label: "North Blu", configured: true,
+    basis: "waitlist brand — no commerce yet; leads = new contacts",
+    revenue: 0, revenuePrev: 0,
+    sessions: null, sessionsPrev: null,
+    leads: Number(j.totals?.newContacts ?? 0), leadsPrev: null,
+    series: [],
+  };
+}
+
+async function reverraVitals(win: Window): Promise<BrandVitals> {
+  const base = process.env.REVERRA_SITE_API_URL;
+  const token = process.env.REVERRA_SITE_OPS_TOKEN;
+  if (!base || !token) return { key: "reverra", label: "Reverra", configured: false, error: "store not connected yet", revenue: 0, revenuePrev: 0 };
+  const r = await fetch(`${base.replace(/\/$/, "")}/api/ops-summary?days=${win.days}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+  if (!r.ok) throw new Error(`reverra ops-summary ${r.status}`);
+  const j: any = await r.json();
+  return {
+    key: "reverra", label: "Reverra", configured: true,
+    basis: "storefront paid orders",
+    revenue: Number(j.current?.revenueCents ?? 0) / 100, revenuePrev: Number(j.previous?.revenueCents ?? 0) / 100,
+    orders: Number(j.current?.orders ?? 0),
+    sessions: null, sessionsPrev: null, leads: null, leadsPrev: null,
+    series: (j.daily ?? []).map((d: any) => Number(d.revenueCents ?? 0) / 100),
+  };
+}
+
+/** Tracked expenses per brand in the window (finance module, cents → USD). */
+async function expensesByBrand(win: Window): Promise<Record<string, number>> {
+  await ensureFinanceTables();
+  const r = await pool.query(
+    `SELECT brand, SUM(amount_cents * (
+        CASE WHEN recurring = 'monthly' THEN
+          GREATEST(0, (
+            (date_part('year', LEAST(COALESCE(ended_at, $2::date), $2::date)) * 12 + date_part('month', LEAST(COALESCE(ended_at, $2::date), $2::date)))
+            - (date_part('year', GREATEST(entry_date, $1::date)) * 12 + date_part('month', GREATEST(entry_date, $1::date)))
+            + 1
+          ))::int * CASE WHEN entry_date <= $2::date AND COALESCE(ended_at, $2::date) >= $1::date THEN 1 ELSE 0 END
+        ELSE CASE WHEN entry_date >= $1::date AND entry_date <= $2::date THEN 1 ELSE 0 END END
+      ))::bigint AS cents
+     FROM ops_finance_entries
+     WHERE deleted_at IS NULL AND kind = 'expense'
+     GROUP BY brand HAVING SUM(amount_cents) <> 0`,
+    [win.from, win.to],
+  );
+  return Object.fromEntries(r.rows.map((x) => [x.brand, Number(x.cents) / 100]));
+}
+
+function opportunities(brands: BrandVitals[], expenses: Record<string, number>): Array<{ brand: string; kind: string; note: string }> {
+  const out: Array<{ brand: string; kind: string; note: string }> = [];
+  for (const b of brands) {
+    if (!b.configured) { out.push({ brand: b.label, kind: "connect", note: `Feed not connected (${b.error}) — numbers are invisible until it is.` }); continue; }
+    const rg = pct(b.revenue, b.revenuePrev);
+    const sg = b.sessions != null && b.sessionsPrev != null ? pct(b.sessions, b.sessionsPrev) : null;
+    const lg = b.leads != null && b.leadsPrev != null ? pct(b.leads, b.leadsPrev) : null;
+    const exp = expenses[b.key] ?? 0;
+    if (rg != null && rg <= -15 && (sg == null || sg >= -5)) {
+      out.push({ brand: b.label, kind: "conversion", note: `Revenue ${rg}% vs prior window while traffic held${sg != null ? ` (${sg >= 0 ? "+" : ""}${sg}%)` : ""} — conversion is slipping, not demand.` });
+    }
+    if (lg != null && lg >= 25 && rg != null && rg < 10) {
+      out.push({ brand: b.label, kind: "leads", note: `Leads +${lg}% but revenue only ${rg >= 0 ? "+" : ""}${rg}% — a lead surge not converting yet. Worth a flow/offer look.` });
+    }
+    if (exp > 0 && b.revenue > 0 && exp > b.revenue) {
+      out.push({ brand: b.label, kind: "negative", note: `Tracked expenses ($${Math.round(exp).toLocaleString()}) exceed revenue ($${Math.round(b.revenue).toLocaleString()}) this window.` });
+    }
+    if (rg != null && rg >= 30) {
+      out.push({ brand: b.label, kind: "momentum", note: `Revenue +${rg}% vs prior window — momentum worth feeding (ads/email).` });
+    }
+  }
+  return out;
+}
+
+export function registerCommandCenterRoutes(app: Express) {
+  app.get("/api/ops/command/overview", async (req: Request & { adminEmail?: string }, res: Response) => {
+    try {
+      const win = windowOf(req.query as Record<string, unknown>);
+      const hit = cache.get(win.key);
+      if (hit && Date.now() - hit.at < CACHE_MS) return res.json(scrub(hit.data, req.adminEmail));
+
+      const px = await pixelSessions(win).catch(() => ({} as Record<string, { cur: number; prev: number }>));
+      const settled = await Promise.allSettled([
+        fitscriptVitals(win, px),
+        realpeptidesVitals(win, px),
+        pawgenVitals(win),
+        peptideuVitals(win),
+        northbluVitals(win),
+        reverraVitals(win),
+      ]);
+      const keys = ["fitscript", "realpeptides", "pawgen", "peptideu", "northblu", "reverra"];
+      const labels: Record<string, string> = { fitscript: "FitScript", realpeptides: "Real Peptides", pawgen: "pawgen", peptideu: "PeptideU", northblu: "North Blu", reverra: "Reverra" };
+      const brands: BrandVitals[] = settled.map((s, i) =>
+        s.status === "fulfilled" ? s.value
+          : { key: keys[i], label: labels[keys[i]], configured: false, error: String((s as PromiseRejectedResult).reason?.message ?? "feed failed").slice(0, 140), revenue: 0, revenuePrev: 0 });
+
+      const expenses = await expensesByBrand(win).catch(() => ({} as Record<string, number>));
+      const configured = brands.filter((b) => b.configured);
+      const totalRevenue = configured.reduce((a, b) => a + b.revenue, 0);
+      const totalPrev = configured.reduce((a, b) => a + b.revenuePrev, 0);
+      const best = [...configured].sort((a, b) => b.revenue - a.revenue)[0] ?? null;
+      const growth = configured
+        .map((b) => ({ key: b.key, label: b.label, growth: pct(b.revenue, b.revenuePrev) }))
+        .filter((g) => g.growth != null && (brands.find((b) => b.key === g.key)!.revenuePrev >= 500))
+        .sort((a, b) => (b.growth ?? 0) - (a.growth ?? 0));
+
+      const data = {
+        generatedAt: new Date().toISOString(),
+        window: { from: win.from.toISOString(), to: win.to.toISOString(), days: win.days },
+        brands: brands.map((b) => ({ ...b, growth: pct(b.revenue, b.revenuePrev), expenses: expenses[b.key] ?? 0, net: b.revenue - (expenses[b.key] ?? 0) })),
+        totals: { revenue: totalRevenue, revenuePrev: totalPrev, growth: pct(totalRevenue, totalPrev), expenses: Object.values(expenses).reduce((a, v) => a + v, 0) },
+        best: best ? { key: best.key, label: best.label, revenue: best.revenue } : null,
+        fastestGrowth: growth[0] ?? null,
+        opportunities: opportunities(brands, expenses),
+        notes: [
+          "Each brand's numbers come from the same feed its own tabs read — tiles here always match the brand pages.",
+          "PeptideU revenue is the MRR estimate, not window sales. Growth ranking requires ≥$500 prior-window revenue so tiny bases don't fake 500% spikes.",
+          "Expenses/net use the Finance tab's tracked entries only.",
+        ],
+      };
+      pruneCache(cache, CACHE_MS);
+      cache.set(win.key, { at: Date.now(), data });
+      res.json(scrub(data, req.adminEmail));
+    } catch (e: any) {
+      console.error("[OPS][COMMAND] overview:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+}
+
+/** Expenses/net are Finance-grant data — strip them for everyone else. */
+function scrub(data: any, email: string | undefined) {
+  if (financeLevel(email) !== "none") return data;
+  return {
+    ...data,
+    brands: data.brands.map((b: any) => ({ ...b, expenses: null, net: null })),
+    totals: { ...data.totals, expenses: null },
+    opportunities: data.opportunities.filter((o: any) => o.kind !== "negative"),
+  };
+}

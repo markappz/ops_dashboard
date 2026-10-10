@@ -106,3 +106,6 @@ export function registerPeptideUCommand(app: Express) {
     }
   });
 }
+
+// Exported for the global Command Center aggregator (additive — no behavior change).
+export const peptideuCommandBuild = build;

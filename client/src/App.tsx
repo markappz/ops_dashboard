@@ -58,6 +58,7 @@ import NorthbluOverview from "./pages/northblu-overview";
 import ReverraOverview from "./pages/reverra-overview";
 import BrandFinancials from "./pages/finance/brand-financials";
 import MasterFinancials from "./pages/finance/master";
+import CommandOverview from "./pages/command-overview";
 import EmailBlended from "./pages/email-blended";
 import RealPeptidesLeads from "./pages/realpeptides-leads";
 import RealPeptidesMarketing from "./pages/realpeptides-marketing";
@@ -361,6 +362,7 @@ export default function App() {
           <Route path="/realpeptides/financials">{() => <BrandFinancials company="realpeptides" label="Real Peptides" />}</Route>
           <Route path="/northblu/financials">{() => <BrandFinancials company="northblu" label="North Blu" />}</Route>
           <Route path="/admin/financials" component={MasterFinancials} />
+          <Route path="/command" component={CommandOverview} />
           <Route path="/northblu" component={NorthbluOverview} />
           <Route path="/northblu/email">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><NorthbluEmail /></>}</Route>
           <Route path="/northblu/flows">{() => <><SubTabs tabs={NB_EMAIL_TABS} /><EmailFlows company="northblu" /></>}</Route>

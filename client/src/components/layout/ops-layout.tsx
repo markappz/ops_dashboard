@@ -368,6 +368,19 @@ export function OpsLayout({
             carries a tinted fill + hued ring instead of one generic blue pill.
             Grid stays 2-col (labels wrap in a 256px sidebar); the odd fifth
             brand spans the full row on purpose. */}
+        {/* Global Command Center — the whole portfolio, above the workspaces (Paul, 10-10) */}
+        <div className="px-4 pt-3">
+          <Link href="/command">
+            <div className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-[12px] font-semibold tracking-[0.12em] uppercase cursor-pointer transition-colors ${
+              location === "/command"
+                ? "text-white bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 shadow-[0_4px_14px_-4px_rgba(46,91,255,0.5)]"
+                : "text-ops-text-muted hover:text-ops-text hover:bg-ops-surface-hover border border-ops-border"
+            }`} onClick={() => setSidebarOpen(false)}>
+              {ICONS.grid}
+              <span>Command Center</span>
+            </div>
+          </Link>
+        </div>
         <div className="px-4 py-3 border-b border-ops-border">
           <div className="px-1 mb-2 flex items-center justify-between">
             <span className="text-[10px] tracking-[0.16em] uppercase font-semibold text-ops-text-subtle">Workspace</span>
