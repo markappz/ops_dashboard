@@ -21,7 +21,21 @@ import { peptideuCommandBuild } from "./peptideu-command";
 import { financeLevel, ensureFinanceTables } from "./finance";
 
 const cache = new Map<string, { at: number; data: any }>();
-const CACHE_MS = 60_000;
+// Portfolio overview tolerates a few minutes of staleness (the brand tabs are
+// the live source). 5-min bucketed keys + a 4-min warmer = the page opens
+// instantly from cache instead of fanning out six feeds per view. The picker
+// sends minute-exact from/to, so raw window keys would never repeat.
+const CACHE_MS = 5 * 60_000;
+const BRAND_TIMEOUT_MS = 15_000;
+const cacheKeyFor = (win: Window) => `d${win.days}@${Math.floor(win.to.getTime() / 300_000)}`;
+
+/** One slow upstream must not hold the whole page — cap each brand fetch. */
+function withTimeout<T>(p: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} feed timed out after ${BRAND_TIMEOUT_MS / 1000}s`)), BRAND_TIMEOUT_MS)),
+  ]);
+}
 
 export interface BrandVitals {
   key: string;
@@ -105,8 +119,8 @@ async function pawgenVitals(win: Window): Promise<BrandVitals> {
     basis: "paid orders; leads = guide magnet",
     revenue: Number(d.sales?.current?.revenue ?? 0), revenuePrev: Number(d.sales?.previous?.revenue ?? 0),
     orders: Number(d.sales?.current?.orders ?? 0),
-    sessions: d.traffic?.pixelInstalled ? Number(d.traffic?.current?.sessions ?? d.traffic?.current?.rows?.[0]?.sessions ?? 0) || null : null,
-    sessionsPrev: d.traffic?.pixelInstalled ? Number(d.traffic?.previous?.sessions ?? 0) || null : null,
+    sessions: d.traffic?.pixelInstalled ? Number(d.traffic?.current?.sessions ?? 0) : null,
+    sessionsPrev: d.traffic?.pixelInstalled ? Number(d.traffic?.previous?.sessions ?? 0) : null,
     leads: Number(d.leads?.window ?? 0), leadsPrev: Number(d.leads?.previous ?? 0),
     series: (d.sales?.series ?? []).map((r: any) => Number(r.revenue ?? r.value ?? 0)),
   };
@@ -205,21 +219,15 @@ function opportunities(brands: BrandVitals[], expenses: Record<string, number>):
   return out;
 }
 
-export function registerCommandCenterRoutes(app: Express) {
-  app.get("/api/ops/command/overview", async (req: Request & { adminEmail?: string }, res: Response) => {
-    try {
-      const win = windowOf(req.query as Record<string, unknown>);
-      const hit = cache.get(win.key);
-      if (hit && Date.now() - hit.at < CACHE_MS) return res.json(scrub(hit.data, req.adminEmail));
-
+async function buildOverview(win: Window) {
       const px = await pixelSessions(win).catch(() => ({} as Record<string, { cur: number; prev: number }>));
       const settled = await Promise.allSettled([
-        fitscriptVitals(win, px),
-        realpeptidesVitals(win, px),
-        pawgenVitals(win),
-        peptideuVitals(win),
-        northbluVitals(win),
-        reverraVitals(win),
+        withTimeout(fitscriptVitals(win, px), "FitScript"),
+        withTimeout(realpeptidesVitals(win, px), "Real Peptides"),
+        withTimeout(pawgenVitals(win), "pawgen"),
+        withTimeout(peptideuVitals(win), "PeptideU"),
+        withTimeout(northbluVitals(win), "North Blu"),
+        withTimeout(reverraVitals(win), "Reverra"),
       ]);
       const keys = ["fitscript", "realpeptides", "pawgen", "peptideu", "northblu", "reverra"];
       const labels: Record<string, string> = { fitscript: "FitScript", realpeptides: "Real Peptides", pawgen: "pawgen", peptideu: "PeptideU", northblu: "North Blu", reverra: "Reverra" };
@@ -249,16 +257,48 @@ export function registerCommandCenterRoutes(app: Express) {
           "Each brand's numbers come from the same feed its own tabs read — tiles here always match the brand pages.",
           "PeptideU revenue is the MRR estimate, not window sales. Growth ranking requires ≥$500 prior-window revenue so tiny bases don't fake 500% spikes.",
           "Expenses/net use the Finance tab's tracked entries only.",
+          "This page refreshes every few minutes; for live-by-the-minute numbers open the brand's own tab.",
         ],
       };
+      return data;
+}
+
+export function registerCommandCenterRoutes(app: Express) {
+  app.get("/api/ops/command/overview", async (req: Request & { adminEmail?: string }, res: Response) => {
+    try {
+      const win = windowOf(req.query as Record<string, unknown>);
+      const ck = cacheKeyFor(win);
+      // Fall back one bucket so a viewer arriving just after a bucket rollover
+      // still gets the warmed copy instead of paying the full fan-out.
+      const prevCk = `d${win.days}@${Math.floor(win.to.getTime() / 300_000) - 1}`;
+      const hit = cache.get(ck) ?? cache.get(prevCk);
+      if (hit && Date.now() - hit.at < CACHE_MS) return res.json(scrub(hit.data, req.adminEmail));
+      const data = await buildOverview(win);
       pruneCache(cache, CACHE_MS);
-      cache.set(win.key, { at: Date.now(), data });
+      cache.set(ck, { at: Date.now(), data });
       res.json(scrub(data, req.adminEmail));
     } catch (e: any) {
       console.error("[OPS][COMMAND] overview:", e.message);
       res.status(500).json({ error: e.message });
     }
   });
+}
+
+/** Keep the default 30d window warm so the page opens instantly. */
+export function startCommandCenterWarmer(): void {
+  const warm = async () => {
+    try {
+      const win = windowOf({});
+      const data = await buildOverview(win);
+      pruneCache(cache, CACHE_MS);
+      cache.set(cacheKeyFor(win), { at: Date.now(), data });
+    } catch (e: any) {
+      console.warn("[OPS][COMMAND] warmer:", e.message);
+    }
+  };
+  setTimeout(warm, 15_000); // after boot settles
+  setInterval(warm, 4 * 60_000);
+  console.log("[OPS][COMMAND] cache warmer armed (30d window, 5m)");
 }
 
 /** Expenses/net are Finance-grant data — strip them for everyone else. */

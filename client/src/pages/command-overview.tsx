@@ -79,7 +79,7 @@ export default function CommandOverview() {
             {showMoney && <StatCard i={3} label={`Net after tracked expenses`} icon={<Scale />} value={usd(netTotal!)} sub={`${usd(d.totals.expenses!)} tracked spend`} tone={netTotal! >= 0 ? "good" : "bad"} />}
           </div>
 
-          <div className="mb-4 overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card">
+          <div className="mb-4 hidden overflow-x-auto rounded-xl border border-ops-border bg-ops-surface shadow-card md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-ops-border text-left text-[10.5px] uppercase tracking-[0.1em] text-ops-text-muted">
@@ -119,6 +119,29 @@ export default function CommandOverview() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Phones: stacked brand cards — the 8-column table is desktop-only. */}
+          <div className="mb-4 space-y-2.5 md:hidden">
+            {brands.map((b) => (
+              <Link key={b.key} href={`/${b.key}`} className="block rounded-xl border border-ops-border bg-ops-surface p-4 shadow-card">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-black" style={{ backgroundColor: `rgba(${HUES[b.key]},0.16)`, color: `rgb(${HUES[b.key]})` }}>{MONO[b.key]}</span>
+                  <span className="min-w-0 truncate font-semibold text-ops-text">{b.label}</span>
+                  {b.configured
+                    ? <span className="ml-auto shrink-0 tabular-nums text-ops-text">{usd(b.revenue)}{delta(b.growth)}</span>
+                    : <span className="ml-auto shrink-0 text-xs text-amber-500">not connected</span>}
+                </div>
+                {b.configured && (
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ops-text-muted">
+                    {b.series && b.series.length > 1 && <span style={{ color: `rgb(${HUES[b.key]})` }}><Sparkline points={b.series} className="h-[22px] w-[84px]" /></span>}
+                    {b.sessions != null && <span>{n0(b.sessions)} sessions</span>}
+                    {b.leads != null && <span>{n0(b.leads)} leads</span>}
+                    {showMoney && b.net != null && <span className={b.net >= 0 ? "text-emerald-400" : "text-red-400"}>net {usd(b.net)}</span>}
+                  </div>
+                )}
+              </Link>
+            ))}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_320px]">

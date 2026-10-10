@@ -158,7 +158,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
 ];
 
 const NAV_SECTIONS: NavSection[] = [
-  { label: "Overview", items: [{ path: "/fitscript", label: "Command Center", icon: "grid" }] },
+  { label: "Overview", items: [{ path: "/fitscript", label: "Overview", icon: "grid" }] },
   { label: "Sales", items: [{ path: "/fitscript/orders", label: "Orders", icon: "package" }] },
   {
     label: "Customers",

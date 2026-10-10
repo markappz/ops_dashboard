@@ -206,8 +206,8 @@ export default function CommandCenter() {
   return (
     <div>
       <PageHero
-        eyebrow="Overview"
-        title="Command Center"
+        eyebrow="FitScript"
+        title="Overview"
         subtitle="FitScript business at a glance — revenue, subscribers, unit economics, and integration health."
         actions={
           anyDisconnected ? (

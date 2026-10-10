@@ -67,7 +67,7 @@ import { registerCallCenterRoutes } from "./callcenter";
 import { startCallCenterLoops } from "./callcenter-worker";
 import { ensureCallCenterTables } from "./callcenter-db";
 import { registerFinanceRoutes } from "./finance";
-import { registerCommandCenterRoutes } from "./command-center";
+import { registerCommandCenterRoutes, startCommandCenterWarmer } from "./command-center";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -252,6 +252,7 @@ async function start() {
     startTargetRefreshLoop();
     startRpRankingLoop();
     startCallCenterLoops();
+    startCommandCenterWarmer();
   });
 }
 
