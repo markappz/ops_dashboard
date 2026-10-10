@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { Crown, Rocket, DollarSign, Scale, Lightbulb } from "lucide-react";
 import { PageHero } from "../components/page-hero";
@@ -42,6 +44,70 @@ const delta = (g: number | null) => g == null ? null : (
 );
 const n0 = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString());
 const rev = (b: Brand) => b.revenueKind === "mrr" ? <span>{usd(b.revenue)}<span className="text-xs text-ops-text-muted">/mo</span></span> : usd(b.revenue);
+
+
+/** Revenue-share donut with a pseudo-3D extrusion: each slice drawn twice —
+ *  a darkened base ring offset downward, then the top face — brand-colored,
+ *  hover-lifted and clickable through to the brand. Window-revenue brands
+ *  only; MRR is a different unit and stays off the pie. */
+function RevenuePie({ brands }: { brands: Brand[] }) {
+  const [hover, setHover] = useState<string | null>(null);
+  const slices = brands.filter((b) => b.configured && (b.revenueKind ?? "window") === "window" && b.revenue > 0);
+  const total = slices.reduce((a, b) => a + b.revenue, 0);
+  if (!total) return null;
+  const CX = 110, CY = 96, R = 78, IR = 44, DEPTH = 12, SQUASH = 0.62;
+  const pt = (angle: number, r: number, dy = 0) => [CX + r * Math.cos(angle), CY + r * Math.sin(angle) * SQUASH + dy] as const;
+  const arcPath = (a0: number, a1: number, dy: number) => {
+    const large = a1 - a0 > Math.PI ? 1 : 0;
+    const [x0, y0] = pt(a0, R, dy), [x1, y1] = pt(a1, R, dy);
+    const [ix1, iy1] = pt(a1, IR, dy), [ix0, iy0] = pt(a0, IR, dy);
+    return `M ${x0} ${y0} A ${R} ${R * SQUASH} 0 ${large} 1 ${x1} ${y1} L ${ix1} ${iy1} A ${IR} ${IR * SQUASH} 0 ${large} 0 ${ix0} ${iy0} Z`;
+  };
+  let acc = -Math.PI / 2;
+  const parts = slices.map((b) => {
+    const a0 = acc; const sweep = (b.revenue / total) * Math.PI * 2 - 0.02;
+    acc = a0 + sweep + 0.02;
+    const mid = a0 + sweep / 2;
+    return { b, a0, a1: a0 + sweep, mid };
+  });
+  const dark = (hue: string) => `rgba(${hue.split(",").map((v, i) => Math.max(0, Number(v) - 70)).join(",")},1)`;
+  return (
+    <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
+      <div className="mb-1 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted">Revenue share</div>
+      <svg viewBox="0 0 220 210" className="mx-auto block w-full max-w-[280px]" role="img" aria-label="Revenue share by brand">
+        {/* base (extrusion) pass first so top faces overlap it */}
+        {parts.map(({ b, a0, a1 }) => (
+          <path key={`d-${b.key}`} d={arcPath(a0, a1, DEPTH)} fill={dark(HUES[b.key])} opacity={hover && hover !== b.key ? 0.35 : 0.9} />
+        ))}
+        {parts.map(({ b, a0, a1, mid }) => {
+          const lift = hover === b.key ? 6 : 0;
+          const [dx, dy] = [Math.cos(mid) * lift, Math.sin(mid) * lift * SQUASH];
+          return (
+            <Link key={b.key} href={`/${b.key}`}>
+              <path d={arcPath(a0, a1, 0)} fill={`rgb(${HUES[b.key]})`} transform={`translate(${dx} ${dy - lift / 2})`}
+                opacity={hover && hover !== b.key ? 0.45 : 1} style={{ cursor: "pointer", transition: "all 150ms" }}
+                onMouseEnter={() => setHover(b.key)} onMouseLeave={() => setHover(null)}>
+                <title>{`${b.label} — ${usd(b.revenue)} (${Math.round((b.revenue / total) * 100)}%)`}</title>
+              </path>
+            </Link>
+          );
+        })}
+        <text x={CX} y={CY - 2} textAnchor="middle" className="fill-current text-ops-text" style={{ fontSize: 15, fontWeight: 700 }}>{usd(total)}</text>
+        <text x={CX} y={CY + 14} textAnchor="middle" style={{ fontSize: 8.5, letterSpacing: "0.12em", fill: "rgb(107,110,118)" }}>WINDOW REVENUE</text>
+      </svg>
+      <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
+        {parts.map(({ b }) => (
+          <Link key={b.key} href={`/${b.key}`} onMouseEnter={() => setHover(b.key)} onMouseLeave={() => setHover(null)}
+            className="flex items-center gap-1.5 text-xs text-ops-text-muted hover:text-ops-text">
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: `rgb(${HUES[b.key]})` }} />
+            {b.label} · {Math.round((b.revenue / total) * 100)}%
+          </Link>
+        ))}
+      </div>
+      <div className="mt-2 text-center text-[10.5px] text-ops-text-muted">Click a slice to open the brand. Recurring (MRR) revenue isn't sliced in — different unit.</div>
+    </div>
+  );
+}
 
 export default function CommandOverview() {
   const [range, setRange] = useDateRange("global-command");
@@ -146,7 +212,8 @@ export default function CommandOverview() {
             ))}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+          <div className="grid gap-4 lg:grid-cols-[320px_1fr_300px]">
+            <RevenuePie brands={brands} />
             <div className="rounded-xl border border-ops-border bg-ops-surface p-5 shadow-card">
               <div className="mb-3 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-ops-text-muted"><Lightbulb className="h-3.5 w-3.5" />Opportunities & flags · {range.label}</div>
               {!d.opportunities.length && <div className="py-4 text-sm text-ops-text-muted">Nothing flagged in this window — steady as she goes.</div>}

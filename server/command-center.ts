@@ -13,12 +13,15 @@
  *    (PeptideU revenue = MRR estimate; North Blu is a waitlist brand).
  */
 import type { Express, Request, Response } from "express";
+import Stripe from "stripe";
 import { pool, peptidePool } from "./db";
 import { windowOf, type Window, pruneCache } from "./lib/window";
 import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
 import { pawgenCommandBuild } from "./pawgen-command";
 import { peptideuCommandBuild } from "./peptideu-command";
 import { financeLevel, ensureFinanceTables } from "./finance";
+
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const cache = new Map<string, { at: number; data: any }>();
 // Portfolio overview tolerates a few minutes of staleness (the brand tabs are
@@ -69,35 +72,55 @@ async function pixelSessions(win: Window): Promise<Record<string, { cur: number;
   return Object.fromEntries(r.rows.map((x) => [x.site, { cur: x.cur, prev: x.prev }]));
 }
 
+/** Stripe charges (paid && !refunded) — the same definition the FitScript
+ *  Overview's revenue tile uses, but paginated instead of capped at 100.
+ *  lab_orders was the wrong ledger (stale/quiet — Paul, 10-10). */
+async function stripeWindowRevenue(from: Date, to: Date): Promise<{ revenue: number; orders: number; byDay: Map<string, number> }> {
+  if (!stripe) throw new Error("STRIPE_SECRET_KEY not configured");
+  let revenue = 0, orders = 0;
+  const byDay = new Map<string, number>();
+  let starting_after: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const batch: Stripe.ApiList<Stripe.Charge> = await stripe.charges.list({
+      created: { gte: Math.floor(from.getTime() / 1000), lte: Math.floor(to.getTime() / 1000) },
+      limit: 100, ...(starting_after ? { starting_after } : {}),
+    });
+    for (const c of batch.data) {
+      if (!c.paid || c.refunded) continue;
+      const usd = c.amount / 100;
+      revenue += usd; orders += 1;
+      const day = new Date(c.created * 1000).toISOString().slice(0, 10);
+      byDay.set(day, (byDay.get(day) ?? 0) + usd);
+    }
+    if (!batch.has_more) break;
+    starting_after = batch.data[batch.data.length - 1]?.id;
+  }
+  return { revenue: Math.round(revenue * 100) / 100, orders, byDay };
+}
+
 async function fitscriptVitals(win: Window, px: Record<string, { cur: number; prev: number }>): Promise<BrandVitals> {
-  // Same ledger the Reports → Sales tab reads: lab_orders, paid, not refunded.
-  const rev = await pool.query(
-    `SELECT
-       COALESCE(SUM(price_cents - COALESCE(discount_cents,0)) FILTER (WHERE paid_at >= $1 AND paid_at <= $2), 0)::bigint AS cur,
-       COALESCE(SUM(price_cents - COALESCE(discount_cents,0)) FILTER (WHERE paid_at >= $3 AND paid_at <= $4), 0)::bigint AS prev,
-       COUNT(*) FILTER (WHERE paid_at >= $1 AND paid_at <= $2)::int AS orders
-     FROM lab_orders WHERE refunded_at IS NULL AND paid_at >= $3`,
-    [win.from, win.to, win.prevFrom, win.prevTo],
-  );
-  const signups = await pool.query(
-    `SELECT COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
-            COUNT(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
-       FROM users WHERE created_at >= $3`,
-    [win.from, win.to, win.prevFrom, win.prevTo],
-  );
-  const daily = await pool.query(
-    `SELECT to_char(paid_at::date, 'YYYY-MM-DD') AS d, SUM(price_cents - COALESCE(discount_cents,0))::bigint AS c
-       FROM lab_orders WHERE refunded_at IS NULL AND paid_at >= $1 AND paid_at <= $2 GROUP BY 1 ORDER BY 1`,
-    [win.from, win.to],
-  );
+  const [cur, prev, signups] = await Promise.all([
+    stripeWindowRevenue(win.from, win.to),
+    stripeWindowRevenue(win.prevFrom, win.prevTo),
+    pool.query(
+      `SELECT COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
+              COUNT(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
+         FROM users WHERE created_at >= $3`,
+      [win.from, win.to, win.prevFrom, win.prevTo],
+    ),
+  ]);
+  const series: number[] = [];
+  for (let i = win.days - 1; i >= 0; i--) {
+    const day = new Date(win.to.getTime() - i * 86_400_000).toISOString().slice(0, 10);
+    series.push(cur.byDay.get(day) ?? 0);
+  }
   return {
     key: "fitscript", label: "FitScript", configured: true,
-    basis: "lab revenue (paid, net of refunds); leads = app signups",
-    revenue: Number(rev.rows[0].cur) / 100, revenuePrev: Number(rev.rows[0].prev) / 100,
-    orders: rev.rows[0].orders,
+    basis: "Stripe charges, paid & not refunded (same as the FitScript Overview tile); leads = app signups",
+    revenue: cur.revenue, revenuePrev: prev.revenue, orders: cur.orders,
     sessions: px.fitscript?.cur ?? null, sessionsPrev: px.fitscript?.prev ?? null,
     leads: signups.rows[0].cur, leadsPrev: signups.rows[0].prev,
-    series: daily.rows.map((r) => Number(r.c) / 100),
+    series,
   };
 }
 
