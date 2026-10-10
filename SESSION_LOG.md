@@ -3848,3 +3848,23 @@ lab_orders ledger SQL + pixel sessions by site) with Promise.allSettled fault is
 cache. Sidebar gets a COMMAND CENTER bar ABOVE the Workspace switcher. Local E2E impossible
 (all upstreams are prod-only) — verify on prod in browser right after deploy per standing rule;
 pawgen traffic field shape accessed defensively, check its row matches the pawgen tab.
+
+## 2026-10-10 (cont) — Command Center hardening + revenue-source fixes (paul-ab)
+V1 deployed (rode paul-ee's push) and canaried live: RP $543K/+48.3% best brand, PU lead-surge
+flag, portfolio $564K. Hardening shipped (3b95e07): 15s per-brand feed timeout, 5-min bucketed
+cache + 4-min warmer with prev-bucket fallback (picker sends minute-exact from/to so raw window
+keys never repeat — the warmer was unreachable before), stacked card layout <md, FitScript nav
+item renamed "Overview" (Paul: Command Center = only the global bar).
+PU fix (8e35496, deployed): $975 was MRR with a hard-coded prev (+0% fake). Validated vs PU DB:
+117 paying × $8.33 exact; membership_grants holds ONLY comps, but 6 paying lapsed this window →
+churn-tracked growth (~-5%), renders as $/mo, excluded from summed window revenue + growth
+rankings; portfolio card shows "+$X/mo recurring" separately.
+UNPUSHED queue (await Paul's go): e3678c4 (3D clickable revenue-share pie; FitScript→Stripe —
+superseded) + 853746e (FitScript Stripe is DEAD since 09-02 per fitscript-billing-wizlo; both
+/command AND Overview snapshot tile now sum membership_charges net of refunds + captured
+supplement_orders + lab_orders, one query shape; snapshot MRR = newest paid charge per user,
+monthly 35d/annual 370d). RDS unreachable locally (VPC) — tables verified against fitscript
+repo code (wizloPayService.ts reconcileMembershipRefunds, schema.ts supplement_orders);
+FIRST PROD LOAD IS THE NUMBERS CHECK: /command FitScript row must equal Overview tile.
+Cross-seat: ping-before-push protocol agreed w/ paul-ee (memory: ops-shared-checkout-commit-
+protocol). Studio LAN IP moved .50→.53 (DHCP) — update browser URLs.
