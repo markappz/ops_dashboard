@@ -14,6 +14,7 @@ import { DateRangePicker, rangeQuery, rangeKey, useDateRange } from "../componen
 
 interface Brand {
   key: string; label: string; configured: boolean; error?: string; basis?: string;
+  revenueKind?: "window" | "mrr";
   revenue: number; revenuePrev: number; growth: number | null; orders?: number;
   sessions?: number | null; sessionsPrev?: number | null;
   leads?: number | null; leadsPrev?: number | null;
@@ -22,7 +23,7 @@ interface Brand {
 interface Overview {
   window: { from: string; to: string; days: number };
   brands: Brand[];
-  totals: { revenue: number; revenuePrev: number; growth: number | null; expenses: number | null };
+  totals: { revenue: number; revenuePrev: number; growth: number | null; mrr: number; expenses: number | null };
   best: { key: string; label: string; revenue: number } | null;
   fastestGrowth: { key: string; label: string; growth: number } | null;
   opportunities: Array<{ brand: string; kind: string; note: string }>;
@@ -40,6 +41,7 @@ const delta = (g: number | null) => g == null ? null : (
   <span className={`ml-1.5 text-xs font-semibold ${g >= 0 ? "text-emerald-400" : "text-red-400"}`}>{g >= 0 ? "+" : ""}{g}%</span>
 );
 const n0 = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString());
+const rev = (b: Brand) => b.revenueKind === "mrr" ? <span>{usd(b.revenue)}<span className="text-xs text-ops-text-muted">/mo</span></span> : usd(b.revenue);
 
 export default function CommandOverview() {
   const [range, setRange] = useDateRange("global-command");
@@ -72,7 +74,7 @@ export default function CommandOverview() {
       {d && (
         <>
           <div className={`mb-6 grid grid-cols-2 gap-3 ${showMoney ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
-            <StatCard i={0} label={`Portfolio revenue · ${range.label}`} icon={<DollarSign />} value={<span>{usd(d.totals.revenue)}{delta(d.totals.growth)}</span>} accent />
+            <StatCard i={0} label={`Portfolio revenue · ${range.label}`} icon={<DollarSign />} value={<span>{usd(d.totals.revenue)}{delta(d.totals.growth)}</span>} sub={d.totals.mrr > 0 ? `+ ${usd(d.totals.mrr)}/mo recurring (subscriptions)` : undefined} accent />
             <StatCard i={1} label="Best brand" icon={<Crown />} value={d.best?.label ?? "—"} sub={d.best ? usd(d.best.revenue) : undefined} tone="good" to={d.best ? `/${d.best.key}` : undefined} />
             <StatCard i={2} label="Fastest growth" icon={<Rocket />} value={d.fastestGrowth ? d.fastestGrowth.label : "—"}
               sub={d.fastestGrowth ? `+${d.fastestGrowth.growth}% vs prior ${d.window.days}d` : "needs ≥$500 prior-window revenue"} to={d.fastestGrowth ? `/${d.fastestGrowth.key}` : undefined} />
@@ -104,7 +106,7 @@ export default function CommandOverview() {
                     </td>
                     {b.configured ? (
                       <>
-                        <td className="px-4 py-3 text-right tabular-nums text-ops-text">{usd(b.revenue)}{delta(b.growth)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-ops-text">{rev(b)}{delta(b.growth)}</td>
                         <td className="px-4 py-3">{b.series && b.series.length > 1 ? <span style={{ color: `rgb(${HUES[b.key]})` }}><Sparkline points={b.series} /></span> : <span className="text-xs text-ops-text-muted">—</span>}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{n0(b.sessions)}{b.sessions != null && b.sessionsPrev != null && delta(b.sessionsPrev > 0 ? Math.round(((b.sessions - b.sessionsPrev) / b.sessionsPrev) * 1000) / 10 : null)}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-ops-text-muted">{n0(b.leads)}{b.leads != null && b.leadsPrev != null && delta(b.leadsPrev > 0 ? Math.round(((b.leads - b.leadsPrev) / b.leadsPrev) * 1000) / 10 : null)}</td>
@@ -129,7 +131,7 @@ export default function CommandOverview() {
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-black" style={{ backgroundColor: `rgba(${HUES[b.key]},0.16)`, color: `rgb(${HUES[b.key]})` }}>{MONO[b.key]}</span>
                   <span className="min-w-0 truncate font-semibold text-ops-text">{b.label}</span>
                   {b.configured
-                    ? <span className="ml-auto shrink-0 tabular-nums text-ops-text">{usd(b.revenue)}{delta(b.growth)}</span>
+                    ? <span className="ml-auto shrink-0 tabular-nums text-ops-text">{rev(b)}{delta(b.growth)}</span>
                     : <span className="ml-auto shrink-0 text-xs text-amber-500">not connected</span>}
                 </div>
                 {b.configured && (

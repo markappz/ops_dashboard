@@ -43,6 +43,8 @@ export interface BrandVitals {
   configured: boolean;
   error?: string;
   basis?: string;                 // how to read the numbers — shown in UI
+  /** 'window' = sales inside the range; 'mrr' = monthly recurring (PeptideU). */
+  revenueKind?: "window" | "mrr";
   revenue: number; revenuePrev: number;
   orders?: number;
   sessions?: number | null; sessionsPrev?: number | null;
@@ -129,11 +131,25 @@ async function pawgenVitals(win: Window): Promise<BrandVitals> {
 async function peptideuVitals(win: Window): Promise<BrandVitals> {
   if (!peptidePool) return { key: "peptideu", label: "PeptideU", configured: false, error: "PeptideU DB not connected", revenue: 0, revenuePrev: 0 };
   const d: any = await peptideuCommandBuild(win);
-  // Subscription app: "revenue" is the MRR estimate, not window sales — labeled.
+  const mrr = Number(d.members?.mrrEstimate ?? 0);
+  const paying = Number(d.members?.paying ?? 0);
+  // Growth = MRR movement across the window via tracked churn: paid App Store
+  // subs never write membership_grants (comps only — verified 10-10), but a
+  // lapse flips the profile off premium at subscription_expires_at. New subs
+  // inside the window aren't individually dated, so this slightly UNDERSTATES
+  // growth — stated in the basis label rather than hidden.
+  const lapsed = await peptidePool.query(
+    `SELECT count(*)::int AS n FROM profiles
+      WHERE subscription_expires_at >= $1 AND subscription_expires_at <= $2 AND entitlement <> 'premium'`,
+    [win.from, win.to],
+  );
+  const planMonthly = paying > 0 ? mrr / paying : 0;
+  const mrrPrev = Math.round((paying + Number(lapsed.rows[0].n)) * planMonthly);
   return {
     key: "peptideu", label: "PeptideU", configured: true,
-    basis: "revenue = MRR estimate (paying members × plan); leads = app signups",
-    revenue: Number(d.members?.mrrEstimate ?? 0), revenuePrev: Number(d.members?.mrrEstimate ?? 0),
+    revenueKind: "mrr",
+    basis: `MRR estimate (${paying} paying × plan); growth = churn-tracked MRR change (new subs in-window not separately dated, so growth reads conservative); leads = app signups`,
+    revenue: mrr, revenuePrev: mrrPrev,
     sessions: null, sessionsPrev: null,
     leads: Number(d.current?.signups ?? 0), leadsPrev: Number(d.previous?.signups ?? 0),
     series: (d.series ?? []).map((r: any) => Number(r.signups ?? 0)),
@@ -237,10 +253,13 @@ async function buildOverview(win: Window) {
 
       const expenses = await expensesByBrand(win).catch(() => ({} as Record<string, number>));
       const configured = brands.filter((b) => b.configured);
-      const totalRevenue = configured.reduce((a, b) => a + b.revenue, 0);
-      const totalPrev = configured.reduce((a, b) => a + b.revenuePrev, 0);
-      const best = [...configured].sort((a, b) => b.revenue - a.revenue)[0] ?? null;
-      const growth = configured
+      // Window sales and monthly-recurring are different units — never summed together.
+      const windowBrands = configured.filter((b) => (b.revenueKind ?? "window") === "window");
+      const totalRevenue = windowBrands.reduce((a, b) => a + b.revenue, 0);
+      const totalPrev = windowBrands.reduce((a, b) => a + b.revenuePrev, 0);
+      const totalMrr = configured.filter((b) => b.revenueKind === "mrr").reduce((a, b) => a + b.revenue, 0);
+      const best = [...windowBrands].sort((a, b) => b.revenue - a.revenue)[0] ?? null;
+      const growth = windowBrands
         .map((b) => ({ key: b.key, label: b.label, growth: pct(b.revenue, b.revenuePrev) }))
         .filter((g) => g.growth != null && (brands.find((b) => b.key === g.key)!.revenuePrev >= 500))
         .sort((a, b) => (b.growth ?? 0) - (a.growth ?? 0));
@@ -249,13 +268,13 @@ async function buildOverview(win: Window) {
         generatedAt: new Date().toISOString(),
         window: { from: win.from.toISOString(), to: win.to.toISOString(), days: win.days },
         brands: brands.map((b) => ({ ...b, growth: pct(b.revenue, b.revenuePrev), expenses: expenses[b.key] ?? 0, net: b.revenue - (expenses[b.key] ?? 0) })),
-        totals: { revenue: totalRevenue, revenuePrev: totalPrev, growth: pct(totalRevenue, totalPrev), expenses: Object.values(expenses).reduce((a, v) => a + v, 0) },
+        totals: { revenue: totalRevenue, revenuePrev: totalPrev, growth: pct(totalRevenue, totalPrev), mrr: totalMrr, expenses: Object.values(expenses).reduce((a, v) => a + v, 0) },
         best: best ? { key: best.key, label: best.label, revenue: best.revenue } : null,
         fastestGrowth: growth[0] ?? null,
         opportunities: opportunities(brands, expenses),
         notes: [
           "Each brand's numbers come from the same feed its own tabs read — tiles here always match the brand pages.",
-          "PeptideU revenue is the MRR estimate, not window sales. Growth ranking requires ≥$500 prior-window revenue so tiny bases don't fake 500% spikes.",
+          "PeptideU is recurring revenue (MRR), shown per month and kept OUT of the summed window revenue; its growth is churn-tracked and reads conservative. Growth ranking requires ≥$500 prior-window revenue so tiny bases don't fake 500% spikes.",
           "Expenses/net use the Finance tab's tracked entries only.",
           "This page refreshes every few minutes; for live-by-the-minute numbers open the brand's own tab.",
         ],
