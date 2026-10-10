@@ -246,6 +246,69 @@ export async function verifyPawgenRest(): Promise<boolean> {
  * PostgREST has no GROUP BY, so we pull the (small) order set and aggregate in
  * Node. Fine at this volume; revisit if orders ever run to five figures.
  */
+/**
+ * Native-social program (the company's own X/IG/FB/TikTok, managed for a 5%
+ * commission on attributed sales). Orders qualify by first-touch attribution:
+ * utm_medium=organic-social (the /go/x·ig·fb·tt short links and the long UTM
+ * links both set it) or the legacy utm_campaign=jess links from 10-10.
+ */
+export async function nativeSocials() {
+  const rows = await restAll<{
+    ref_source: string | null;
+    amount_usd: string | null;
+    payment_status: string | null;
+    created_at: string;
+  }>(
+    `orders?select=ref_source,amount_usd,payment_status,created_at&or=(ref_medium.eq.organic-social,ref_campaign.eq.native,ref_campaign.eq.jess)&order=created_at.desc`
+  );
+
+  type Agg = { source: string; paidOrders: number; revenue: number; lastOrderAt: string | null };
+  const bySource = new Map<string, Agg>();
+  for (const r of rows) {
+    const key = r.ref_source ?? "(untagged)";
+    const a = bySource.get(key) ?? { source: key, paidOrders: 0, revenue: 0, lastOrderAt: null };
+    // Commission pays on money kept: paid only, refunds excluded.
+    if (r.payment_status === "paid") {
+      a.paidOrders += 1;
+      a.revenue += Number(r.amount_usd ?? 0);
+    }
+    if (!a.lastOrderAt || r.created_at > a.lastOrderAt) a.lastOrderAt = r.created_at;
+    bySource.set(key, a);
+  }
+
+  const clicks = new Map<string, number>();
+  try {
+    const clickRows = await restAll<{ ref_source: string }>(
+      `link_clicks?select=ref_source&ref_source=in.(x,instagram,facebook,tiktok)`
+    );
+    for (const c of clickRows) clicks.set(c.ref_source, (clicks.get(c.ref_source) ?? 0) + 1);
+  } catch {
+    /* link_clicks table optional */
+  }
+
+  const sources = [...bySource.values()].map((a) => ({
+    ...a,
+    revenue: Math.round(a.revenue * 100) / 100,
+    clicks: clicks.get(a.source) ?? 0,
+  }));
+  for (const [src, n] of clicks) {
+    if (!bySource.has(src)) sources.push({ source: src, paidOrders: 0, revenue: 0, lastOrderAt: null, clicks: n });
+  }
+  sources.sort((x, y) => y.revenue - x.revenue || y.clicks - x.clicks);
+
+  const revenue = Math.round(sources.reduce((t, s) => t + s.revenue, 0) * 100) / 100;
+  return {
+    sources,
+    totals: {
+      clicks: sources.reduce((t, s) => t + s.clicks, 0),
+      paidOrders: sources.reduce((t, s) => t + s.paidOrders, 0),
+      revenue,
+      commissionRate: 0.05,
+      commission: Math.round(revenue * 5) / 100,
+    },
+  };
+}
+
 export async function referrals() {
   const rows = await restAll<{
     ref_source: string | null;

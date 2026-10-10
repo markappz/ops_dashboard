@@ -151,6 +151,56 @@ export function registerPawgenRoutes(app: Express) {
   // Everything here comes from real orders, so this tab is useful before any
   // analytics integration is connected.
   // ── Referral breakdown: who is sending traffic that actually buys ─────────
+  // Native-social program: the company's own social channels, 5% commission on
+  // attributed PAID sales (first-touch; refunds excluded). Pool path mirrors rest.
+  app.get("/api/ops/pawgen/native-socials", async (_req: Request, res: Response) => {
+    const src = ensureSource(res);
+    if (!src) return;
+    try {
+      if (src === "rest") return res.json(await rest.nativeSocials());
+      const { rows } = await pawgenPool!.query(`
+        SELECT coalesce(ref_source, '(untagged)') AS source,
+               count(*) FILTER (WHERE payment_status = 'paid')::int AS paid_orders,
+               coalesce(sum(amount_usd) FILTER (WHERE payment_status = 'paid'), 0)::numeric AS revenue,
+               max(created_at) AS last_order_at
+          FROM orders
+         WHERE ref_medium = 'organic-social' OR ref_campaign IN ('native','jess')
+         GROUP BY 1`);
+      const clicks: Record<string, number> = {};
+      try {
+        const c = await pawgenPool!.query(
+          `SELECT ref_source, count(*)::int AS n FROM link_clicks WHERE ref_source IN ('x','instagram','facebook','tiktok') GROUP BY ref_source`
+        );
+        for (const r of c.rows) clicks[r.ref_source] = r.n;
+      } catch { /* table optional */ }
+      const sources = rows.map((r) => ({
+        source: r.source,
+        paidOrders: r.paid_orders,
+        revenue: Number(r.revenue),
+        lastOrderAt: r.last_order_at,
+        clicks: clicks[r.source] ?? 0,
+      }));
+      for (const [srcName, n] of Object.entries(clicks)) {
+        if (!sources.some((s) => s.source === srcName)) sources.push({ source: srcName, paidOrders: 0, revenue: 0, lastOrderAt: null, clicks: n });
+      }
+      sources.sort((a, b) => b.revenue - a.revenue || b.clicks - a.clicks);
+      const revenue = Math.round(sources.reduce((t, s) => t + s.revenue, 0) * 100) / 100;
+      res.json({
+        sources,
+        totals: {
+          clicks: sources.reduce((t, s) => t + s.clicks, 0),
+          paidOrders: sources.reduce((t, s) => t + s.paidOrders, 0),
+          revenue,
+          commissionRate: 0.05,
+          commission: Math.round(revenue * 5) / 100,
+        },
+      });
+    } catch (e: any) {
+      console.error("[OPS pawgen] native-socials error:", e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/ops/pawgen/referrals", async (_req: Request, res: Response) => {
     const src = ensureSource(res);
     if (!src) return;
