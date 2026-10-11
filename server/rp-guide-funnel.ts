@@ -27,6 +27,11 @@ export function registerRpGuideFunnelRoutes(app: Express) {
         signal: AbortSignal.timeout(20_000),
       });
       const text = await r.text();
+      // 404 = the engine build carrying the feed isn't deployed yet — a connect
+      // state, not an error (ops can ship first; the tab waits gracefully).
+      if (r.status === 404) {
+        return res.json({ configured: false, hint: "The site's guide-funnel feed isn't live yet — it ships with the real-peptides engine deploy. This tab lights up on its own once that lands." });
+      }
       if (!r.ok) throw new Error(`site ${r.status}: ${text.slice(0, 160)}`);
       const data = { configured: true, ...JSON.parse(text) };
       cache.set(key, { at: Date.now(), data });
