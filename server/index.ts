@@ -68,6 +68,7 @@ import { startCallCenterLoops } from "./callcenter-worker";
 import { ensureCallCenterTables } from "./callcenter-db";
 import { registerFinanceRoutes } from "./finance";
 import { registerCommandCenterRoutes, startCommandCenterWarmer } from "./command-center";
+import { registerGrowthRoutes } from "./growth";
 
 const app = express();
 const PORT = parseInt(process.env.OPS_PORT || "5001");
@@ -166,6 +167,7 @@ registerRpPaid(app);
 registerPagesRoutes(app);
 registerCallCenterRoutes(app);
 registerFinanceRoutes(app);
+registerGrowthRoutes(app);
 registerCommandCenterRoutes(app);
 
 // Catch idle-TCP errors on the pg pool so they don't crash the process.

@@ -257,6 +257,19 @@ function opportunities(brands: BrandVitals[], expenses: Record<string, number>):
   return out;
 }
 
+/** Growth models and any other consumer get the same cached overview the
+ *  /command page serves — one source of portfolio truth. */
+export async function getOverviewCached(): Promise<any> {
+  const win = windowOf({});
+  const ck = cacheKeyFor(win);
+  const prevCk = `d${win.days}@${Math.floor(win.to.getTime() / 300_000) - 1}`;
+  const hit = cache.get(ck) ?? cache.get(prevCk);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
+  const data = await buildOverview(win);
+  cache.set(ck, { at: Date.now(), data });
+  return data;
+}
+
 async function buildOverview(win: Window) {
       const px = await pixelSessions(win).catch(() => ({} as Record<string, { cur: number; prev: number }>));
       const settled = await Promise.allSettled([

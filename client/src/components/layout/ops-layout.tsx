@@ -69,7 +69,7 @@ const PEPTIDEU_NAV_SECTIONS: NavSection[] = [
       { path: "/peptideu/engagement", label: "Engagement", icon: "chart" },
     ],
   },
-  { label: "Finance", items: [{ path: "/peptideu/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/peptideu/financials", label: "Financials", icon: "dollar" }, { path: "/peptideu/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/peptideu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -87,7 +87,7 @@ const PAWGEN_NAV_SECTIONS: NavSection[] = [
     ],
   },
   { label: "SEO", items: [{ path: "/pawgen/seo", label: "SEO", icon: "file-text" }] },
-  { label: "Finance", items: [{ path: "/pawgen/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/pawgen/financials", label: "Financials", icon: "dollar" }, { path: "/pawgen/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/pawgen/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -96,7 +96,7 @@ const NORTHBLU_NAV_SECTIONS: NavSection[] = [
   { label: "Email", items: [{ path: "/northblu/email", label: "Email", icon: "mail" }] },
   { label: "Marketing", items: [{ path: "/northblu/traffic", label: "Traffic", icon: "chart" }] },
   { label: "SEO", items: [{ path: "/northblu/seo", label: "SEO", icon: "file-text" }] },
-  { label: "Finance", items: [{ path: "/northblu/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/northblu/financials", label: "Financials", icon: "dollar" }, { path: "/northblu/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/northblu/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -106,7 +106,7 @@ const REVERRA_NAV_SECTIONS: NavSection[] = [
   // until then sales tiles on the Overview carry the order counts.
   { label: "Marketing", items: [{ path: "/reverra/traffic", label: "Traffic", icon: "chart" }] },
   { label: "SEO", items: [{ path: "/reverra/seo", label: "SEO", icon: "file-text" }] },
-  { label: "Finance", items: [{ path: "/reverra/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/reverra/financials", label: "Financials", icon: "dollar" }, { path: "/reverra/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/reverra/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -153,7 +153,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
     label: "Workspace",
     items: [{ path: "/realpeptides/tasks", label: "Tasks", icon: "clipboard" }],
   },
-  { label: "Finance", items: [{ path: "/realpeptides/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/realpeptides/financials", label: "Financials", icon: "dollar" }, { path: "/realpeptides/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/realpeptides/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -203,7 +203,7 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/content-library", label: "Content Library", icon: "folder" },
     ],
   },
-  { label: "Finance", items: [{ path: "/fitscript/financials", label: "Financials", icon: "dollar" }] },
+  { label: "Finance", items: [{ path: "/fitscript/financials", label: "Financials", icon: "dollar" }, { path: "/fitscript/growth", label: "Growth", icon: "trend" }] },
   { label: "System", items: [{ path: "/integrations", label: "Integrations", icon: "link" }] },
 ];
 
@@ -245,6 +245,7 @@ const ICONS: Record<string, ReactNode> = {
   bug: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 8v13m0-13V6a2 2 0 112 2h-2zm0 0V5.5A2.5 2.5 0 109.5 8H12zm-7 4h14M5 12a7 7 0 1114 0v3a7 7 0 11-14 0v-3zM5 12L3 14m2-2L3 10m16 2l2 2m-2-2l2-2" /></svg>,
   chart: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>,
   dollar: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4" /></svg>,
+  trend: <svg className="w-[18px] h-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" /></svg>,
 };
 
 async function logout() {

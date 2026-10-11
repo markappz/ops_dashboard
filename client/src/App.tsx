@@ -57,6 +57,7 @@ import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
 import NorthbluOverview from "./pages/northblu-overview";
 import ReverraOverview from "./pages/reverra-overview";
 import BrandFinancials from "./pages/finance/brand-financials";
+import Growth from "./pages/growth";
 import MasterFinancials from "./pages/finance/master";
 import CommandOverview from "./pages/command-overview";
 import EmailBlended from "./pages/email-blended";
@@ -357,6 +358,12 @@ export default function App() {
 
           {/* North Blu — Overview is the Email analytics page until the brand has more feeds. */}
           <Route path="/fitscript/financials">{() => <BrandFinancials company="fitscript" label="FitScript" />}</Route>
+          <Route path="/fitscript/growth">{() => <Growth company="fitscript" label="FitScript" />}</Route>
+          <Route path="/peptideu/growth">{() => <Growth company="peptideu" label="PeptideU" />}</Route>
+          <Route path="/pawgen/growth">{() => <Growth company="pawgen" label="pawgen" />}</Route>
+          <Route path="/realpeptides/growth">{() => <Growth company="realpeptides" label="Real Peptides" />}</Route>
+          <Route path="/northblu/growth">{() => <Growth company="northblu" label="North Blu" />}</Route>
+          <Route path="/reverra/growth">{() => <Growth company="reverra" label="Reverra" />}</Route>
           <Route path="/peptideu/financials">{() => <BrandFinancials company="peptideu" label="PeptideU" />}</Route>
           <Route path="/pawgen/financials">{() => <BrandFinancials company="pawgen" label="pawgen" />}</Route>
           <Route path="/realpeptides/financials">{() => <BrandFinancials company="realpeptides" label="Real Peptides" />}</Route>
