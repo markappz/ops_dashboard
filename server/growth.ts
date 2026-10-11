@@ -20,6 +20,7 @@ import { getOverviewCached } from "./command-center";
 import { google } from "googleapis";
 import { getAuthenticatedClient, getConnection } from "./google-auth";
 import { emailSummaryFor } from "./brand-email";
+import { nativeSocials } from "./pawgen-rest";
 
 const GROWTH_BRANDS = ["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "reverra"] as const;
 type GrowthBrand = (typeof GROWTH_BRANDS)[number];
@@ -194,10 +195,21 @@ async function emailIntel(brand: string): Promise<string | null> {
   return `Email engine 30d: ${parts}${flows ? `. Active flows: ${flows}` : ""}`;
 }
 
+/** pawgen only. Shape per paul-ee 10-11: all-time, first-touch, paid-only
+ *  revenue; commission is an OWED LIABILITY to the socials manager, not
+ *  marketing spend already incurred — keep that wording in any model prose. */
+async function socialsIntel(brand: GrowthBrand): Promise<string | null> {
+  if (brand !== "pawgen") return null;
+  const d: any = await nativeSocials();
+  if (!d?.totals) return null;
+  const rows = (d.sources ?? []).slice(0, 6).map((s: any) => `${s.source}: ${s.paidOrders} orders/$${Math.round(Number(s.revenue))}`).join(", ");
+  return `Native socials (all-time, first-touch, paid-only): ${d.totals.paidOrders} orders, $${Math.round(Number(d.totals.revenue))} revenue, ${d.totals.clicks} clicks. By source: ${rows}. Commission (${(d.totals.commissionRate * 100).toFixed(0)}% = $${Math.round(Number(d.totals.commission))}) is an owed liability to the socials manager, not spend already incurred.`;
+}
+
 /** Everything ops can reach for this brand, each source best-effort. */
 async function brandIntel(brand: GrowthBrand): Promise<string> {
   const settled = await Promise.allSettled([
-    timed(gscIntel(brand)), timed(ga4Intel(brand)), timed(emailIntel(brand)),
+    timed(gscIntel(brand)), timed(ga4Intel(brand)), timed(emailIntel(brand)), timed(socialsIntel(brand)),
   ]);
   const lines = settled
     .map((r) => (r.status === "fulfilled" ? r.value : null))
