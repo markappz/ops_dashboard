@@ -17,6 +17,9 @@ import { logAdminAction } from "./lib/auditLog";
 import { anthropic, BEDROCK_MODELS, isAIConfigured } from "./lib/bedrock";
 import { logAiCost } from "./aiCostLogger";
 import { getOverviewCached } from "./command-center";
+import { google } from "googleapis";
+import { getAuthenticatedClient, getConnection } from "./google-auth";
+import { emailSummaryFor } from "./brand-email";
 
 const GROWTH_BRANDS = ["fitscript", "peptideu", "pawgen", "realpeptides", "northblu", "reverra"] as const;
 type GrowthBrand = (typeof GROWTH_BRANDS)[number];
@@ -144,10 +147,69 @@ const MODEL_TOOL = {
   },
 };
 
+const INTEL_TIMEOUT_MS = 12_000;
+function timed<T>(p: Promise<T>): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error("intel timeout")), INTEL_TIMEOUT_MS))]);
+}
+
+async function gscIntel(brand: string): Promise<string | null> {
+  const auth = await getAuthenticatedClient(brand);
+  const conn = await getConnection(brand);
+  if (!auth || !conn?.gsc_site_url) return null;
+  const webmasters = google.webmasters({ version: "v3", auth });
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const now = new Date(); const d28 = new Date(now.getTime() - 28 * 86400000); const d56 = new Date(now.getTime() - 56 * 86400000);
+  const q = (startDate: string, endDate: string, dimensions?: string[]) =>
+    webmasters.searchanalytics.query({ siteUrl: conn.gsc_site_url, requestBody: { startDate, endDate, dimensions, rowLimit: dimensions ? 10 : 1 } });
+  const [cur, prev, queries] = await Promise.all([q(fmt(d28), fmt(now)), q(fmt(d56), fmt(d28)), q(fmt(d28), fmt(now), ["query"])]);
+  const tot = (r: any) => r.data.rows?.[0] ?? { clicks: 0, impressions: 0 };
+  const top = (queries.data.rows ?? []).map((r: any) => `${r.keys[0]} (${r.clicks}c/${Math.round(r.position)}pos)`).join(", ");
+  return `GSC 28d: ${tot(cur).clicks} clicks / ${tot(cur).impressions} impressions (prev 28d: ${tot(prev).clicks}/${tot(prev).impressions}). Top queries: ${top || "none"}`;
+}
+
+async function ga4Intel(brand: string): Promise<string | null> {
+  const auth = await getAuthenticatedClient(brand);
+  const conn = await getConnection(brand);
+  if (!auth || !conn?.ga4_property_id) return null;
+  const analyticsData = google.analyticsdata({ version: "v1beta", auth });
+  const r = await analyticsData.properties.runReport({
+    property: `properties/${conn.ga4_property_id}`,
+    requestBody: {
+      dateRanges: [{ startDate: "28daysAgo", endDate: "today" }, { startDate: "56daysAgo", endDate: "29daysAgo" }],
+      metrics: [{ name: "sessions" }, { name: "activeUsers" }, { name: "engagementRate" }],
+    },
+  });
+  const rows = r.data.rows ?? [];
+  const v = (i: number, m: number) => rows[i]?.metricValues?.[m]?.value ?? "0";
+  return `GA4 28d: ${v(0, 0)} sessions, ${v(0, 1)} users, engagement ${(Number(v(0, 2)) * 100).toFixed(0)}% (prev 28d: ${v(1, 0)} sessions)`;
+}
+
+async function emailIntel(brand: string): Promise<string | null> {
+  const s = await emailSummaryFor(brand, 30);
+  if (!s?.totals) return null;
+  const t = s.totals;
+  const parts = Object.entries(t).filter(([, val]) => typeof val === "number")
+    .slice(0, 8).map(([k, val]) => `${k}=${val}`).join(", ");
+  const flows = (s.flows ?? []).slice(0, 5).map((f: any) => f.name ?? f.key).filter(Boolean).join(", ");
+  return `Email engine 30d: ${parts}${flows ? `. Active flows: ${flows}` : ""}`;
+}
+
+/** Everything ops can reach for this brand, each source best-effort. */
+async function brandIntel(brand: GrowthBrand): Promise<string> {
+  const settled = await Promise.allSettled([
+    timed(gscIntel(brand)), timed(ga4Intel(brand)), timed(emailIntel(brand)),
+  ]);
+  const lines = settled
+    .map((r) => (r.status === "fulfilled" ? r.value : null))
+    .filter((v): v is string => !!v)
+    .map((v) => v.slice(0, 700));
+  return lines.length ? lines.join("\n") : "No GSC/GA4/email sources connected for this brand.";
+}
+
 async function generateModel(brand: GrowthBrand, guidance: string, email: string) {
   const overview = await getOverviewCached().catch(() => null);
   const vitals = vitalsFor(overview, brand);
-  const finance = await financeContext(brand);
+  const [finance, intel] = await Promise.all([financeContext(brand), brandIntel(brand)]);
   const prior = await pool.query(
     `SELECT title, status, kpi_label FROM ops_growth_initiatives WHERE brand = $1 ORDER BY created_at DESC LIMIT 12`, [brand]);
   const numbers = Object.entries(vitals).filter(([, v]) => v != null)
@@ -160,7 +222,7 @@ async function generateModel(brand: GrowthBrand, guidance: string, email: string
     tool_choice: { type: "tool", name: "write_growth_model" },
     messages: [{
       role: "user",
-      content: `Brand: ${BRAND_CONTEXT[brand]}\nLive 30-day numbers: ${numbers}\nTracked finance (90d): ${finance}\nExisting initiatives (don't re-suggest): ${prior.rows.map((r: any) => r.title).join("; ") || "none"}\nOperator guidance: ${guidance?.slice(0, 1000) || "none given"}`,
+      content: `Brand: ${BRAND_CONTEXT[brand]}\nLive 30-day numbers: ${numbers}\nChannel data:\n${intel}\nTracked finance (90d): ${finance}\nExisting initiatives (don't re-suggest): ${prior.rows.map((r: any) => r.title).join("; ") || "none"}\nOperator guidance: ${guidance?.slice(0, 1000) || "none given"}`,
     }],
   });
   logAiCost({ surface: "ops_growth_model", model: BEDROCK_MODELS.HIGH_IQ, inputTokens: resp.usage?.input_tokens ?? 0, outputTokens: resp.usage?.output_tokens ?? 0 }).catch(() => {});

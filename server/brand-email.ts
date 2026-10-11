@@ -37,6 +37,15 @@ function register(app: Express, slug: string, envPrefix: string, hint: string) {
   });
 }
 
+/** Growth models read the same engine summaries the Email tabs show. */
+export async function emailSummaryFor(slug: string, days = 30): Promise<any | null> {
+  const b = BLENDED_BRANDS.find((x) => x.slug === slug);
+  if (!b) return null;
+  const { base, token } = b.env();
+  if (!base || !token) return null;
+  return fetchSummary(base, token, days).catch(() => null);
+}
+
 /** One upstream summary fetch, shared by the per-brand routes and the blended view. */
 async function fetchSummary(base: string, token: string, days: number): Promise<any> {
   const r = await fetch(`${base.replace(/\/$/, "")}?days=${days}`, {
