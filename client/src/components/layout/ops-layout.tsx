@@ -138,6 +138,7 @@ const REALPEPTIDES_NAV_SECTIONS: NavSection[] = [
     label: "Marketing",
     items: [
       { path: "/realpeptides/marketing", label: "Marketing", icon: "megaphone" },
+      { path: "/realpeptides/guide-funnel", label: "Guide Funnel", icon: "funnel" },
       { path: "/realpeptides/paid", label: "Paid", icon: "dollar" },
       { path: "/realpeptides/campaign-links", label: "Campaign Links", icon: "link" },
       { path: "/realpeptides/affiliates", label: "Affiliates", icon: "users" },

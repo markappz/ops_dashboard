@@ -57,6 +57,7 @@ import { PeptideuEmail, PawgenEmail, NorthbluEmail } from "./pages/brand-email";
 import NorthbluOverview from "./pages/northblu-overview";
 import ReverraOverview from "./pages/reverra-overview";
 import BrandFinancials from "./pages/finance/brand-financials";
+import RealPeptidesGuideFunnel from "./pages/realpeptides-guide-funnel";
 import Growth from "./pages/growth";
 import MasterFinancials from "./pages/finance/master";
 import CommandOverview from "./pages/command-overview";
@@ -400,6 +401,7 @@ export default function App() {
           <Route path="/realpeptides/tasks" component={TasksBoard} />
           <Route path="/realpeptides/email">{() => <><SubTabs tabs={RP_TABS.email} /><RealPeptidesEmail /></>}</Route>
           <Route path="/realpeptides/flows">{() => <><SubTabs tabs={RP_TABS.email} /><EmailFlows company="realpeptides" /></>}</Route>
+          <Route path="/realpeptides/guide-funnel" component={RealPeptidesGuideFunnel} />
           <Route path="/realpeptides/activity">{() => <><SubTabs tabs={RP_TABS.email} /><EmailActivity company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/compose">{() => <><SubTabs tabs={RP_TABS.email} /><EmailCompose company="realpeptides" /></>}</Route>
           <Route path="/realpeptides/broadcasts">{() => <><SubTabs tabs={RP_TABS.email} /><EmailBroadcasts company="realpeptides" label="Real Peptides" /></>}</Route>
