@@ -14,6 +14,7 @@
  */
 import type { Express, Request, Response } from "express";
 import { pool, peptidePool } from "./db";
+import { fsWindowRevenue } from "./lib/fitscript-revenue";
 import { windowOf, type Window, pruneCache } from "./lib/window";
 import { siteSalesSummary, siteConfigured } from "./realpeptides-site";
 import { pawgenCommandBuild } from "./pawgen-command";
@@ -69,42 +70,11 @@ async function pixelSessions(win: Window): Promise<Record<string, { cur: number;
   return Object.fromEntries(r.rows.map((x) => [x.site, { cur: x.cur, prev: x.prev }]));
 }
 
-/** FitScript's Stripe account was DELETED 2026-09-02 (billing = Wizlo/Gr4vy),
- *  so the ops STRIPE_SECRET_KEY reads 0 silently — never use it. Real revenue
- *  since then lands in three RDS tables the main app writes:
- *  membership_charges (status 'paid'; refunded_amount_cents reconciled from
- *  Gr4vy), supplement_orders (a wizlo_pay_transaction_id exists only after
- *  capture) and lab_orders (quiet but real). */
+/** All FitScript money comes from lib/fitscript-revenue (Stripe dead 09-02). */
 async function fitscriptVitals(win: Window, px: Record<string, { cur: number; prev: number }>): Promise<BrandVitals> {
-  const REV_SQL = `
-    SELECT COALESCE(SUM(net) FILTER (WHERE ts >= $1 AND ts <= $2), 0)::bigint AS cur,
-           COALESCE(SUM(net) FILTER (WHERE ts >= $3 AND ts <= $4), 0)::bigint AS prev,
-           COUNT(*) FILTER (WHERE ts >= $1 AND ts <= $2)::int AS orders
-      FROM (
-        SELECT created_at AS ts, amount_cents - COALESCE(refunded_amount_cents, 0) AS net
-          FROM membership_charges WHERE status IN ('paid','refunded')
-        UNION ALL
-        SELECT created_at, (ROUND(COALESCE(total_amount,'0')::numeric * 100))::bigint - COALESCE(discount_cents, 0)
-          FROM supplement_orders WHERE wizlo_pay_transaction_id IS NOT NULL
-        UNION ALL
-        SELECT paid_at, price_cents - COALESCE(discount_cents, 0)
-          FROM lab_orders WHERE refunded_at IS NULL AND paid_at IS NOT NULL
-      ) r WHERE ts >= $3`;
-  const [rev, daily, signups] = await Promise.all([
-    pool.query(REV_SQL, [win.from, win.to, win.prevFrom, win.prevTo]),
-    pool.query(
-      `SELECT to_char(ts::date, 'YYYY-MM-DD') AS d, SUM(net)::bigint AS c FROM (
-          SELECT created_at AS ts, amount_cents - COALESCE(refunded_amount_cents, 0) AS net
-            FROM membership_charges WHERE status IN ('paid','refunded')
-          UNION ALL
-          SELECT created_at, (ROUND(COALESCE(total_amount,'0')::numeric * 100))::bigint - COALESCE(discount_cents, 0)
-            FROM supplement_orders WHERE wizlo_pay_transaction_id IS NOT NULL
-          UNION ALL
-          SELECT paid_at, price_cents - COALESCE(discount_cents, 0)
-            FROM lab_orders WHERE refunded_at IS NULL AND paid_at IS NOT NULL
-        ) r WHERE ts >= $1 AND ts <= $2 GROUP BY 1 ORDER BY 1`,
-      [win.from, win.to],
-    ),
+  const [cur, prev, signups] = await Promise.all([
+    fsWindowRevenue(win.from, win.to),
+    fsWindowRevenue(win.prevFrom, win.prevTo),
     pool.query(
       `SELECT COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
               COUNT(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
@@ -112,14 +82,17 @@ async function fitscriptVitals(win: Window, px: Record<string, { cur: number; pr
       [win.from, win.to, win.prevFrom, win.prevTo],
     ),
   ]);
+  const series: number[] = [];
+  for (let t = win.from.getTime(); t <= win.to.getTime(); t += 86_400_000) {
+    series.push((cur.byDay[new Date(t).toISOString().slice(0, 10)] ?? 0) / 100);
+  }
   return {
     key: "fitscript", label: "FitScript", configured: true,
-    basis: "Wizlo membership charges + supplement orders + lab orders, net of refunds (Stripe dead since 09-02)",
-    revenue: Number(rev.rows[0].cur) / 100, revenuePrev: Number(rev.rows[0].prev) / 100,
-    orders: rev.rows[0].orders,
+    basis: "Wizlo membership charges + supplement orders + lab orders, net of refunds (same module as the FitScript Overview)",
+    revenue: cur.cents / 100, revenuePrev: prev.cents / 100, orders: cur.orders,
     sessions: px.fitscript?.cur ?? null, sessionsPrev: px.fitscript?.prev ?? null,
     leads: signups.rows[0].cur, leadsPrev: signups.rows[0].prev,
-    series: daily.rows.map((r: any) => Number(r.c) / 100),
+    series,
   };
 }
 

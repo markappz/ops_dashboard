@@ -7,6 +7,7 @@
 import type { Express } from "express";
 import { pool } from "./db";
 import Stripe from "stripe";
+import { fsWindowRevenue, fsMrrCents } from "./lib/fitscript-revenue";
 import { getMembersMtdCostMap } from "./economics";
 
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -58,37 +59,12 @@ export function registerRoutes(app: Express) {
       // Stripe MRR (if connected)
       let mrr = 0;
       let totalRevenue = 0;
-      // FitScript's Stripe was deleted 2026-09-02 (billing = Wizlo/Gr4vy): the
-      // old stripe.charges read returned 0 silently. Revenue now comes from the
-      // RDS rails the main app writes — membership_charges (net of Gr4vy-
-      // reconciled refunds), captured supplement_orders, and lab_orders.
+      // Shared three-rail module — the same numbers the Overview feed and the
+      // Command Center aggregator serve (Stripe dead 09-02; see lib/fitscript-revenue).
       try {
-        const rev = await pool.query(
-          `SELECT COALESCE(SUM(net), 0)::bigint AS cur FROM (
-              SELECT created_at AS ts, amount_cents - COALESCE(refunded_amount_cents, 0) AS net
-                FROM membership_charges WHERE status IN ('paid','refunded')
-              UNION ALL
-              SELECT created_at, (ROUND(COALESCE(total_amount,'0')::numeric * 100))::bigint - COALESCE(discount_cents, 0)
-                FROM supplement_orders WHERE wizlo_pay_transaction_id IS NOT NULL
-              UNION ALL
-              SELECT paid_at, price_cents - COALESCE(discount_cents, 0)
-                FROM lab_orders WHERE refunded_at IS NULL AND paid_at IS NOT NULL
-            ) r WHERE ts >= $1`,
-          [thirtyDaysAgo],
-        );
-        totalRevenue = Number(rev.rows[0].cur) / 100;
-        // MRR from the newest paid charge per user, counted while its billing
-        // period is still running: monthly within 35 days, annual within 370.
-        const m = await pool.query(
-          `SELECT COALESCE(SUM(CASE WHEN period = 'annual' THEN amount_cents / 12.0 ELSE amount_cents END), 0)::bigint AS mrr
-             FROM (SELECT DISTINCT ON (user_id) user_id, amount_cents, period, created_at
-                     FROM membership_charges
-                    WHERE status = 'paid' AND created_at >= now() - interval '370 days'
-                    ORDER BY user_id, created_at DESC) latest
-            WHERE (period = 'annual' AND created_at >= now() - interval '370 days')
-               OR (period <> 'annual' AND created_at >= now() - interval '35 days')`,
-        );
-        mrr = Number(m.rows[0].mrr) / 100;
+        const win = await fsWindowRevenue(thirtyDaysAgo, now);
+        totalRevenue = win.cents / 100;
+        mrr = (await fsMrrCents()) / 100;
       } catch (e) {
         console.warn("[OPS] revenue query failed:", (e as Error).message);
       }
@@ -635,43 +611,28 @@ export function registerRoutes(app: Express) {
     }
   });
 
-  // Revenue breakdown
-  app.get("/api/ops/revenue", async (_req, res) => {
+  // Revenue breakdown — three-rail ledger (Stripe dead 09-02; chart used to
+  // flatline after the cutover because it read the deleted account's charges).
+  app.get("/api/ops/revenue", async (req, res) => {
     try {
-      if (!stripe) return res.json({ error: "Stripe not connected" });
-
       const now = new Date();
-      const thirtyDaysAgo = Math.floor((now.getTime() - 30 * 24 * 60 * 60 * 1000) / 1000);
-      const ninetyDaysAgo = Math.floor((now.getTime() - 90 * 24 * 60 * 60 * 1000) / 1000);
-
-      // Recent charges grouped by day
-      const charges = await stripe.charges.list({ created: { gte: ninetyDaysAgo }, limit: 100 });
-      const dailyRevenue: Record<string, number> = {};
-      let totalRefunds = 0;
-
-      for (const charge of charges.data) {
-        if (!charge.paid) continue;
-        const date = new Date(charge.created * 1000).toISOString().split("T")[0];
-        dailyRevenue[date] = (dailyRevenue[date] || 0) + charge.amount / 100;
-        if (charge.refunded) totalRefunds += charge.amount_refunded / 100;
-      }
-
-      // Sort by date
-      const chartData = Object.entries(dailyRevenue)
+      const days = Math.min(Math.max(parseInt(String(req.query.days ?? "90"), 10) || 90, 7), 365);
+      const from = new Date(now.getTime() - days * 86_400_000);
+      const win = await fsWindowRevenue(from, now);
+      const chartData = Object.entries(win.byDay)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, revenue]) => ({ date, revenue: Math.round(revenue) }));
-
-      // Subscription counts
-      const activeSubs = await stripe.subscriptions.list({ status: "active", limit: 100 });
-      const canceledSubs = await stripe.subscriptions.list({ status: "canceled", limit: 20 });
-
+        .map(([date, cents]) => ({ date, revenue: Math.round(cents / 100) }));
+      const subs = await pool.query(
+        `SELECT (SELECT count(*) FROM users WHERE subscription_tier != 'free' AND subscription_status = 'active')::int AS active,
+                (SELECT count(*) FROM subscriptions WHERE status = 'canceled' AND COALESCE(updated_at, created_at) >= $1)::int AS canceled30
+         `, [new Date(now.getTime() - 30 * 86_400_000)]);
+      const refunds = await pool.query(
+        `SELECT COALESCE(SUM(refunded_amount_cents), 0)::bigint AS r FROM membership_charges WHERE refunded_at >= $1`, [from]);
       res.json({
         chartData,
-        totalRefunds: Math.round(totalRefunds),
-        activeSubscriptions: activeSubs.data.length,
-        canceledRecent: canceledSubs.data.filter(
-          (s) => s.canceled_at && s.canceled_at > thirtyDaysAgo
-        ).length,
+        totalRefunds: Math.round(Number(refunds.rows[0].r) / 100),
+        activeSubscriptions: subs.rows[0].active,
+        canceled30d: subs.rows[0].canceled30,
       });
     } catch (error) {
       console.error("[OPS] Revenue error:", error);

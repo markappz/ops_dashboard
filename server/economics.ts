@@ -11,6 +11,7 @@
  */
 import type { Express } from "express";
 import { pool } from "./db";
+import { fsWindowRevenue } from "./lib/fitscript-revenue";
 
 type DailyPoint = { date: string; cost_usd: number; revenue_usd: number };
 
@@ -80,14 +81,14 @@ async function getPlatformEconomics(days: number) {
 
   // Revenue MTD via attribution.total_revenue; daily series via attribution.last_payment_at
   // (best-effort — attribution updates lag Stripe slightly, but is consistent within ops dashboard)
-  const revMtd = await pool.query(
-    `SELECT COALESCE(SUM(total_revenue), 0)::numeric(12,2) AS rev FROM attribution WHERE last_payment_at >= $1`,
-    [sinceMtd],
-  );
-  const revWindow = await pool.query(
-    `SELECT COALESCE(SUM(total_revenue), 0)::numeric(12,2) AS rev FROM attribution WHERE last_payment_at >= $1`,
-    [sinceDays],
-  );
+  // attribution.last_payment_at froze when Stripe died 09-02 — MTD read $0
+  // forever. The three-rail module is the ledger now.
+  const [railMtd, railWindow] = await Promise.all([
+    fsWindowRevenue(sinceMtd, new Date()),
+    fsWindowRevenue(sinceDays, new Date()),
+  ]);
+  const revMtd = { rows: [{ rev: (railMtd.cents / 100).toFixed(2) }] };
+  const revWindow = { rows: [{ rev: (railWindow.cents / 100).toFixed(2) }] };
   const revLtd = await pool.query(
     `SELECT COALESCE(SUM(total_revenue), 0)::numeric(12,2) AS rev FROM attribution`,
   );

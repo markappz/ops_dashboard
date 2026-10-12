@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { RevenueChart } from "../components/charts/revenue-chart";
 import { PageHero } from "../components/page-hero";
-import { DateRangePicker, rangeDays, useDateRange } from "../components/date-range-picker";
+import { DateRangePicker, rangeDays, rangeKey, rangeQuery, useDateRange } from "../components/date-range-picker";
 
 interface Snapshot {
   totalUsers: number;
@@ -21,6 +21,21 @@ interface Snapshot {
   mrr: number;
   arr: number;
   revenueMonth: number;
+}
+
+interface FsOverview {
+  window: { from: string; to: string; days: number };
+  revenue: {
+    cents: number; prevCents: number; orders: number;
+    byRail: Record<string, number>;
+    series: { date: string; cents: number }[];
+    paceDailyCents: number; paceMonthlyCents: number; paceAnnualCents: number; paceNote: string; basis: string;
+  };
+  mrr: { cents: number; arrCents: number };
+  users: { total: number; newInWindow: number; newPrev: number; activeInWindow: number };
+  subscribers: { activeNow: number; tiers: { free: number; essentials: number; complete: number }; newPayingInWindow: number; cancelsInWindow: number };
+  sessions: { cur: number; prev: number };
+  activity: { labUploads: number; atlasChats: number };
 }
 
 interface ActivityItem {
@@ -84,6 +99,15 @@ function formatTimeAgo(date: Date): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+function usdC(cents: number | undefined): string {
+  return cents == null ? "—" : (cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+function deltaPct(cur?: number, prev?: number): string | undefined {
+  if (cur == null || prev == null || prev === 0) return undefined;
+  const d = ((cur - prev) / prev) * 100;
+  return `${d >= 0 ? "+" : ""}${d.toFixed(1)}% vs prior`;
+}
+
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
 }
@@ -99,6 +123,14 @@ export default function CommandCenter() {
     queryKey: ["ops-snapshot"],
     queryFn: () => fetch("/api/ops/snapshot").then((r) => r.json()),
     refetchInterval: 30_000, // refresh every 30s
+  });
+
+  // THE window feed: every tile below the picker reads this one endpoint
+  // (lib/fitscript-revenue three-rail — same numbers as the Command Center).
+  const { data: ov } = useQuery<FsOverview>({
+    queryKey: ["fs-overview", rangeKey(growthRange)],
+    queryFn: () => fetch(`/api/ops/fitscript/overview?${rangeQuery(growthRange)}`).then((r) => r.json()),
+    refetchInterval: 60_000,
   });
 
   const { data: activityData } = useQuery<{ activity: ActivityItem[] }>({
@@ -259,7 +291,7 @@ export default function CommandCenter() {
           </Link>
           <Link href="/reports/conversions">
             <GrowthCard
-              label="New signups"
+              label="Email list signups"
               value={
                 emailSummary?.subscribers?.new_in_window != null
                   ? emailSummary.subscribers.new_in_window.toLocaleString()
@@ -316,42 +348,47 @@ export default function CommandCenter() {
         </div>
       </div>
 
-      {/* Revenue Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        <MetricCard label="MRR" value={formatCurrency(snapshot.mrr)} accent />
-        <MetricCard label="ARR" value={formatCurrency(snapshot.arr)} />
-        <MetricCard label="Revenue (30d)" value={formatCurrency(snapshot.revenueMonth)} />
-        <MetricCard
-          label="Churn Rate"
-          value={`${snapshot.churnRate}%`}
-          sub={`${snapshot.cancelledMonth} cancelled this month`}
-        />
+      {/* Billing — the window the picker chose, with what it equals at pace */}
+      <div className="mb-1 text-[11px] tracking-[0.14em] uppercase font-semibold text-brand-blue-500">
+        Billing · {growthRange.label}
       </div>
-
-      {/* Subscribers Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
-        <MetricCard label="Total Users" value={snapshot.totalUsers.toLocaleString()} />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6 mt-2">
         <MetricCard
-          label="Active Subscribers"
-          value={snapshot.activeSubscribers}
+          label={`Billed · ${growthRange.label}`}
+          value={usdC(ov?.revenue.cents)}
+          sub={ov ? deltaPct(ov.revenue.cents, ov.revenue.prevCents) ?? `${ov.revenue.orders} charges` : undefined}
           accent
         />
-        <MetricCard label="Free" value={snapshot.tiers.free || 0} />
-        <MetricCard label="Essentials" value={snapshot.tiers.essentials || 0} />
-        <MetricCard label="Complete" value={snapshot.tiers.complete || 0} />
+        <MetricCard label="≈ Monthly at this pace" value={usdC(ov?.revenue.paceMonthlyCents)} sub={ov?.revenue.paceNote} />
+        <MetricCard label="≈ Annual at this pace" value={usdC(ov?.revenue.paceAnnualCents)} sub={ov?.revenue.paceNote} />
+        <MetricCard label="MRR now" value={usdC(ov?.mrr.cents)} sub={ov ? `${usdC(ov.mrr.arrCents)} ARR` : undefined} />
       </div>
 
-      {/* Signups + Engagement Row */}
+      {/* People — same window */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
+        <MetricCard
+          label={`New users · ${growthRange.label}`}
+          value={ov?.users.newInWindow ?? "—"}
+          sub={ov ? deltaPct(ov.users.newInWindow, ov.users.newPrev) : undefined}
+          accent
+        />
+        <MetricCard label={`Active users · ${growthRange.label}`} value={ov?.users.activeInWindow ?? "—"} sub={ov ? `${ov.users.total.toLocaleString()} total` : undefined} />
+        <MetricCard label={`Sessions · ${growthRange.label}`} value={ov?.sessions.cur ?? "—"} sub={ov ? deltaPct(ov.sessions.cur, ov.sessions.prev) : undefined} />
+        <MetricCard label={`New paying · ${growthRange.label}`} value={ov?.subscribers.newPayingInWindow ?? "—"} />
+        <MetricCard label={`Cancellations · ${growthRange.label}`} value={ov?.subscribers.cancelsInWindow ?? "—"} />
+      </div>
+
+      {/* Point-in-time — labeled "now", never window-scoped */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
-        <MetricCard label="Signups Today" value={snapshot.signupsToday} />
-        <MetricCard label="Signups (7d)" value={snapshot.signupsWeek} />
-        <MetricCard label="Signups (30d)" value={snapshot.signupsMonth} />
-        <MetricCard label="Lab Uploads" value={snapshot.totalLabs} />
-        <MetricCard label="Atlas Chats" value={snapshot.totalAtlasChats} />
-        <MetricCard label="Waitlist" value={snapshot.waitlistCount} />
+        <MetricCard label="Active subscribers now" value={ov?.subscribers.activeNow ?? snapshot.activeSubscribers} accent />
+        <MetricCard label="Free" value={ov?.subscribers.tiers.free ?? snapshot.tiers.free ?? 0} />
+        <MetricCard label="Essentials" value={ov?.subscribers.tiers.essentials ?? snapshot.tiers.essentials ?? 0} />
+        <MetricCard label="Complete" value={ov?.subscribers.tiers.complete ?? snapshot.tiers.complete ?? 0} />
+        <MetricCard label={`Lab uploads · ${growthRange.label}`} value={ov?.activity.labUploads ?? "—"} />
+        <MetricCard label={`Atlas chats · ${growthRange.label}`} value={ov?.activity.atlasChats ?? "—"} />
       </div>
 
-      {/* Unit Economics */}
+      {/* Unit Economics */}      {/* Unit Economics */}
       {economics && (
         <div className="bg-ops-surface border border-ops-border rounded-xl p-5 shadow-card mb-6">
           <div className="flex items-baseline justify-between mb-4">
