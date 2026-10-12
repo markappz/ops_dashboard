@@ -292,6 +292,24 @@ export async function processInboxOnce(pool: Pool, batch = 25): Promise<number> 
 
 const OVERLAP_MS = 15 * 60_000;
 
+/** v3 RangeFilter ("bt" = between, epoch ms, inclusive). */
+const betweenMs = (lower: number, upper: number) => ({ type: "range", op: "bt", value: [lower, upper] });
+
+const MAX_PAGES_PER_RUN = 8;          // 8 × 200 per 10-min tick; the cursor resumes next tick
+const MAX_CHAT_ENRICH_PER_RUN = 20;   // bounded get-chat calls for transcript backfill
+
+/**
+ * Reconciliation against the v3 list endpoints (migrated 2026-10-12 off the
+ * removed legacy lists — the 10-minute cadence of THIS function was the
+ * 1,418-requests-per-endpoint figure in Retell's deprecation notice).
+ *
+ * Checkpoint discipline: the watermark `upper` advances only when BOTH
+ * streams completed cleanly; a failed or partial stream leaves it alone so
+ * the next tick retries the same window (upserts make replays idempotent).
+ * The backfill cursor advances only after its page has been PERSISTED.
+ * Webhooks stay the immediate path; this is recovery, windowed by the
+ * watermark + a 15-minute overlap for late final data.
+ */
 export async function reconcileOnce(pool: Pool, opts: { full?: boolean } = {}): Promise<{ calls: number; chats: number }> {
   if (!retellCfg()) return { calls: 0, chats: 0 };
   const agents = knownAgentIds();
@@ -299,52 +317,89 @@ export async function reconcileOnce(pool: Pool, opts: { full?: boolean } = {}): 
   const state = (await getSyncState(pool, wmKey)) ?? {};
   const lower = opts.full ? 0 : Math.max(0, Number(state.upper ?? Date.now() - 24 * 3600_000) - OVERLAP_MS);
   const runStart = Date.now();
+  const filter = { start_timestamp: betweenMs(lower, runStart) };
 
   let calls = 0;
-  let paginationKey: string | undefined = opts.full ? state.cursor ?? undefined : undefined;
+  let callsOk = false;
+  let callsError: string | null = null;
   try {
-    for (let page = 0; page < 8; page++) {
-      const body: any = { sort_order: "descending", limit: 200 };
-      if (paginationKey) body.pagination_key = paginationKey;
-      body.filter_criteria = { start_timestamp: { lower_threshold: lower } };
-      let rows: any[];
-      try {
-        rows = await retell.listCalls(body);
-      } catch (e) {
-        if (e instanceof RetellRateLimited) break; // next tick resumes
-        // Schema drift fallback: current docs say filter_criteria, but if the
-        // API rejects ours, pull unfiltered and stop at the watermark locally.
-        delete body.filter_criteria;
-        rows = await retell.listCalls(body);
-        rows = rows.filter((c) => Number(c.start_timestamp ?? 0) >= lower);
-      }
-      if (!rows.length) { paginationKey = undefined; break; }
-      for (const call of rows) {
+    const body: Record<string, unknown> = { sort_order: "descending", limit: 200, filter_criteria: filter };
+    if (opts.full && state.cursor) body.pagination_key = state.cursor;
+    let pages = 0;
+    let exhausted = true;
+    for await (const page of retell.listCallPages(body)) {
+      for (const call of page) {
         if (call.agent_id && !agents.has(String(call.agent_id))) continue; // RP workspace agents only
         await upsertConversation(pool, call, { channel: "voice", eventType: "reconcile" });
         calls++;
       }
-      paginationKey = rows[rows.length - 1]?.call_id;
-      if (!paginationKey || rows.length < 200) { paginationKey = undefined; break; }
+      if (opts.full) {
+        // Cursor saved only AFTER the page is persisted — a crash mid-page replays it.
+        await setSyncState(pool, wmKey, { ...state, cursor: null, lastPageAt: new Date().toISOString() });
+      }
+      if (++pages >= MAX_PAGES_PER_RUN) { exhausted = false; break; }
     }
+    callsOk = exhausted; // a capped run resumes next tick from the same window
   } catch (e: any) {
+    callsError = String(e.message).slice(0, 300);
     console.error("[OPS][CC] reconcile calls failed:", e.message);
   }
 
   let chats = 0;
+  let chatsOk = false;
+  let chatsError: string | null = null;
+  const endedNeedingTranscript: string[] = [];
   try {
-    const allChats = await retell.listChats();
-    for (const chat of allChats) {
-      if (chat.agent_id && !agents.has(String(chat.agent_id))) continue;
-      if (!opts.full && Number(chat.start_timestamp ?? 0) < lower) continue;
-      await upsertConversation(pool, chat, { channel: "chat", eventType: "reconcile" });
-      chats++;
+    let pages = 0;
+    let exhausted = true;
+    for await (const page of retell.listChatPages({ sort_order: "descending", limit: 200, filter_criteria: filter })) {
+      for (const chat of page) {
+        if (chat.agent_id && !agents.has(String(chat.agent_id))) continue;
+        await upsertConversation(pool, chat, { channel: "chat", eventType: "reconcile" });
+        chats++;
+        // v3 list items deliberately omit transcripts; remember ended chats so
+        // the enrichment pass below can pull them individually.
+        if (chat.chat_id && /ended|analyzed/.test(String(chat.chat_status ?? ""))) endedNeedingTranscript.push(String(chat.chat_id));
+      }
+      if (++pages >= MAX_PAGES_PER_RUN) { exhausted = false; break; }
     }
+    chatsOk = exhausted;
   } catch (e: any) {
+    chatsError = String(e.message).slice(0, 300);
     console.error("[OPS][CC] reconcile chats failed:", e.message);
   }
 
-  await setSyncState(pool, wmKey, { upper: runStart, cursor: paginationKey ?? null, lastRun: new Date().toISOString(), calls, chats });
+  // Transcript enrichment: ended chats whose row still has no transcript get a
+  // bounded per-run get-chat pass. Webhook-delivered transcripts short-circuit
+  // this (the row is already filled), so steady state is zero extra calls.
+  if (endedNeedingTranscript.length) {
+    try {
+      const missing = await pool.query(
+        `SELECT external_id FROM cc_conversations
+          WHERE provider = 'retell' AND channel = 'chat' AND transcript IS NULL AND external_id = ANY($1)
+          LIMIT $2`,
+        [endedNeedingTranscript, MAX_CHAT_ENRICH_PER_RUN],
+      );
+      for (const row of missing.rows) {
+        const full = await retell.getChat(row.external_id);
+        if (full) await upsertConversation(pool, full, { channel: "chat", eventType: "reconcile" });
+      }
+    } catch (e: any) {
+      console.error("[OPS][CC] chat transcript enrichment failed:", e.message);
+    }
+  }
+
+  // The watermark only moves on a fully clean run; otherwise the same window
+  // (plus overlap) is retried next tick and nothing is silently skipped.
+  const advanced = callsOk && chatsOk;
+  await setSyncState(pool, wmKey, {
+    upper: advanced ? runStart : (state.upper ?? null),
+    cursor: null,
+    lastRun: new Date().toISOString(),
+    lastRunAdvanced: advanced,
+    calls, chats,
+    lastError: callsError || chatsError || null,
+  });
   return { calls, chats };
 }
 

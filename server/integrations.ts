@@ -305,7 +305,7 @@ const RETELL: IntegrationSpec = {
     try {
       const { retell, retellCfg } = await import("./callcenter-retell");
       if (!retellCfg()) return { ok: false, error: "RETELL_API_KEY not set" };
-      const agents = await retell.listAgents();
+      const agents = await retell.listAgents("voice");
       return { ok: true, detail: `${agents.length} voice agents visible` };
     } catch (e: any) {
       return { ok: false, error: e.message };

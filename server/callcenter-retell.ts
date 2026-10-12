@@ -61,34 +61,125 @@ async function req<T>(method: string, path: string, body?: unknown, timeoutMs = 
     signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await r.text();
-  if (r.status === 429) throw new RetellRateLimited(path);
+  if (r.status === 429) throw new RetellRateLimited(path, Number(r.headers.get("retry-after")) || null);
+  if (r.status === 401 || r.status === 403) throw new RetellAuthError(path, r.status);
   if (!r.ok) throw new Error(`retell ${method} ${path} ${r.status}: ${text.slice(0, 200)}`);
   return (text ? JSON.parse(text) : null) as T;
 }
 
 export class RetellRateLimited extends Error {
-  constructor(path: string) {
+  constructor(path: string, public retryAfterSec: number | null = null) {
     super(`retell rate-limited on ${path}`);
   }
 }
 
+/** 401/403: actionable auth failure — callers must surface it, never retry into it or report empty. */
+export class RetellAuthError extends Error {
+  constructor(path: string, public status: number) {
+    super(`retell auth failed (${status}) on ${path} — check RETELL_API_KEY permissions`);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Versioned list pagination (migration 2026-10-12: Retell removed the
+ * legacy top-level-array list endpoints; the replacements return
+ * { items, pagination_key, has_more }).                               */
+/* ------------------------------------------------------------------ */
+
+export type ListPage<T = any> = { items: T[]; pagination_key?: string | null; has_more: boolean };
+
+/** A list response must be the new envelope. Anything else — a legacy array,
+ *  an auth body, HTML — is a FAILURE, never an empty success. */
+export function assertListPage<T>(raw: unknown, path: string): ListPage<T> {
+  const p = raw as ListPage<T>;
+  if (!p || typeof p !== "object" || Array.isArray(p) || !Array.isArray(p.items) || typeof p.has_more !== "boolean") {
+    throw new Error(`retell ${path}: unexpected list response shape (expected items/has_more envelope)`);
+  }
+  return p;
+}
+
+const MAX_LIST_PAGES = 25;
+
+/**
+ * Page through a versioned POST list endpoint. Filters/sort/limit in `body`
+ * are preserved verbatim on every page; only pagination_key changes (cursors
+ * are opaque). A stuck or missing cursor while has_more=true is an error —
+ * silent truncation and infinite loops are both worse than failing.
+ * One bounded 429 wait (Retry-After-aware, ≤15s) per run; beyond that the
+ * caller's own retry cadence takes over.
+ */
+export async function* listPagesPost<T = any>(path: string, body: Record<string, unknown>, opts: { maxPages?: number } = {}): AsyncGenerator<T[]> {
+  const maxPages = opts.maxPages ?? MAX_LIST_PAGES;
+  let cursor: string | undefined;
+  let waited = false;
+  for (let page = 0; ; page++) {
+    if (page >= maxPages) throw new Error(`retell ${path}: more than ${maxPages} pages claimed — refusing to truncate silently`);
+    const pageBody = { ...body, ...(cursor ? { pagination_key: cursor } : {}) };
+    let raw: unknown;
+    try {
+      raw = await req<unknown>("POST", path, pageBody, 30_000);
+    } catch (e) {
+      if (e instanceof RetellRateLimited && !waited) {
+        waited = true;
+        await new Promise((res) => setTimeout(res, Math.min((e.retryAfterSec ?? 5), 15) * 1000));
+        raw = await req<unknown>("POST", path, pageBody, 30_000);
+      } else throw e;
+    }
+    const parsed = assertListPage<T>(raw, path);
+    yield parsed.items;
+    if (!parsed.has_more) return;
+    const next = parsed.pagination_key ?? undefined;
+    if (!next || next === cursor) throw new Error(`retell ${path}: has_more=true but cursor ${next ? "did not advance" : "missing"}`);
+    cursor = next;
+  }
+}
+
+/** Same discipline for the versioned GET lists (cursor via query string). */
+async function listAllGet<T = any>(path: string): Promise<T[]> {
+  const out: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; ; page++) {
+    if (page >= MAX_LIST_PAGES) throw new Error(`retell ${path}: more than ${MAX_LIST_PAGES} pages claimed — refusing to truncate silently`);
+    const q = cursor ? `${path}${path.includes("?") ? "&" : "?"}pagination_key=${encodeURIComponent(cursor)}` : path;
+    const parsed = assertListPage<T>(await req<unknown>("GET", q), path);
+    out.push(...parsed.items);
+    if (!parsed.has_more) return out;
+    const next = parsed.pagination_key ?? undefined;
+    if (!next || next === cursor) throw new Error(`retell ${path}: has_more=true but cursor ${next ? "did not advance" : "missing"}`);
+    cursor = next;
+  }
+}
+
+async function listAllPost<T = any>(path: string, body: Record<string, unknown>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const items of listPagesPost<T>(path, body)) out.push(...items);
+  return out;
+}
+
+export const channelFilter = (channel: "voice" | "chat") => ({ channel: { type: "string", op: "eq", value: channel } });
+
 /* ---- endpoints verified against the live API on 2026-10-06 ---- */
 
 export const retell = {
-  listAgents: () => req<any[]>("GET", "/list-agents"),
+  /* Unified agent list (POST /v2/list-agents) replaced GET /list-agents and
+   * GET /list-chat-agents on 2026-07-31. The channel filter preserves the old
+   * voice-vs-chat discovery — unfiltered it returns BOTH channels, and the
+   * two agent kinds still use different get/update endpoints below. */
+  listAgents: (channel?: "voice" | "chat") =>
+    listAllPost<any>("/v2/list-agents", { limit: 200, ...(channel ? { filter_criteria: channelFilter(channel) } : {}) }),
   getAgent: (id: string) => req<any>("GET", `/get-agent/${id}`),
   updateAgent: (id: string, patch: unknown) => req<any>("PATCH", `/update-agent/${id}`, patch),
-  listChatAgents: () => req<any[]>("GET", "/list-chat-agents"),
   getChatAgent: (id: string) => req<any>("GET", `/get-chat-agent/${id}`),
   updateChatAgent: (id: string, patch: unknown) => req<any>("PATCH", `/update-chat-agent/${id}`, patch),
-  listLlms: () => req<any[]>("GET", "/list-retell-llms"),
+  listLlms: () => listAllGet<any>("/v2/list-retell-llms"),
   getLlm: (id: string) => req<any>("GET", `/get-retell-llm/${id}`),
   updateLlm: (id: string, patch: unknown) => req<any>("PATCH", `/update-retell-llm/${id}`, patch),
-  listPhoneNumbers: () => req<any[]>("GET", "/list-phone-numbers"),
+  listPhoneNumbers: () => listAllGet<any>("/v2/list-phone-numbers"),
   getCall: (callId: string) => req<any>("GET", `/v2/get-call/${callId}`),
-  /** v2 list-calls is a POST with filter_criteria/pagination_key — NOT the old GET. */
-  listCalls: (body: { filter_criteria?: any; sort_order?: string; limit?: number; pagination_key?: string }) =>
-    req<any[]>("POST", "/v2/list-calls", body, 30_000),
+  /** v3 (2026-06-15 migration): POST, RangeFilter criteria, items envelope. */
+  listCallPages: (body: Record<string, unknown>) => listPagesPost<any>("/v3/list-calls", body),
   getChat: (chatId: string) => req<any>("GET", `/get-chat/${chatId}`),
-  listChats: () => req<any[]>("GET", "/list-chat", undefined, 30_000),
+  /** v3: now a POST like calls. NOTE: v3 chat items omit transcripts — the
+   *  worker enriches ended chats via getChat, never assumes they are inline. */
+  listChatPages: (body: Record<string, unknown>) => listPagesPost<any>("/v3/list-chats", body),
 };

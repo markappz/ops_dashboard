@@ -133,7 +133,9 @@ function mergePrompt(current: string, block: string): string {
 /* ---------------- snapshot / diff / apply ---------------- */
 
 async function snapshot(label: string): Promise<{ dir: string; agents: Json[]; chatAgents: Json[]; llms: Json[] }> {
-  const [agents, chatAgents, llms] = await Promise.all([retell.listAgents(), retell.listChatAgents(), retell.listLlms()]);
+  // Unified agent endpoint (2026-10-12 migration): channel filters preserve the
+  // voice/chat split — the two kinds still PATCH through different update APIs.
+  const [agents, chatAgents, llms] = await Promise.all([retell.listAgents("voice"), retell.listAgents("chat"), retell.listLlms()]);
   const dir = path.join(SNAP_DIR, `${new Date().toISOString().replace(/[:.]/g, "-")}-${label}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "agents.json"), JSON.stringify(agents, null, 2));
