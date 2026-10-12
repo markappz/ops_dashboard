@@ -23,7 +23,9 @@ async function loadOrders(): Promise<Order[]> {
   // Healthy direct Postgres beats REST: one query instead of paging the whole
   // table through Supabase's gateway (see pawgen.ts source() note, 2026-10-12).
   if (await pawgenPoolHealthy()) {
-    return (await pawgenPool!.query(`SELECT created_at, amount_usd, pack_id, method, source, payment_status, fulfillment_status, customer_email, ref_source, ref_medium, ref_campaign FROM orders ORDER BY created_at DESC`)).rows;
+    // pg hands back Date objects; every consumer below assumes REST's ISO strings.
+    const { rows } = await pawgenPool!.query(`SELECT created_at, amount_usd, pack_id, method, source, payment_status, fulfillment_status, customer_email, ref_source, ref_medium, ref_campaign FROM orders ORDER BY created_at DESC`);
+    return rows.map((r: any) => ({ ...r, created_at: new Date(r.created_at).toISOString() }));
   }
   if (rest.pawgenRestConfigured()) return (await rest.ordersForAnalytics()) as Order[];
   if (!pawgenPool) throw new Error("pawgen database not connected");
@@ -31,7 +33,8 @@ async function loadOrders(): Promise<Order[]> {
 }
 async function loadLeads(): Promise<Lead[]> {
   if (await pawgenPoolHealthy()) {
-    return (await pawgenPool!.query(`SELECT email, source, created_at, guide_sent FROM leads ORDER BY created_at DESC`)).rows;
+    const { rows } = await pawgenPool!.query(`SELECT email, source, created_at, guide_sent FROM leads ORDER BY created_at DESC`);
+    return rows.map((r: any) => ({ ...r, created_at: new Date(r.created_at).toISOString() }));
   }
   if (rest.pawgenRestConfigured()) return (await rest.fetchLeads()) as Lead[];
   if (!pawgenPool) throw new Error("pawgen database not connected");
