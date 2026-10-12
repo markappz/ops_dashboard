@@ -90,6 +90,25 @@ if (pawgenPool) {
   });
 }
 
+/**
+ * Cached pawgen-pool health (probe at most every 5 min). Lets readers prefer
+ * direct Postgres over Supabase REST without regressing the 09-x lesson where
+ * a stale PAWGEN_DATABASE_URL silently shadowed a working REST config: an
+ * unhealthy pool reads as false and callers fall back to REST.
+ */
+let pawgenHealth: { at: number; ok: boolean } | null = null;
+export async function pawgenPoolHealthy(): Promise<boolean> {
+  if (!pawgenPool) return false;
+  if (pawgenHealth && Date.now() - pawgenHealth.at < 5 * 60_000) return pawgenHealth.ok;
+  try {
+    await pawgenPool.query("SELECT 1");
+    pawgenHealth = { at: Date.now(), ok: true };
+  } catch {
+    pawgenHealth = { at: Date.now(), ok: false };
+  }
+  return pawgenHealth.ok;
+}
+
 export async function verifyPawgenConnection(): Promise<boolean> {
   if (!pawgenPool) {
     console.warn("[OPS DB] PAWGEN_DATABASE_URL not set — pawgen section disabled");

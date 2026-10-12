@@ -7,7 +7,7 @@
  */
 import type { Express, Request, Response } from "express";
 import Stripe from "stripe";
-import { pawgenPool } from "./db";
+import { pawgenPool, pawgenPoolHealthy } from "./db";
 import * as rest from "./pawgen-rest";
 import { statusForOrderIds, isShippingEasyConfigured } from "./shippingeasy";
 
@@ -24,20 +24,25 @@ const pawgenStripe = process.env.PAWGEN_STRIPE_SECRET_KEY
  * REST wins when it's configured. That ordering matters: `new Pool()` never
  * connects eagerly, so `pawgenPool` is non-null whenever PAWGEN_DATABASE_URL is
  * merely *set* — including when its credentials are garbage. "Pool exists" is
- * therefore no evidence the pool works, while the REST vars being present is an
- * explicit choice someone made. Preferring the pool here meant a stale, broken
- * DATABASE_URL silently shadowed a working REST config.
+ * no evidence the pool works, which once let a stale DATABASE_URL shadow a
+ * working REST config. 2026-10-12 (Paul's "pawgen timed out" catch): the
+ * reverse bias hurt worse — REST-first meant every summary paged whole tables
+ * through Supabase's Envoy gateway, which started terminating connections
+ * under the Command Center warmer's cadence. Now: a PROBED-healthy pool wins
+ * (one SQL round-trip replaces dozens of REST pages); an unprobed or failing
+ * pool still yields to REST, preserving the original lesson.
  */
 type Source = "pool" | "rest";
 
-function source(): Source | null {
+async function source(): Promise<Source | null> {
+  if (await pawgenPoolHealthy()) return "pool";
   if (rest.pawgenRestConfigured()) return "rest";
-  if (pawgenPool) return "pool";
+  if (pawgenPool) return "pool"; // unhealthy + no REST: fail loudly in the route
   return null;
 }
 
-function ensureSource(res: Response): Source | null {
-  const s = source();
+async function ensureSource(res: Response): Promise<Source | null> {
+  const s = await source();
   if (!s) {
     res.status(503).json({
       error:
@@ -57,7 +62,7 @@ const PACK_LABELS: Record<string, string> = {
 export function registerPawgenRoutes(app: Express) {
   // ── Orders list + headline stats ──────────────────────────────────────────
   app.get("/api/ops/pawgen/orders", async (req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10) || 1);
@@ -154,7 +159,7 @@ export function registerPawgenRoutes(app: Express) {
   // Native-social program: the company's own social channels, 5% commission on
   // attributed PAID sales (first-touch; refunds excluded). Pool path mirrors rest.
   app.get("/api/ops/pawgen/native-socials", async (_req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       if (src === "rest") return res.json(await rest.nativeSocials());
@@ -202,7 +207,7 @@ export function registerPawgenRoutes(app: Express) {
   });
 
   app.get("/api/ops/pawgen/referrals", async (_req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       if (src === "rest") {
@@ -261,7 +266,7 @@ export function registerPawgenRoutes(app: Express) {
   });
 
   app.get("/api/ops/pawgen/overview", async (req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       const days = Math.min(365, Math.max(7, parseInt(String(req.query.days ?? "30"), 10) || 30));
@@ -360,7 +365,7 @@ export function registerPawgenRoutes(app: Express) {
   // historical orders have none — the response reports coverage explicitly
   // rather than letting the UI imply the unattributed ones were direct traffic.
   app.get("/api/ops/pawgen/marketing", async (_req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       const rows =
@@ -408,7 +413,7 @@ export function registerPawgenRoutes(app: Express) {
 
   // ── Leads ─────────────────────────────────────────────────────────────────
   app.get("/api/ops/pawgen/leads", async (_req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       const [leads, orders] = await Promise.all([
@@ -485,7 +490,7 @@ export function registerPawgenRoutes(app: Express) {
   // Card orders → Stripe refund (full or partial) + status + point reversal.
   // Crypto orders → flagged for manual refund (crypto can't be reversed).
   app.post("/api/ops/pawgen/orders/:id/refund", async (req: Request, res: Response) => {
-    const src = ensureSource(res);
+    const src = await ensureSource(res);
     if (!src) return;
     try {
       const { id } = req.params;

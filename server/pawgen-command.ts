@@ -5,7 +5,7 @@
  * the guide magnet, fulfilment backlog, and pixel traffic for pawgen.com.
  */
 import type { Express, Request, Response } from "express";
-import { pool, pawgenPool } from "./db";
+import { pool, pawgenPool, pawgenPoolHealthy } from "./db";
 import * as rest from "./pawgen-rest";
 import { windowOf, type Window, pruneCache } from "./lib/window";
 
@@ -20,11 +20,19 @@ type Order = {
 type Lead = { email: string; source: string | null; created_at: string; guide_sent: boolean | null };
 
 async function loadOrders(): Promise<Order[]> {
+  // Healthy direct Postgres beats REST: one query instead of paging the whole
+  // table through Supabase's gateway (see pawgen.ts source() note, 2026-10-12).
+  if (await pawgenPoolHealthy()) {
+    return (await pawgenPool!.query(`SELECT created_at, amount_usd, pack_id, method, source, payment_status, fulfillment_status, customer_email, ref_source, ref_medium, ref_campaign FROM orders ORDER BY created_at DESC`)).rows;
+  }
   if (rest.pawgenRestConfigured()) return (await rest.ordersForAnalytics()) as Order[];
   if (!pawgenPool) throw new Error("pawgen database not connected");
   return (await pawgenPool.query(`SELECT created_at, amount_usd, pack_id, method, source, payment_status, fulfillment_status, customer_email, ref_source, ref_medium, ref_campaign FROM orders ORDER BY created_at DESC`)).rows;
 }
 async function loadLeads(): Promise<Lead[]> {
+  if (await pawgenPoolHealthy()) {
+    return (await pawgenPool!.query(`SELECT email, source, created_at, guide_sent FROM leads ORDER BY created_at DESC`)).rows;
+  }
   if (rest.pawgenRestConfigured()) return (await rest.fetchLeads()) as Lead[];
   if (!pawgenPool) throw new Error("pawgen database not connected");
   return (await pawgenPool.query(`SELECT email, source, created_at, guide_sent FROM leads ORDER BY created_at DESC`)).rows;
