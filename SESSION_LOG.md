@@ -3893,3 +3893,19 @@ sessions, new-paying, cancels, labs/chats. Bonus catch: visitor_sessions col is 
 started_at — the aggregator's pixelSessions silently failed since day one (sessions "—" for all
 but pawgen); fixed both. PROD VERIFIED: overview 30d == command center 30d == $13,023 exact;
 sessions 3,518 both; Today = $11,934/13 new paying. lab_uploads reads uploaded_at (schema conv).
+
+## 2026-10-12 — Retell deprecated-endpoint migration (paul-ab), DEPLOYED + VERIFIED
+Root cause of Retell's notice (1,418 reqs ea. on list-chat + v2/list-calls): our 10-min reconcile
+loop. Migrated ALL six legacy lists per the 06-15/07-31 guides (b1f636a): v3/list-calls +
+v3/list-chats (POST, RangeFilter {type:"range",op:"bt",value:[lo,hi]}, agent-array filter),
+/v2 phone-numbers + retell-llms, unified POST /v2/list-agents w/ channel filters (voice/chat
+split preserved — update APIs differ). items/pagination_key/has_more envelope VALIDATED
+(malformed/auth/legacy-array = failure, never empty success); opaque cursors, stuck-cursor
+throw, 25-page cap, Retry-After 429, typed 401. FIXED LATENT BUGS: watermark advanced past
+failed runs (now only on clean both-streams); call_id-as-cursor paging; unpaginated chats; v3
+chats omit transcripts → bounded get-chat enrichment. 10 new tests, suite 38/38. PROD EVIDENCE:
+image tag == b1f636a; first tick advanced lastRunAdvanced:true no errors; 24h Retell-vs-ops
+8/8 calls 0/0 chats SAME IDs; 7d audit 39/39 present (2 "missing" were is_test draft-agent
+runs, filtered by design); 0 dupes; transcripts/analysis/agent names intact. WATCH (Josh):
+"Secret Key" also hit list-agents (5 reqs, dormant since 10-06) — confirm Retell usage panel
+flatlines in 24-48h; report artifact 6dK-style link in memory file.
