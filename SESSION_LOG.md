@@ -3933,3 +3933,15 @@ surcharge); NO double-count — WS- payments settle on WholesaleOrder, never a r
 Ops 76b1d01+3210fd4: RP basis label + shaper passes `wholesale` split (SalesWindow type). PROD
 CANARY EXACT: 30d total $595,262.58 = retail $559,092.58 + wholesale $36,170 (28 orders, 1,820
 vials). Admin Orders screen stays retail-only BY DESIGN — ops tile intentionally reads higher.
+
+## 2026-10-12 — pawgen Command Center timeout fixed (paul-ab)
+Paul's catch: pawgen row "feed timed out after 15s". CloudWatch: Supabase Envoy terminating
+connections — the 10-05 restAll pagination fix meant every summary paged WHOLE tables (orders,
+leads, link_clicks ×2) via REST, and the CC warmer made it 24/7; Supabase reset under it.
+Fix c1fac8e+7147a82: PROBED-healthy direct pg pool (cached 5-min SELECT 1, db.ts
+pawgenPoolHealthy) now preferred for ALL pawgen reads (pawgen.ts source() + command build);
+broken pool still falls back to REST (preserves the stale-URL-shadowing lesson). Gotcha found on
+first roll: pg returns created_at as Date, REST gave ISO strings → normalize at load boundary.
+PROD VERIFIED: pawgen row configured, $20,261/+34.2%, 19,075 sessions, 620 leads, logs clean
+post-roll (all errors predated new tasks). paul-ee confirmed their native-socials pg branch is
+REST-parity; low socials attribution right now = untagged announce CTAs (their 7a6f353), not this.
