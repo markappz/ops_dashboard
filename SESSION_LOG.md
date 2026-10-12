@@ -3880,3 +3880,16 @@ deployed (CI gate caught my flaky sig-tamper test first — deflaked); prod cana
 at zero w/ "Flows dark" chips = migration + auth chain proven. NEXT: Paul sets
 GUIDE_FUNNEL_SIGNING_SECRET (+task-def ref), Josh: share tracker sheet, www TLS fix, bless
 coupon prefixes, then gates (test sends → offers → flows). Report artifact: HvPUFyGSo5t4PsZhgd6NMk
+
+## 2026-10-12 — FitScript Overview rebuilt window-driven (paul-ab)
+Paul caught the stale mess: chart on DELETED Stripe (flatlined post-09-02), unit-econ MTD on
+frozen attribution.last_payment_at ($0 forever), "New signups" = EMAIL LIST while "Signups
+today" = app users on UTC, 7d/30d tiles ignoring the picker. Rebuild (30934bf+46695e5+crash
+guard): server/lib/fitscript-revenue.ts = THE ledger (3-rail), consumed by new windowed
+/api/ops/fitscript/overview + snapshot + aggregator + /api/ops/revenue chart + economics.
+Page: one picker drives billed-in-window (+prior delta), monthly/annual PACE (labeled "if every
+day ran like this window" — Paul asked for the extrapolation), MRR/ARR now, new/active users,
+sessions, new-paying, cancels, labs/chats. Bonus catch: visitor_sessions col is created_at NOT
+started_at — the aggregator's pixelSessions silently failed since day one (sessions "—" for all
+but pawgen); fixed both. PROD VERIFIED: overview 30d == command center 30d == $13,023 exact;
+sessions 3,518 both; Today = $11,934/13 new paying. lab_uploads reads uploaded_at (schema conv).
