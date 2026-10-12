@@ -60,10 +60,10 @@ const pct = (cur: number, prev: number): number | null =>
 async function pixelSessions(win: Window): Promise<Record<string, { cur: number; prev: number }>> {
   const r = await pool.query(
     `SELECT site,
-            COUNT(*) FILTER (WHERE started_at >= $1 AND started_at <= $2)::int AS cur,
-            COUNT(*) FILTER (WHERE started_at >= $3 AND started_at <= $4)::int AS prev
+            COUNT(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
+            COUNT(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
        FROM visitor_sessions
-      WHERE started_at >= $3
+      WHERE created_at >= $3
       GROUP BY site`,
     [win.from, win.to, win.prevFrom, win.prevTo],
   );

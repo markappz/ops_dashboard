@@ -41,9 +41,9 @@ export function registerFitscriptOverviewRoutes(app: Express) {
           [win.from, win.to],
         ),
         pool.query(
-          `SELECT count(*) FILTER (WHERE started_at >= $1 AND started_at <= $2)::int AS cur,
-                  count(*) FILTER (WHERE started_at >= $3 AND started_at <= $4)::int AS prev
-             FROM visitor_sessions WHERE site = 'fitscript' AND started_at >= $3`,
+          `SELECT count(*) FILTER (WHERE created_at >= $1 AND created_at <= $2)::int AS cur,
+                  count(*) FILTER (WHERE created_at >= $3 AND created_at <= $4)::int AS prev
+             FROM visitor_sessions WHERE site = 'fitscript' AND created_at >= $3`,
           [win.from, win.to, win.prevFrom, win.prevTo],
         ),
         pool.query(
