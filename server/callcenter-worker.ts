@@ -185,6 +185,24 @@ async function routeAnalysis(pool: Pool, conversationId: number, entity: any): P
     return;
   }
 
+  // Josh's 2026-10-12 analysis fields: the agent now reports what actually
+  // happened. request_saved=true means the live tool already persisted the
+  // request (belt to the live_tool check above — saved ids included); a pure
+  // information_answered outcome needs no task at all.
+  const resolutionState = String(custom.resolution_state ?? "").trim() || null;
+  const repeatContact = custom.repeat_contact === true || custom.repeat_contact === "true";
+  if (custom.request_saved === true || custom.request_saved === "true") {
+    await logCcEvent(pool, {
+      conversationId, actorType: "system", type: "analysis_skipped",
+      data: { reason: "agent reported request_saved", savedRequestIds: custom.saved_request_ids ?? null, resolutionState },
+    });
+    return;
+  }
+  if (resolutionState === "information_answered" || resolutionState === "order_lookup_verified") {
+    await logCcEvent(pool, { conversationId, actorType: "system", type: "analysis_no_task", data: { resolutionState } });
+    return;
+  }
+
   const intent = custom.intent ?? null;
   const { kind, queue } = intentQueue(intent);
   const wrongBrand = /wrong[_ ]?brand/i.test(String(intent ?? ""));
@@ -224,6 +242,9 @@ async function routeAnalysis(pool: Pool, conversationId: number, entity: any): P
     // a timezone, so ambiguous requests stay visibly needs_scheduling.
     callbackWindowRaw: contactReq,
     needsScheduling: !!contactReq,
+    // save_failed outcomes and self-reported repeat contacts go straight to
+    // the front of the queue — the caller already waited once.
+    priority: repeatContact || resolutionState === "save_failed" ? "high" : "normal",
     source: "webhook_analysis",
     idempotencyKey: `analysis:${externalId}`,
   });

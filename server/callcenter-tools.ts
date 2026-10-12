@@ -28,7 +28,8 @@ type ToolName =
   | "search-products" | "get-product" | "get-coa"
   | "start-order-verification" | "verify-order-access" | "get-order-status"
   | "create-followup" | "create-wholesale-inquiry"
-  | "send-requested-resource" | "get-handoff-options";
+  | "send-requested-resource" | "get-handoff-options"
+  | "find-requests" | "append-request-note";
 
 const LOOKUP_TOOLS: ToolName[] = ["search-products", "get-product", "get-coa", "get-handoff-options"];
 const FD = [...LOOKUP_TOOLS, "create-followup"] as ToolName[];
@@ -36,10 +37,13 @@ const SUPPORT = [...FD, "start-order-verification", "verify-order-access", "get-
 const WHOLESALE = [...FD, "create-wholesale-inquiry"] as ToolName[];
 const EDUCATION = FD;
 const CHAT_DESK = [...new Set([...SUPPORT, ...WHOLESALE])] as ToolName[];
+/** The unified phone Marissa (Josh's 2026-10-12 deployment): every tool,
+ *  directly — no agent_swap, no handoff-graph inheritance needed. */
+const UNIFIED = [...new Set([...SUPPORT, ...WHOLESALE, "find-requests", "append-request-note"])] as ToolName[];
 
 /** Server-side allowlist: agent id → tools it may call (prompt §7). */
 export const AGENT_CAPABILITIES: Record<string, ToolName[]> = {
-  agent_067b4ec911fad52c81d22a0535: FD,        // Front desk — Marissa (voice)
+  agent_067b4ec911fad52c81d22a0535: UNIFIED,    // RP Unified Support — Marissa (voice, published v7 2026-10-12)
   agent_aa811252242b2dca1907ff78ea: SUPPORT,   // Support — Grace (voice)
   agent_dbff7019c07d8782878ec50373: WHOLESALE, // Wholesale — Sloane (voice)
   agent_934983123a41ba27f58830f6df: EDUCATION, // Education — Sloane (voice)
@@ -178,15 +182,51 @@ async function toolGetCoa(pool: Pool, ctx: ToolContext): Promise<ToolResult> {
   if (s.status === "unavailable") return { status: "unavailable", customer_message: "I can't check that right now." };
   if (!s.products.length) return { status: "not_found", customer_message: `I don't see "${name}" in the catalog.` };
   const p = s.products[0];
+  // Gap 4 (Josh 2026-10-12): a generic library link must never assert a report
+  // exists. Ask the COA tracker for an actual published report for THIS
+  // product (and lot, when given); only a concrete hit is an "ok".
+  const report = await findPublishedCoa(p.name, lot);
+  if (report === "unavailable") {
+    return { status: "unavailable", customer_message: "I can't check the testing reports right now — I can save a request for the exact report instead." };
+  }
+  if (!report) {
+    return {
+      status: "not_found",
+      customer_message: `I don't see a published testing report matching ${p.name}${lot ? ` lot ${lot}` : ""} — I can save a request so the team sends the exact report.`,
+      data: { product: p.name, product_page: p.url, library_page: p.coaUrl, note: "The library page existing is not confirmation that this product/format/lot report exists." },
+    };
+  }
   return {
     status: "ok",
-    customer_message: `Testing reports for ${p.name} are on our COA page.`,
+    customer_message: `Yes — there's a published testing report for ${report.sku ?? p.name}${report.lot ? ` (lot ${report.lot})` : ""}.`,
     data: {
-      product: p.name, coa_page: p.coaUrl, product_page: p.url,
-      lot_match: lot ? "unknown — lot-level matching needs the team to confirm which report covers your lot" : null,
-      note: "The newest public report does not prove which lot shipped in a specific order.",
+      product: p.name, report_sku: report.sku, report_lot: report.lot, report_date: report.date,
+      coa_page: p.coaUrl, product_page: p.url,
+      lot_match: lot ? (report.lot && String(report.lot).toLowerCase() === lot.toLowerCase() ? "exact lot match" : "report found but NOT confirmed for the caller's lot — say so") : null,
     },
   };
+}
+
+/** Best-effort COA-tracker lookup: a concrete document or nothing — never a guess. */
+async function findPublishedCoa(productName: string, lot: string | null): Promise<{ sku: string | null; lot: string | null; date: string | null } | null | "unavailable"> {
+  const base = process.env.COA_API_URL || "https://coa.realpeptides.co";
+  const token = process.env.COA_OPS_TOKEN;
+  if (!token) return "unavailable";
+  try {
+    const r = await fetch(`${base}/api/coas?search=${encodeURIComponent(productName)}${lot ? `&lot=${encodeURIComponent(lot)}` : ""}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return "unavailable";
+    const d: any = await r.json();
+    const rows: any[] = Array.isArray(d) ? d : d.coas ?? d.items ?? [];
+    const hit = lot
+      ? rows.find((c) => String(c.lot ?? c.lot_number ?? "").toLowerCase() === lot.toLowerCase()) ?? null
+      : rows[0] ?? null;
+    if (!hit) return null;
+    return { sku: hit.sku ?? hit.product ?? null, lot: hit.lot ?? hit.lot_number ?? null, date: hit.tested_at ?? hit.date ?? hit.created_at ?? null };
+  } catch {
+    return "unavailable";
+  }
 }
 
 /* ---- order verification + status ----
@@ -450,22 +490,51 @@ async function toolCreateFollowup(pool: Pool, ctx: ToolContext, entity: any): Pr
   const conversationId = await ensureConversation(pool, ctx, entity);
   const idempotencyKey = `cf:${ctx.conversationExternalId ?? "x"}:${digestOf({ concern, reason, phone, email, windowRaw })}`;
   const contactId = await suggestContact(pool, { phone, email, name: str(ctx.args.name, 120) || null, businessName: str(ctx.args.business_name, 160) || null });
+
+  // Gap 2 (Josh 2026-10-12): repeat callers never breed endless tickets.
+  // Two+ open requests already on file → escalate the newest instead of
+  // creating another; a missed-callback report always lands urgent.
+  const missedCallback = /missed|nobody called|no one called|called (yesterday|before|back)|unanswered/i.test(concern);
+  const openPrior = await openRequestsForContact(pool, contactId);
+  if (openPrior.length >= 2) {
+    const newest = openPrior[0];
+    await pool.query(
+      `UPDATE cc_requests SET priority = 'high', updated_at = NOW() WHERE id = $1`, [newest.id]);
+    await logCcEvent(pool, {
+      conversationId, requestId: newest.id, actorType: "provider", actor: "retell",
+      type: "repeat_contact_escalated",
+      data: { newConcern: concern.slice(0, 400), openRequests: openPrior.map((o) => o.id), missedCallback },
+    });
+    void notifyRequestOwner(pool, newest.id).catch(() => {});
+    return {
+      status: "ok",
+      receipt_id: newest.id,
+      customer_message: "Your earlier request is already with the team — I've escalated it with today's details instead of opening another ticket.",
+      data: { request_id: newest.id, state: "escalated", note: "Existing open request escalated; no duplicate created." },
+    };
+  }
+  const escalatedUrgency = missedCallback || openPrior.length === 1;
   const { id, created } = await createRequest(pool, {
     conversationId, contactId,
     kind: "support", reason,
     concern,
     productRefs: ctx.args.product ? [{ name: str(ctx.args.product, 160), qty: Number(ctx.args.quantity) || null }] : [],
     orderReference: str(ctx.args.order_reference, 60) || null,
-    priority: /urgent|asap/i.test(str(ctx.args.urgency, 40)) ? "high" : "normal",
+    priority: /urgent|asap/i.test(str(ctx.args.urgency, 40)) || escalatedUrgency ? "high" : "normal",
     contactPermission: permission,
     contactChannel: str(ctx.args.contact_channel, 20) || (phone ? "phone" : email ? "email" : null),
     callbackWindowRaw: windowRaw,
     // Never invent a deadline from ambiguous wording: no tz/time → needs_scheduling.
     needsScheduling: !!windowRaw && !tz,
     callbackTz: tz,
+    ownerEmail: SUPPORT_OWNER(),
     source: "live_tool",
     idempotencyKey,
   });
+  if (created && openPrior.length === 1) {
+    await logCcEvent(pool, { conversationId, requestId: id, actorType: "system", type: "repeat_contact", data: { priorRequestId: openPrior[0].id, missedCallback } });
+  }
+  if (created) void notifyRequestOwner(pool, id).catch(() => {});
   return {
     status: "ok",
     receipt_id: id,
@@ -474,6 +543,63 @@ async function toolCreateFollowup(pool: Pool, ctx: ToolContext, entity: any): Pr
       : "That request is already saved — you're covered.",
     data: { request_id: id, state: "new", note: "A callback request is a queue entry, not a guaranteed appointment time." },
   };
+}
+
+/* ---- staff notification + repeat-callback discipline (Josh's 2026-10-12
+ * handoff, gaps 2 & 3). Support requests default to Ahmed; wholesale intake
+ * notifies Joshua. One email per CREATED request, through the RP engine's
+ * transactional endpoint (allowlisted recipients, fixed template) — never on
+ * replays, reconciles or test conversations, so nothing ever bursts. ---- */
+
+const SUPPORT_OWNER = () => process.env.CC_SUPPORT_OWNER_EMAIL || "ahmed@morellibrands.com";
+const WHOLESALE_OWNER = () => process.env.CC_WHOLESALE_OWNER_EMAIL || "josh@joshabely.com";
+
+async function notifyRequestOwner(pool: Pool, requestId: number): Promise<void> {
+  const base = process.env.RP_SITE_API_URL;
+  const token = process.env.RP_SITE_OPS_TOKEN;
+  if (!base || !token) return;
+  const r = await pool.query(
+    `SELECT r.id, r.kind, r.reason, r.concern, r.priority, r.owner_email, r.contact_channel,
+            c.is_test, ct.phone_e164 AS phone, ct.email_norm
+       FROM cc_requests r
+       LEFT JOIN cc_conversations c ON c.id = r.conversation_id
+       LEFT JOIN cc_contacts ct ON ct.id = r.contact_id
+      WHERE r.id = $1`, [requestId]);
+  const row = r.rows[0];
+  if (!row || row.is_test) return;
+  // One notification per request, ever — the ledger is the guard, not memory.
+  const already = await pool.query(
+    `SELECT 1 FROM cc_events WHERE request_id = $1 AND type = 'owner_notified' LIMIT 1`, [requestId]);
+  if (already.rows[0]) return;
+  const to = row.owner_email || (row.kind === "wholesale" ? WHOLESALE_OWNER() : SUPPORT_OWNER());
+  const resp = await fetch(`${base.replace(/\/$/, "")}/api/ops-transactional`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind: "staff-notification", to,
+      requestId: String(row.id), reason: row.reason ?? row.kind,
+      urgency: row.priority === "high" ? "urgent" : "normal",
+      summary: String(row.concern ?? "").slice(0, 1000),
+      contact: row.phone ?? row.email_norm ?? null,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const ok = resp.ok && (await resp.json().catch(() => ({} as any))).ok === true;
+  await logCcEvent(pool, {
+    requestId, actorType: "system", type: ok ? "owner_notified" : "owner_notify_failed",
+    data: { to, delivered: ok },
+  });
+  if (!ok) console.error(`[OPS][CC] owner notification failed for request ${requestId}`);
+}
+
+/** Open requests already on file for this contact — the repeat-callback brake. */
+async function openRequestsForContact(pool: Pool, contactId: number | null): Promise<Array<{ id: number; created_at: Date; priority: string }>> {
+  if (!contactId) return [];
+  const r = await pool.query(
+    `SELECT id, created_at, priority FROM cc_requests
+      WHERE contact_id = $1 AND state NOT IN ('resolved','closed_no_action')
+      ORDER BY created_at DESC LIMIT 5`, [contactId]);
+  return r.rows;
 }
 
 async function toolCreateWholesaleInquiry(pool: Pool, ctx: ToolContext, entity: any): Promise<ToolResult> {
@@ -498,6 +624,7 @@ async function toolCreateWholesaleInquiry(pool: Pool, ctx: ToolContext, entity: 
   const { id, created } = await createRequest(pool, {
     conversationId, contactId,
     kind: "wholesale", queue: "wholesale",
+    ownerEmail: WHOLESALE_OWNER(),
     reason: existing ? "quote_question" : "needs_quote",
     concern: str(ctx.args.summary, 1000) || `Wholesale inquiry from ${business || email || phone}`,
     productRefs: lines,
@@ -516,6 +643,7 @@ async function toolCreateWholesaleInquiry(pool: Pool, ctx: ToolContext, entity: 
        JSON.stringify(lines), JSON.stringify({ label_needs: str(ctx.args.labeling, 300) || null }),
        str(ctx.args.timing, 200) || null, existing ? "draft_quote" : "inquiry", existing?.ref ?? null],
     );
+    void notifyRequestOwner(pool, id).catch(() => {});
   }
   return {
     status: "ok",
@@ -524,6 +652,69 @@ async function toolCreateWholesaleInquiry(pool: Pool, ctx: ToolContext, entity: 
       ? (existing ? "You're already set up with us — I've flagged your question on the existing quote and the team will follow up." : "I've saved your wholesale request — our team will review it and reach out with a quote.")
       : "That request is already saved.",
     data: { request_id: id, review: "human_quote_review", existing_quote: existing?.ref ?? null },
+  };
+}
+
+/* ---- Gap 1 (Josh 2026-10-12): existing-request search + note, scoped to the
+ * ACTIVE conversation's contact. These expose request state only — never
+ * order data, never another contact's records, and raw caller ID alone never
+ * unlocks anything beyond the caller's own open-request receipts. ---- */
+
+async function contactForConversation(pool: Pool, ctx: ToolContext, entity: any): Promise<{ conversationId: number | null; contactId: number | null }> {
+  const conversationId = await ensureConversation(pool, ctx, entity);
+  const conv = await pool.query(`SELECT contact_id, from_number FROM cc_conversations WHERE id = $1`, [conversationId]);
+  let contactId: number | null = conv.rows[0]?.contact_id ?? null;
+  if (!contactId && conv.rows[0]?.from_number) {
+    contactId = await suggestContact(pool, { phone: conv.rows[0].from_number });
+  }
+  return { conversationId, contactId };
+}
+
+async function toolFindRequests(pool: Pool, ctx: ToolContext, entity: any): Promise<ToolResult> {
+  const { contactId } = await contactForConversation(pool, ctx, entity);
+  if (!contactId) {
+    return { status: "not_found", customer_message: "I don't see saved requests I can match to this call — I can save a new one with your details." };
+  }
+  const r = await pool.query(
+    `SELECT id, reason, state, priority, created_at FROM cc_requests
+      WHERE contact_id = $1 ORDER BY created_at DESC LIMIT 5`, [contactId]);
+  if (!r.rows.length) {
+    return { status: "not_found", customer_message: "No saved requests are on file for this caller yet." };
+  }
+  return {
+    status: "ok",
+    customer_message: `There ${r.rows.length === 1 ? "is 1 saved request" : `are ${r.rows.length} saved requests`} on file for this caller.`,
+    data: {
+      requests: r.rows.map((x) => ({ request_id: x.id, reason: x.reason, state: x.state, priority: x.priority, created: x.created_at })),
+      note: "Request status only — order details still require order verification.",
+    },
+  };
+}
+
+async function toolAppendRequestNote(pool: Pool, ctx: ToolContext, entity: any): Promise<ToolResult> {
+  const note = str(ctx.args.note ?? ctx.args.detail ?? ctx.args.correction, 800);
+  const requestId = parseInt(str(ctx.args.request_id ?? ctx.args.receipt_id, 20), 10);
+  if (!note || !Number.isFinite(requestId)) {
+    return { status: "rejected", customer_message: "I need the request number and the new detail to add." };
+  }
+  const { conversationId, contactId } = await contactForConversation(pool, ctx, entity);
+  const owned = await pool.query(
+    `SELECT id FROM cc_requests WHERE id = $1 AND (conversation_id = $2 OR (contact_id IS NOT NULL AND contact_id = $3)) LIMIT 1`,
+    [requestId, conversationId, contactId]);
+  if (!owned.rows[0]) {
+    return { status: "not_found", customer_message: "I can't match that request number to this caller — I can save the detail as a new request instead." };
+  }
+  await pool.query(`UPDATE cc_requests SET updated_at = NOW() WHERE id = $1`, [requestId]);
+  await logCcEvent(pool, {
+    conversationId, requestId, actorType: "provider", actor: "retell",
+    type: "caller_note_appended", data: { note },
+  });
+  void notifyRequestOwner(pool, requestId).catch(() => {});
+  return {
+    status: "ok",
+    receipt_id: requestId,
+    customer_message: "I've added that detail to the saved request for the team.",
+    data: { request_id: requestId, note_recorded: true },
   };
 }
 
@@ -618,6 +809,8 @@ export function registerCallCenterTools(app: Express, pool: Pool) {
           case "get-order-status": result = await toolGetOrderStatus(pool, ctx); break;
           case "send-requested-resource": result = await toolSendRequestedResource(); break;
           case "get-handoff-options": result = await toolGetHandoffOptions(pool); break;
+          case "find-requests": result = await toolFindRequests(pool, ctx, entity); break;
+          case "append-request-note": result = await toolAppendRequestNote(pool, ctx, entity); break;
           default: return res.status(404).json({ status: "rejected", customer_message: "Unknown tool." });
         }
         res.json(result);

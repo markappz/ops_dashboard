@@ -3909,3 +3909,17 @@ image tag == b1f636a; first tick advanced lastRunAdvanced:true no errors; 24h Re
 runs, filtered by design); 0 dupes; transcripts/analysis/agent names intact. WATCH (Josh):
 "Secret Key" also hit list-agents (5 reqs, dormant since 10-06) — confirm Retell usage panel
 flatlines in 24-48h; report artifact 6dK-style link in memory file.
+
+## 2026-10-12 — Unified Marissa handoff (paul-ab): source of truth + backend gaps
+Live-verified Josh's deployment (agent 067b v7 published, llm_7f48e v7, 11 tools, no swaps, SOP
+prompt, webhook→ops; already answering real calls). Ops repo now agrees: FD agent → UNIFIED caps;
+retell-sync hydrates via get-* (v2 LIST items are SLIM — diffing them proposed bogus webhook/
+engine patches), PROMPT_UNMANAGED skips SOP merge, followup schema requires urgency+
+contact_permission; READ-ONLY DIFF proves: Marissa = tools-only additions (+find_requests,
++append_request_note), zero prompt/webhook changes. Backend gaps 1-6 implemented (see
+CALLCENTER.md): scoped find/append tools, repeat-callback escalation, owners ahmed/josh + one
+staff email per request via RP ops-transactional kind staff-notification (RP repo change,
+allowlisted), honest COA via tracker, analysis fields honored. Tests 45/45 ×3 (new suite 7;
+fixed flake = cc_tool_calls receipt replay; fixed real bug = ct.phone→phone_e164 silently
+killing notifications). NOT applied to Retell (apply = Josh's gate). Pushes pending Paul's go:
+RP engine first (notification kind), then ops.

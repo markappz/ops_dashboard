@@ -121,3 +121,21 @@ Built 2026-10-06. The communication/follow-up layer over the existing Retell age
   its everything_except_pii setting is NOT assumed to scrub.
 - Metrics exclude flagged test sessions; avg daily calls states its exact
   numerator/denominator/timezone in the API payload and UI.
+
+## Unified Marissa (2026-10-12, Josh's deployment)
+The public line now runs ONE agent: `agent_067b4ec911fad52c81d22a0535` ("RP Unified Support —
+Marissa", published v7, engine `llm_7f48e2539263a16c18670dd64f41` v7). No agent_swap; her prompt
+is the unified SOP authored OUTSIDE this repo — retell-sync treats her as PROMPT_UNMANAGED (tools
+still managed; merging our block into her prompt is forbidden). Her capability set is UNIFIED
+(everything, direct). Legacy Grace/Sloane voice+chat agents remain as drafts with their old caps.
+Support follow-ups default owner ahmed@morellibrands.com; wholesale → josh@joshabely.com
+(CC_SUPPORT_OWNER_EMAIL / CC_WHOLESALE_OWNER_EMAIL override). One staff email per created
+request via the RP engine's /api/ops-transactional kind "staff-notification" (allowlisted
+recipients, fixed template; RP env STAFF_NOTIFY_ALLOWLIST overrides). Repeat-callback brake:
+≥2 open requests for a contact → escalate newest (priority high + event), never ticket #3;
+missed-callback wording → urgent on first save. New conversation-scoped tools (ship on next
+authorized sync): ops_cc_find_requests, ops_cc_append_request_note — request state only, never
+order data. get-coa now consults the COA tracker for a REAL report (product/lot) and answers
+not_found honestly; the library page is never proof a report exists. Analysis fields
+resolution_state/request_saved/saved_request_ids/repeat_contact are honored by routeAnalysis.
+TESTS: `cc_tool_calls` receipts MUST be truncated between tests or replays serve stale responses.

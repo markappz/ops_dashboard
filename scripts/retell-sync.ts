@@ -73,7 +73,7 @@ const TOOL_DEFS: Record<string, Json> = {
     req({ code: s("The 6-digit code") }, ["code"])),
   "get-order-status": tool("get-order-status", "Get the verified order's status, items and tracking. Only works after verification succeeds on this same call.",
     req({}, [])),
-  "create-followup": tool("create-followup", "Save a real follow-up request for the team. Only after this returns ok may you say the request is saved.",
+  "create-followup": tool("create-followup", "Save a real follow-up request for the team. Only after this returns ok may you say the request is saved. urgency and contact_permission are REQUIRED on every call.",
     req({
       concern: s("What the customer needs, in one or two sentences"),
       reason: s("One of: callback, product_question, order_question, shipment_question, payment_question, other"),
@@ -85,8 +85,8 @@ const TOOL_DEFS: Record<string, Json> = {
       timezone: s("Customer's timezone ONLY if they said it — never guess"),
       product: s("Product discussed, if any"),
       order_reference: s("Order number, if any"),
-      urgency: s("normal or urgent"),
-    }, ["concern"]), { timeout_ms: 10_000 }),
+      urgency: s("normal or urgent — always set explicitly; missed callbacks, empty packages and time-sensitive cancellations are urgent"),
+    }, ["concern", "urgency", "contact_permission"]), { timeout_ms: 10_000 }),
   "create-wholesale-inquiry": tool("create-wholesale-inquiry", "Save a wholesale/bulk request: business, exact products, options, quantities, labeling needs and timing. A human reviews and sends the quote — never invent pricing, MOQs or terms.",
     req({
       business_name: s("Business or clinic name"),
@@ -100,7 +100,19 @@ const TOOL_DEFS: Record<string, Json> = {
     }, []), { timeout_ms: 10_000 }),
   "get-handoff-options": tool("get-handoff-options", "List who is available for a live transfer right now. If none, offer a saved callback instead. Never dial any number not returned here.",
     req({}, [])),
+  "find-requests": tool("find-requests", "List the saved requests already on file for THIS caller (status and request numbers only — never order details). Use before saving when a caller says they already called.",
+    req({}, [])),
+  "append-request-note": tool("append-request-note", "Add one genuinely NEW detail to an existing saved request by its request number. Only say the detail was added after this returns ok.",
+    req({ request_id: s("The saved request number"), note: s("The new detail, in one or two sentences") }, ["request_id", "note"]), { timeout_ms: 10_000 }),
 };
+
+/**
+ * Agents whose PROMPT this script must never touch (Josh's 2026-10-12 unified
+ * deployment: the SOP is the whole prompt, authored outside this repo).
+ * Tools stay managed — only the prompt merge is skipped. Restoring agent_swap
+ * or the old role blocks onto these agents is explicitly forbidden.
+ */
+const PROMPT_UNMANAGED = new Set<string>(["agent_067b4ec911fad52c81d22a0535"]);
 
 /* ---------------- prompt block ---------------- */
 
@@ -135,7 +147,22 @@ function mergePrompt(current: string, block: string): string {
 async function snapshot(label: string): Promise<{ dir: string; agents: Json[]; chatAgents: Json[]; llms: Json[] }> {
   // Unified agent endpoint (2026-10-12 migration): channel filters preserve the
   // voice/chat split — the two kinds still PATCH through different update APIs.
-  const [agents, chatAgents, llms] = await Promise.all([retell.listAgents("voice"), retell.listAgents("chat"), retell.listLlms()]);
+  // The v2 LIST items are deliberately slim (no response_engine/webhook_url/
+  // general_tools), so lists only ENUMERATE ids here; every object this script
+  // diffs against is hydrated through its get-* endpoint. Diffing the slim
+  // shapes made every agent look engine-less and webhook-less — a dry run
+  // proposing patches live state doesn't need.
+  const [voiceList, chatList] = await Promise.all([retell.listAgents("voice"), retell.listAgents("chat")]);
+  const ourIds = new Set(Object.keys(AGENT_CAPABILITIES));
+  const hydrate = async (list: Json[], get: (id: string) => Promise<Json>) =>
+    Promise.all(list.filter((a) => ourIds.has(a.agent_id)).map((a) => get(a.agent_id)));
+  const [agents, chatAgents] = await Promise.all([
+    hydrate(voiceList, retell.getAgent),
+    hydrate(chatList, retell.getChatAgent),
+  ]);
+  const llmIds = [...new Set([...agents, ...chatAgents]
+    .map((a) => a.response_engine?.llm_id).filter(Boolean))] as string[];
+  const llms = await Promise.all(llmIds.map((id) => retell.getLlm(id)));
   const dir = path.join(SNAP_DIR, `${new Date().toISOString().replace(/[:.]/g, "-")}-${label}`);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "agents.json"), JSON.stringify(agents, null, 2));
@@ -184,10 +211,14 @@ function buildPlan(snap: { agents: Json[]; chatAgents: Json[]; llms: Json[] }, f
     const keep = existing.filter((t) => !String(t.name ?? "").startsWith(PREFIX));
     const removedStale = existing.filter((t) => String(t.name ?? "").startsWith(PREFIX) && !desiredTools.some((d) => d.name === t.name)).map((t) => t.name);
     const merged = [...keep, ...desiredTools];
-    const newPrompt = mergePrompt(String(llm.general_prompt ?? ""), promptBlock(toolCaps));
+    // Unified agents own their entire prompt (the SOP); merging our block into
+    // it would be exactly the "overwrite the unified SOP" failure the handoff
+    // forbids. Tools remain fully managed.
+    const promptManaged = !PROMPT_UNMANAGED.has(a.agent_id);
+    const newPrompt = promptManaged ? mergePrompt(String(llm.general_prompt ?? ""), promptBlock(toolCaps)) : String(llm.general_prompt ?? "");
 
     const toolsChanged = JSON.stringify(existing) !== JSON.stringify(merged);
-    const promptChanged = newPrompt !== llm.general_prompt;
+    const promptChanged = promptManaged && newPrompt !== llm.general_prompt;
     if (toolsChanged || promptChanged) {
       plan.llmPatches.push({
         llmId: llm.llm_id,
