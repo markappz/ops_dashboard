@@ -101,7 +101,7 @@ async function realpeptidesVitals(win: Window, px: Record<string, { cur: number;
   const s = await siteSalesSummary(win);
   return {
     key: "realpeptides", label: "Real Peptides", configured: true,
-    basis: "storefront paid orders, net of coupons & refunds",
+    basis: "storefront paid orders net of refunds + confirmed-paid wholesale (invoiced totals)",
     revenue: s.current.revenue, revenuePrev: s.previous.revenue, orders: s.current.orders,
     sessions: px.realpeptides?.cur ?? null, sessionsPrev: px.realpeptides?.prev ?? null,
     leads: null, leadsPrev: null,
