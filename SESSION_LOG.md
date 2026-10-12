@@ -3923,3 +3923,13 @@ allowlisted), honest COA via tracker, analysis fields honored. Tests 45/45 ×3 (
 fixed flake = cc_tool_calls receipt replay; fixed real bug = ct.phone→phone_e164 silently
 killing notifications). NOT applied to Retell (apply = Josh's gate). Pushes pending Paul's go:
 RP engine first (notification kind), then ops.
+
+## 2026-10-12 — Wholesale paid orders now in the sales numbers (paul-ab)
+Paul's catch: confirmed-paid wholesale never reached monthly sales — WholesaleOrder is a separate
+model; ops-summary read retail Orders only. Engine bcce251: PAID/SHIPPED wholesale (partner-dash/
+commissions revenue definition) folds into revenueCents/orders/daily, windowed by paidAt
+(markWholesalePaid always stamps; legacy-null→updatedAt), invoiced totalCents (never card-fee
+surcharge); NO double-count — WS- payments settle on WholesaleOrder, never a retail Order row.
+Ops 76b1d01+3210fd4: RP basis label + shaper passes `wholesale` split (SalesWindow type). PROD
+CANARY EXACT: 30d total $595,262.58 = retail $559,092.58 + wholesale $36,170 (28 orders, 1,820
+vials). Admin Orders screen stays retail-only BY DESIGN — ops tile intentionally reads higher.
