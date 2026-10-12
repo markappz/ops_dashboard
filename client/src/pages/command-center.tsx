@@ -129,7 +129,11 @@ export default function CommandCenter() {
   // (lib/fitscript-revenue three-rail — same numbers as the Command Center).
   const { data: ov } = useQuery<FsOverview>({
     queryKey: ["fs-overview", rangeKey(growthRange)],
-    queryFn: () => fetch(`/api/ops/fitscript/overview?${rangeQuery(growthRange)}`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/ops/fitscript/overview?${rangeQuery(growthRange)}`);
+      if (!r.ok) throw new Error("overview feed unavailable"); // keeps ov undefined -> tiles show dashes, never a crash
+      return r.json();
+    },
     refetchInterval: 60_000,
   });
 
