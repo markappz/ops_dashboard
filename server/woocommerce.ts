@@ -15,6 +15,8 @@
  */
 
 export interface SalesWindow {
+  /** Confirmed-paid wholesale fold-in (RP only, 2026-10-12) — split for labeling. */
+  wholesale?: { revenue: number; orders: number; vials: number };
   revenue: number;      // net revenue: after coupons and refunds, before shipping/tax
   grossSales: number;
   orders: number;

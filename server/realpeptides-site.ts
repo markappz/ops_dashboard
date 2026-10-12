@@ -42,6 +42,10 @@ function window(w: any): SalesWindow {
     itemsSold: Number(w?.itemsSold ?? 0),
     refunds: dollars(w?.refundsCents),
     coupons: dollars(w?.couponsCents),
+    // 2026-10-12: the site folds confirmed-paid wholesale into revenue and
+    // exposes the split — passed through so the UI can label composition and
+    // the canary can prove total = retail + wholesale to the cent.
+    ...(w?.wholesale ? { wholesale: { revenue: dollars(w.wholesale.revenueCents), orders: Number(w.wholesale.orders ?? 0), vials: Number(w.wholesale.vials ?? 0) } } : {}),
   };
 }
 
