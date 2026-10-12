@@ -20,7 +20,7 @@ interface GuideRow {
 interface Report {
   configured: boolean; hint?: string; error?: string;
   window?: { days: number; since: string };
-  contentRevision?: string; flowsEnabled?: boolean; offersEnabled?: boolean;
+  contentRevision?: string; flowsEnabled?: boolean; offersEnabled?: boolean; deliveryEnabled?: boolean;
   attribution?: { models: string[]; handleWindowDays: number; note: string };
   guides?: GuideRow[];
   legacyCampaigns?: { campaign: string; orders: number; netRevenueCents: number }[];
@@ -74,6 +74,9 @@ export default function RealPeptidesGuideFunnel() {
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className={`rounded-full border px-2.5 py-1 ${d.deliveryEnabled ? "border-emerald-400/40 text-emerald-400" : "border-amber-400/40 text-amber-400"}`}>
+              Guide delivery {d.deliveryEnabled ? "LIVE" : "held (Josh's gate)"}
+            </span>
             <span className={`rounded-full border px-2.5 py-1 ${d.flowsEnabled ? "border-emerald-400/40 text-emerald-400" : "border-amber-400/40 text-amber-400"}`}>
               Flows {d.flowsEnabled ? "LIVE" : "dark (pre-launch)"}
             </span>
