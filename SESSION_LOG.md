@@ -3868,3 +3868,15 @@ repo code (wizloPayService.ts reconcileMembershipRefunds, schema.ts supplement_o
 FIRST PROD LOAD IS THE NUMBERS CHECK: /command FitScript row must equal Overview tile.
 Cross-seat: ping-before-push protocol agreed w/ paul-ee (memory: ops-shared-checkout-commit-
 protocol). Studio LAN IP moved .50→.53 (DHCP) — update browser URLs.
+
+## 2026-10-11/12 — Guide Funnel tab shipped + growth models live (paul-ab)
+Growth Model tab per brand LIVE (b1b3691+bb2de21+097217c): Sonnet drafts from command-center
+vitals + GSC/GA4/email-engine + pawgen Native Socials (paul-ee's shape; commission = owed
+liability); initiatives carry owner+KPI, live KPIs self-fill; regeneration never touches adopted
+rows. RP Guide Funnel tab LIVE (d975d96+6289507): proxies engine /api/ops-guide-funnel, graceful
+404 connect-state, attribution models labeled. Engine side: real-peptides 3afafec+883064b
+deployed (CI gate caught my flaky sig-tamper test first — deflaked); prod canary: guide-optin
+503 (secret unset = correct dark), ops feed 401 unauth'd, storefront 200, tab renders 9 guides
+at zero w/ "Flows dark" chips = migration + auth chain proven. NEXT: Paul sets
+GUIDE_FUNNEL_SIGNING_SECRET (+task-def ref), Josh: share tracker sheet, www TLS fix, bless
+coupon prefixes, then gates (test sends → offers → flows). Report artifact: HvPUFyGSo5t4PsZhgd6NMk
