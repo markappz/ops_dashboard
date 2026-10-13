@@ -28,6 +28,45 @@ const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").repla
  * and the scheduler (fires plans the human explicitly set to "scheduled" with a date/time/tz).
  * The caller owns status transitions AROUND this; this does the send + marks sent.
  */
+// Lazy so tests can shrink them after import (ESM hoisting).
+const pollEveryMs = () => Number(process.env.OPS_BROADCAST_POLL_MS || 20_000);
+const pollBudgetMs = () => Number(process.env.OPS_BROADCAST_POLL_BUDGET_MS || 90 * 60_000);
+
+/** Evidence → row status. Exported for tests. */
+export function broadcastVerdict(job: { status: string; sent: number; of: number }): { status: "sent" | "sent_partial" | "send_failed" | "sending"; note: string | null } {
+  switch (job.status) {
+    case "COMPLETED": return { status: "sent", note: null };
+    case "PARTIAL": return { status: "sent_partial", note: `partial: ${job.sent}/${job.of} sent before a chunk failed — resume continues from the failed chunk, never re-sending earlier ones` };
+    case "FAILED": return job.sent > 0
+      ? { status: "sent_partial", note: `partial: ${job.sent}/${job.of} sent, then the engine stopped` }
+      : { status: "send_failed", note: "engine confirmed zero recipients were sent" };
+    case "QUEUED": case "SENDING": return { status: "sending", note: null };
+    default: return { status: "sending", note: `unknown engine job status "${job.status}" — left for reconciliation` };
+  }
+}
+
+async function applyVerdict(planId: number, v: { status: string; note: string | null }, counts: { sent: number; of: number }, tag: string): Promise<void> {
+  await pool.query(
+    `UPDATE ops_email_plans SET status = $2, status_note = $3, sent_count = $4, total_count = $5, resend_broadcast_id = COALESCE(resend_broadcast_id, $6), updated_at = NOW() WHERE id = $1`,
+    [planId, v.status, v.note, counts.sent, counts.of, tag],
+  );
+}
+
+/**
+ * Fire one plan through its brand's engine bridge — shared by the send-rp route (human click)
+ * and the scheduler. Rebuilt after campaign #81 (2026-10-12): the engine's ALB cut the
+ * synchronous 34k-recipient send at its idle timeout, ops recorded send_failed, and 34,476
+ * delivered emails wore a "failed" badge. The rules now:
+ *
+ *   1. The tag is written to the row BEFORE dispatch — whatever happens, analytics can
+ *      always find the campaign.
+ *   2. The RP engine answers with an async JOB (idempotent by tag — our retry can never
+ *      double-send); we poll its status. Engines that still answer synchronously
+ *      (pawgen/PU/NB, small lists) are handled as before.
+ *   3. A transport error is AMBIGUOUS, never a failure verdict: the row stays 'sending'
+ *      and reconcilePendingSends() resolves it from engine evidence. 'send_failed' is
+ *      written only when the engine itself confirms zero sends.
+ */
 export async function firePlan(
   company: string,
   p: { id: number; title: string | null; subject: string | null; html: string | null; audience_id: string | null },
@@ -35,16 +74,94 @@ export async function firePlan(
 ): Promise<{ sent: number; of: number; tag: string }> {
   const segment = p.audience_id?.trim() || undefined;
   const tag = `ops-${p.id}-${slugify(p.title || p.subject || "broadcast")}`;
-  const out = await engineBridge(company, "", {
-    method: "POST",
-    body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
-  });
   await pool.query(
-    `UPDATE ops_email_plans SET resend_broadcast_id = $2, status = 'sent', updated_at = NOW() WHERE id = $1`,
-    [p.id, out.tag],
+    `UPDATE ops_email_plans SET resend_broadcast_id = $2, updated_at = NOW() WHERE id = $1`,
+    [p.id, tag],
   );
-  console.log(`[OPS][MARKETING] ${company} plan ${p.id} "${p.title}" sent to ${out.sent}/${out.of} (${out.tag}) by ${by}`);
-  return out;
+  let out: any;
+  try {
+    out = await engineBridge(company, "", {
+      method: "POST",
+      body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
+    });
+  } catch (e) {
+    // Ambiguous: the engine may be sending right now (that is exactly what #81 was).
+    await pool.query(
+      `UPDATE ops_email_plans SET status = 'sending', status_note = $2, updated_at = NOW() WHERE id = $1`,
+      [p.id, `dispatch transport error (${String((e as Error).message).slice(0, 120)}) — awaiting engine evidence, NOT marked failed`],
+    );
+    console.error(`[OPS][MARKETING] ${company} plan ${p.id} dispatch ambiguous: ${(e as Error).message} — left 'sending' for reconciliation`);
+    return { sent: 0, of: 0, tag };
+  }
+
+  if (!out?.async) {
+    // Legacy synchronous engines: the response IS the completed send.
+    await applyVerdict(p.id, { status: "sent", note: null }, { sent: out.sent ?? 0, of: out.of ?? 0 }, tag);
+    console.log(`[OPS][MARKETING] ${company} plan ${p.id} "${p.title}" sent to ${out.sent}/${out.of} (${out.tag}) by ${by}`);
+    return out;
+  }
+
+  console.log(`[OPS][MARKETING] ${company} plan ${p.id} "${p.title}" dispatched as job ${out.jobId ?? out.tag} (${out.of} recipients) by ${by}`);
+  const deadline = Date.now() + pollBudgetMs();
+  let last = { status: String(out.status ?? "QUEUED"), sent: Number(out.sent ?? 0), of: Number(out.of ?? 0) };
+  while (Date.now() < deadline) {
+    await new Promise((res) => setTimeout(res, pollEveryMs()));
+    try {
+      const j = await engineBridge(company, `?what=broadcast-status&tag=${encodeURIComponent(tag)}`, { timeoutMs: 20_000 });
+      if (j?.status) last = { status: String(j.status), sent: Number(j.sent ?? 0), of: Number(j.of ?? last.of) };
+    } catch {
+      continue; // transient poll failure — keep waiting; reconciler is the backstop
+    }
+    const v = broadcastVerdict(last);
+    if (v.status !== "sending") {
+      await applyVerdict(p.id, v, { sent: last.sent, of: last.of }, tag);
+      console.log(`[OPS][MARKETING] ${company} plan ${p.id} "${p.title}" ${v.status}: ${last.sent}/${last.of} (${tag})`);
+      return { sent: last.sent, of: last.of, tag };
+    }
+    await pool.query(`UPDATE ops_email_plans SET sent_count = $2, total_count = $3, updated_at = NOW() WHERE id = $1`, [p.id, last.sent, last.of]);
+  }
+  await pool.query(
+    `UPDATE ops_email_plans SET status = 'sending', status_note = 'poll budget exhausted — reconciler will resolve from engine evidence', updated_at = NOW() WHERE id = $1`,
+    [p.id],
+  );
+  return { sent: last.sent, of: last.of, tag };
+}
+
+/**
+ * Resolve plans stuck in 'sending' from ENGINE evidence (called every scheduler tick).
+ * UNKNOWN job + zero ledger activity is the only path to send_failed here.
+ */
+export async function reconcilePendingSends(): Promise<number> {
+  const { rows } = await pool.query(
+    `SELECT id, company, resend_broadcast_id AS tag FROM ops_email_plans
+      WHERE status = 'sending' AND updated_at < NOW() - interval '10 minutes' AND resend_broadcast_id IS NOT NULL`,
+  );
+  let fixed = 0;
+  for (const r of rows) {
+    try {
+      const j = await engineBridge(r.company, `?what=broadcast-status&tag=${encodeURIComponent(r.tag)}`, { timeoutMs: 20_000 });
+      if (j?.status === "UNKNOWN") {
+        // Pre-job send or never dispatched: fall back to the analytics ledger.
+        const a = await engineBridge(r.company, `?what=tag-stats&tag=${encodeURIComponent(r.tag)}`, { timeoutMs: 20_000 }).catch(() => null);
+        const sent = Number(a?.sent ?? 0);
+        if (sent > 0) {
+          await applyVerdict(r.id, { status: "sent", note: `reconciled from ledger evidence (${sent} sends under this tag)` }, { sent, of: sent }, r.tag);
+        } else {
+          await applyVerdict(r.id, { status: "send_failed", note: "no engine job and no ledger activity under this tag" }, { sent: 0, of: 0 }, r.tag);
+        }
+        fixed++;
+        continue;
+      }
+      const v = broadcastVerdict({ status: String(j.status), sent: Number(j.sent ?? 0), of: Number(j.of ?? 0) });
+      if (v.status !== "sending") {
+        await applyVerdict(r.id, v, { sent: Number(j.sent ?? 0), of: Number(j.of ?? 0) }, r.tag);
+        fixed++;
+      }
+    } catch (e) {
+      console.error(`[OPS][MARKETING] reconcile plan ${r.id} failed: ${(e as Error).message}`);
+    }
+  }
+  return fixed;
 }
 
 /**
@@ -57,6 +174,31 @@ export async function sendOpsAlert(to: string, subject: string, html: string): P
     : Object.keys(ENGINES).find(hasEngine);
   if (!company) throw new Error("No email engine is configured on ops — alert email has no transport.");
   await engineBridge(company, "", { method: "POST", body: { action: "test", subject, html, to } });
+}
+
+/**
+ * Evidence-only status repair for ONE plan (the #81/#76 reconciliation): job
+ * status first, then the webhook ledger by tag. There is NO send path here —
+ * it can only re-describe what already happened.
+ */
+export async function reconcilePlanFromEvidence(planId: number): Promise<{ status: string; note: string | null; sent: number; of: number; tag: string }> {
+  const { rows } = await pool.query(`SELECT id, company, title, subject, resend_broadcast_id FROM ops_email_plans WHERE id = $1`, [planId]);
+  const p = rows[0];
+  if (!p) throw new Error(`no plan ${planId}`);
+  const tag = p.resend_broadcast_id || `ops-${p.id}-${slugify(p.title || p.subject || "broadcast")}`;
+  const j = await engineBridge(p.company, `?what=broadcast-status&tag=${encodeURIComponent(tag)}`, { timeoutMs: 20_000 });
+  if (j?.status && j.status !== "UNKNOWN") {
+    const v = broadcastVerdict({ status: String(j.status), sent: Number(j.sent ?? 0), of: Number(j.of ?? 0) });
+    if (v.status !== "sending") await applyVerdict(p.id, v, { sent: Number(j.sent ?? 0), of: Number(j.of ?? 0) }, tag);
+    return { ...v, sent: Number(j.sent ?? 0), of: Number(j.of ?? 0), tag };
+  }
+  const stats = await engineBridge(p.company, `?what=tag-stats&tag=${encodeURIComponent(tag)}`, { timeoutMs: 20_000 });
+  const sent = Number(stats?.sent ?? 0);
+  const v = sent > 0
+    ? { status: "sent" as const, note: `reconciled from ledger: ${sent} sent, ${stats.delivered ?? 0} delivered, ${stats.bounced ?? 0} bounced under ${tag}` }
+    : { status: "send_failed" as const, note: "no job and zero ledger activity under this tag" };
+  await applyVerdict(p.id, v, { sent, of: sent }, tag);
+  return { ...v, sent, of: sent, tag };
 }
 
 export function registerRealPeptidesMarketing(app: Express) {
@@ -77,6 +219,16 @@ export function registerRealPeptidesMarketing(app: Express) {
     next();
   };
   const company = (req: Request) => String(req.params.company);
+
+  // Evidence-only repair (Paul-triggered): fixes a plan's displayed status from
+  // engine job + ledger truth. Cannot send, resend or schedule anything.
+  app.post("/api/ops/email-plans/:id/reconcile", async (req, res) => {
+    try {
+      res.json(await reconcilePlanFromEvidence(Number(req.params.id)));
+    } catch (e: any) {
+      res.status(502).json({ error: e.message });
+    }
+  });
 
   app.get("/api/ops/:company/marketing/segments", brandGate, async (req, res) => {
     try {

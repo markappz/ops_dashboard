@@ -14,7 +14,7 @@ import { hasEngine } from "./brand-engines";
 import { pool } from "./db";
 
 const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen", "northblu", "reverra"]);
-const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sending", "sent", "send_failed", "missed"]);
+const STATUSES = new Set(["idea", "draft", "approved", "scheduled", "sending", "sent", "sent_partial", "send_failed", "missed"]);
 const RESEND = "https://api.resend.com";
 
 function resendKey(company: string): string | null {
@@ -150,6 +150,11 @@ async function ensureTable() {
   // Scheduler timezone (2026-10-02): which wall clock send_date+send_time mean. Default ET
   // matches the UI's historical label; the calendar/builder now write it explicitly.
   await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS send_tz TEXT`);
+  // 2026-10-13 (campaign #81): dispatch evidence lives on the row — counts and a
+  // human note — so "failed" can never contradict delivery again.
+  await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS sent_count INT`);
+  await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS total_count INT`);
+  await pool.query(`ALTER TABLE ops_email_plans ADD COLUMN IF NOT EXISTS status_note TEXT`);
 }
 
 /** Rich HTML in JSON gets eaten by the Cloudflare WAF in front of ops, so clients send it

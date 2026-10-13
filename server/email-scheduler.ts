@@ -1,5 +1,5 @@
 import { pool } from "./db";
-import { firePlan } from "./realpeptides-marketing";
+import { firePlan, reconcilePendingSends } from "./realpeptides-marketing";
 import { ENGINES, engineCompanies } from "./brand-engines";
 
 /** Loud failure alert straight to Paul's inbox (Paul 10-04, after the open-180d fire failed
@@ -55,6 +55,12 @@ export function wallClock(tz: string, d = new Date()): string {
 async function tick(): Promise<void> {
   const companies = engineCompanies();
   if (!companies.length) return;
+  try {
+    const fixed = await reconcilePendingSends();
+    if (fixed) console.log(`[OPS][SCHEDULER] reconciled ${fixed} pending send(s) from engine evidence`);
+  } catch (e: any) {
+    console.error(`[OPS][SCHEDULER] reconcile pass failed: ${e.message}`);
+  }
   const { rows } = await pool.query(
     `SELECT id, company, title, subject, html, audience_id,
             send_date::text AS send_date, send_time, COALESCE(send_tz, $1) AS send_tz
@@ -93,9 +99,12 @@ async function tick(): Promise<void> {
       const out = await firePlan(p.company, p, "scheduler");
       console.log(`[OPS][SCHEDULER] ${p.company} plan ${p.id} "${p.title}" fired at ${schedAt} ${p.send_tz}: ${out.sent}/${out.of} (${out.tag})`);
     } catch (e: any) {
-      await pool.query(`UPDATE ops_email_plans SET status = 'send_failed', updated_at = NOW() WHERE id = $1`, [p.id]);
-      console.error(`[OPS][SCHEDULER] ${p.company} plan ${p.id} "${p.title}" FAILED: ${e.message} — marked send_failed, no auto-retry`);
-      await alertFailure(`Scheduled campaign FAILED: ${p.title}`, [`${label} plan ${p.id} ("${p.subject}") failed at fire time.`, `Error: ${String(e.message).slice(0, 300)}`, `Zero or partial sends possible — check the ledger before retrying.`], label);
+      // firePlan absorbs engine/transport failures itself now; reaching here is
+      // unexpected — and after #81 (504 while 34k emails delivered) a transport
+      // error may NOT be called a failure. Ambiguous until evidence says otherwise.
+      await pool.query(`UPDATE ops_email_plans SET status = 'sending', status_note = $2, updated_at = NOW() WHERE id = $1`, [p.id, `fire error: ${String(e.message).slice(0, 200)} — awaiting reconciliation, not marked failed`]);
+      console.error(`[OPS][SCHEDULER] ${p.company} plan ${p.id} "${p.title}" fire error: ${e.message} — left 'sending' for evidence-based reconciliation`);
+      await alertFailure(`Scheduled campaign needs attention: ${p.title}`, [`${label} plan ${p.id} ("${p.subject}") hit an error at fire time.`, `Error: ${String(e.message).slice(0, 300)}`, `Status held at 'sending' — the reconciler will resolve it from engine evidence. Do NOT retry manually before checking the ledger.`], label);
     }
   }
 }

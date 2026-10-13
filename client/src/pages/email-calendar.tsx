@@ -17,7 +17,7 @@ interface Plan {
   title: string;
   subject: string | null;
   preheader: string | null;
-  status: "idea" | "draft" | "approved" | "scheduled" | "sending" | "sent" | "send_failed" | "missed";
+  status: "idea" | "draft" | "approved" | "scheduled" | "sending" | "sent" | "sent_partial" | "send_failed" | "missed";
   send_date: string | null;
   send_time: string | null;
   send_tz: string | null;
@@ -36,6 +36,7 @@ const STATUS_CHIP: Record<string, string> = {
   scheduled: "bg-emerald-500/15 text-emerald-400",
   sending: "bg-brand-blue-500/25 text-brand-blue-300",
   sent: "bg-emerald-500/25 text-emerald-300",
+  sent_partial: "bg-amber-500/20 text-amber-400",
   send_failed: "bg-red-500/20 text-red-400",
   missed: "bg-orange-500/20 text-orange-400",
 };

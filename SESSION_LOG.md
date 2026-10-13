@@ -3945,3 +3945,15 @@ first roll: pg returns created_at as Date, REST gave ISO strings → normalize a
 PROD VERIFIED: pawgen row configured, $20,261/+34.2%, 19,075 sessions, 620 leads, logs clean
 post-roll (all errors predated new tasks). paul-ee confirmed their native-socials pg branch is
 REST-parity; low socials attribution right now = untagged announce CTAs (their 7a6f353), not this.
+
+## 2026-10-13 — Evidence-based campaign status (#81 post-mortem, paul-ab)
+firePlan rebuilt: tag written BEFORE dispatch (analytics link survives anything); RP engine
+answers async job → poll ?what=broadcast-status; transport errors = AMBIGUOUS ('sending' +
+note, NEVER send_failed); send_failed only on engine-confirmed zero evidence; PARTIAL →
+'sent_partial' (new status + amber chip) w/ honest counts in sent_count/total_count/status_note
+(new cols). reconcilePendingSends() every scheduler tick resolves stale 'sending' from job or
+tag-stats ledger; POST /api/ops/email-plans/:id/reconcile = Paul-triggered evidence-only repair
+for #81/#76 (NO send path). Scheduler catch softened to ambiguous. 10 new regression tests
+(504-at-dispatch, partial, idempotent re-fire, ambiguous polls, stale-resolve, pre-job repair,
+zero-evidence failure); suite 55/55. COMMITTED NOT PUSHED — Paul gates deploy + the #81 repair;
+engine must deploy FIRST (job endpoint), ideally before tonight's #82.
