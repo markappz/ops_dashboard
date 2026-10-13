@@ -3957,3 +3957,13 @@ for #81/#76 (NO send path). Scheduler catch softened to ambiguous. 10 new regres
 (504-at-dispatch, partial, idempotent re-fire, ambiguous polls, stale-resolve, pre-job repair,
 zero-evidence failure); suite 55/55. COMMITTED NOT PUSHED — Paul gates deploy + the #81 repair;
 engine must deploy FIRST (job endpoint), ideally before tonight's #82.
+
+## 2026-10-13 — Broadcast-job fix DEPLOYED + #81/#76 reconciled (paul-ab)
+Engine d5eeb0d + ops 26baf86 live (first watcher misread transient run states — engine CodeBuild
+continued past GH polling; verify by serving image, not run color). #81 repaired via evidence
+endpoint: sent 34,476 / 13 bounced (ledger; broadcast delivered-events deliberately not stored —
+Mailgun analytics holds 34,463 delivered). #76 verdict: send_failed CONFIRMED — zero ledger
+activity under ops-76-research-brief-02-gh-axis-open-180d; genuinely never sent (different
+failure than #81). PENDING: tonight's #82 (~19:00 ET) is the live acceptance test — will
+dispatch as idempotent job; verify status matches dispatch after it fires. paul-ee's pawgen
+broadcast-2026-10-12 (sync 1865/1865) explicitly left alone per their ask.
