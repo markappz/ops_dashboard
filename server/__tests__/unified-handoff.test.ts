@@ -63,6 +63,10 @@ afterAll(async () => {
   await pool.end();
 });
 beforeEach(async () => {
+  // Drain fire-and-forget notifications from the previous test BEFORE clearing
+  // the capture buffer — RESTART IDENTITY reuses request ids, so a late async
+  // notify is otherwise indistinguishable from this test's own.
+  await new Promise((r) => setTimeout(r, 60));
   outbound.length = 0;
   await pool.query(`TRUNCATE cc_conversations, cc_requests, cc_events, cc_contacts, cc_wholesale_inquiries, cc_tool_calls RESTART IDENTITY CASCADE`);
 });
@@ -90,14 +94,17 @@ describe("follow-up discipline", () => {
       const ev = await pool.query(`SELECT count(*)::int AS n FROM cc_events WHERE request_id = $1 AND type = 'owner_notified'`, [r.receipt_id]);
       expect(ev.rows[0].n).toBe(1);
     });
-    const notif = outbound.find((o) => o.url.includes("ops-transactional"));
+    // fire-and-forget notifies from EARLIER tests can land here — match by request id
+    const notif = outbound.find((o) => o.url.includes("ops-transactional") && o.body.requestId === String(r.receipt_id));
     expect(notif?.body.kind).toBe("staff-notification");
     expect(notif?.body.to).toBe("ahmed@morellibrands.com");
+    expect(notif?.body.phone).toBe("+18135550177");
+    expect(notif?.body.opsUrl).toContain(`/realpeptides/call-center?request=${r.receipt_id}`);
     //
 
     // replaying the identical save (same idempotency inputs) notifies no one twice
     await followup("Package arrived empty", "call_uh_n1");
-    const ev2 = await pool.query(`SELECT count(*)::int AS n FROM cc_events WHERE type = 'owner_notified'`);
+    const ev2 = await pool.query(`SELECT count(*)::int AS n FROM cc_events WHERE type = 'owner_notified' AND request_id = $1`, [r.receipt_id]);
     expect(ev2.rows[0].n).toBe(1);
   });
 

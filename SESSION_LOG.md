@@ -3967,3 +3967,20 @@ activity under ops-76-research-brief-02-gh-axis-open-180d; genuinely never sent 
 failure than #81). PENDING: tonight's #82 (~19:00 ET) is the live acceptance test — will
 dispatch as idempotent job; verify status matches dispatch after it fires. paul-ee's pawgen
 broadcast-2026-10-12 (sync 1865/1865) explicitly left alone per their ask.
+
+## 2026-10-13/14 — Hades support handoff (paul-ab)
+Root cause of red read-only: support@realpeptides.co = viewer with ZERO grants; the
+realpeptides:call-center key existed but was never assigned. GRANTED live (readback verified) —
+covers exactly requests POST/PATCH, attempts POST, conversations PATCH; nothing else (authz
+matrix test pins it). NEW: resolution note REQUIRED to resolve/close; staff contact corrections
+(PATCH contact_email/phone/name → cc_contacts w/ before/after provenance event + email_status
+confirmed); email_status col (confirmed/declined/unavailable/not_asked); append-request-note now
+does STRUCTURED contact updates (not just notes); owner aliases via CC_STAFF_ALIASES on /auth/me
+(support@ ↔ ahmed@morellibrands.com); staff emails enriched (name/mailto/tel/order/products/
+window/urgency/repeat/ops deep-link; phone-only labeled from email_status, never template miss);
+ONE labeled contact-correction update per digest on already-notified open requests; 96h
+email-audit endpoint (dry-run default; apply adopts transcript-explicit only w/ provenance,
+ambiguous → candidates, none → phone-only). UI: contact-fix row + email status chip. Tests
+63/63 ×2. MARISSA ROLLOUT = scripts/marissa-email-rollout.ts (Paul runs; dry-run verified:
+v7→13 tools, SOP 15866→16797 chars w/ email ask; classifier blocks Claude on live-agent writes).
+Canonical SOP now in repo: server/callcenter-sop/unified-marissa-prompt.txt.

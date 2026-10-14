@@ -60,6 +60,7 @@ function tool(name: string, description: string, parameters: Json, opts: Json = 
 const req = (props: Json, required: string[]): Json => ({ type: "object", properties: props, required });
 const s = (description: string): Json => ({ type: "string", description });
 
+export const TOOL_DEFS_EXPORT: Record<string, Json> = {} as Record<string, Json>;
 const TOOL_DEFS: Record<string, Json> = {
   "search-products": tool("search-products", "Look up products in the live Real Peptides catalog by name. Returns exact names, options, current public prices and availability. Use for any product or price question.",
     req({ query: s("The product name the customer said, as heard (spelling mistakes are okay)") }, ["query"])),
@@ -79,7 +80,8 @@ const TOOL_DEFS: Record<string, Json> = {
       reason: s("One of: callback, product_question, order_question, shipment_question, payment_question, other"),
       name: s("Customer's name if given"),
       phone: s("Confirmed callback number, only with permission"),
-      email: s("Confirmed email, only with permission"),
+      email: s("Best support email, read back once to confirm spelling; only with permission"),
+      email_status: s("confirmed when they gave an email, declined if they refused, unavailable if they have none; omit if not asked"),
       contact_permission: { type: "boolean", description: "Did the customer agree to be contacted?" },
       preferred_window: s("The customer's own words for when to call back"),
       timezone: s("Customer's timezone ONLY if they said it — never guess"),
@@ -102,9 +104,11 @@ const TOOL_DEFS: Record<string, Json> = {
     req({}, [])),
   "find-requests": tool("find-requests", "List the saved requests already on file for THIS caller (status and request numbers only — never order details). Use before saving when a caller says they already called.",
     req({}, [])),
-  "append-request-note": tool("append-request-note", "Add one genuinely NEW detail to an existing saved request by its request number. Only say the detail was added after this returns ok.",
-    req({ request_id: s("The saved request number"), note: s("The new detail, in one or two sentences") }, ["request_id", "note"]), { timeout_ms: 10_000 }),
+  "append-request-note": tool("append-request-note", "Add one genuinely NEW detail or a corrected email/phone to an existing saved request by its request number. Only say it was added after this returns ok.",
+    req({ request_id: s("The saved request number"), note: s("The new detail, in one or two sentences"), email: s("Corrected or newly collected email, read back to confirm"), phone: s("Corrected callback number") }, ["request_id"]), { timeout_ms: 10_000 }),
 };
+
+Object.assign(TOOL_DEFS_EXPORT, TOOL_DEFS);
 
 /**
  * Agents whose PROMPT this script must never touch (Josh's 2026-10-12 unified
@@ -325,4 +329,8 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run only when invoked directly — importing TOOL_DEFS_EXPORT must not trigger a sync pass.
+import { fileURLToPath } from "node:url";
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

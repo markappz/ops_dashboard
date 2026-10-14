@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS cc_requests (
 CREATE UNIQUE INDEX IF NOT EXISTS cc_requests_idem_idx ON cc_requests (idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS cc_requests_state_idx ON cc_requests (brand, state, queue, due_at);
 CREATE INDEX IF NOT EXISTS cc_requests_owner_idx ON cc_requests (owner_email, state);
+-- 2026-10-13 (Hades handoff): did Marissa get an email for this request?
+ALTER TABLE cc_requests ADD COLUMN IF NOT EXISTS email_status TEXT NOT NULL DEFAULT 'not_asked';
 CREATE INDEX IF NOT EXISTS cc_requests_conv_idx ON cc_requests (conversation_id);
 
 CREATE TABLE IF NOT EXISTS cc_wholesale_inquiries (

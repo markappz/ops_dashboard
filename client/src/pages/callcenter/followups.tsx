@@ -95,6 +95,8 @@ function RequestCard({ r, open, onToggle }: { r: CcRequest; open: boolean; onTog
 function RequestActions({ r }: { r: CcRequest }) {
   const qc = useQueryClient();
   const [owner, setOwner] = useState(r.owner_email ?? "");
+  const [fixEmail, setFixEmail] = useState("");
+  const [fixPhone, setFixPhone] = useState("");
   const [note, setNote] = useState("");
   const [snoozeReason, setSnoozeReason] = useState("");
   const [callbackAt, setCallbackAt] = useState("");
@@ -131,6 +133,24 @@ function RequestActions({ r }: { r: CcRequest }) {
             {r.wholesale_refs?.orderRef && <div>Existing wholesale order: <span className="text-brand-blue-500">{String(r.wholesale_refs.orderRef)}</span> ({String(r.wholesale_refs.status ?? "")})</div>}
             {r.contact_permission === false && <div className="text-red-400">Customer declined contact — do not call.</div>}
             <div>Source: {r.source === "live_tool" ? "saved live during the conversation" : r.source === "webhook_analysis" ? "post-call analysis" : "staff"} · {r.attempt_count ?? 0} attempt(s){r.last_attempt_at ? `, last ${fmtWhen(r.last_attempt_at)}` : ""}</div>
+            <div>
+              Contact: {r.phone_e164 || r.from_number || "no phone"} · {r.email_norm
+                ? <span className="text-ops-text">{r.email_norm}</span>
+                : <span className={r.email_status === "declined" ? "text-amber-400" : "text-ops-text-muted"}>
+                    {r.email_status === "declined" ? "email declined" : r.email_status === "unavailable" ? "phone-only — collect an email on the call" : "no email on file"}
+                  </span>}
+            </div>
+          </div>
+          {/* Hades 2026-10-13: fix a wrong number or add the email collected on the call —
+              lands on the contact record with provenance, never buried in a note. */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input value={fixEmail} onChange={(e) => setFixEmail(e.target.value)} placeholder="Correct/collected email" aria-label="Correct email"
+              className="w-44 rounded-lg border border-ops-border bg-ops-bg px-2.5 py-1.5 text-xs text-ops-text focus:border-brand-blue-500 focus:outline-none" />
+            <input value={fixPhone} onChange={(e) => setFixPhone(e.target.value)} placeholder="Correct phone" aria-label="Correct phone"
+              className="w-36 rounded-lg border border-ops-border bg-ops-bg px-2.5 py-1.5 text-xs text-ops-text focus:border-brand-blue-500 focus:outline-none" />
+            <button type="button" disabled={busy || (!fixEmail.trim() && !fixPhone.trim())}
+              onClick={() => { patch.mutate({ ...(fixEmail.trim() ? { contact_email: fixEmail.trim() } : {}), ...(fixPhone.trim() ? { contact_phone: fixPhone.trim() } : {}) }); setFixEmail(""); setFixPhone(""); }}
+              className="rounded-lg border border-ops-border px-2.5 py-1.5 text-xs font-medium text-ops-text hover:border-brand-blue-500 disabled:opacity-50">Save contact fix</button>
           </div>
         </div>
         <div>

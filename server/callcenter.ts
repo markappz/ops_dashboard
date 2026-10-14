@@ -5,14 +5,14 @@
  */
 import type { Express, Request, Response } from "express";
 import { pool } from "./db";
+import { notifyContactCorrection, verifyChannelPing } from "./callcenter-tools";
 import {
   createRequest, logCcEvent, getSyncState, setSyncState,
-  REQUEST_STATES, CALL_OUTCOMES, QUEUES,
+  REQUEST_STATES, CALL_OUTCOMES, QUEUES, normalizePhone, normalizeEmail,
 } from "./callcenter-db";
 import { processInboxOnce, reconcileOnce } from "./callcenter-worker";
 import { retellCfg, retell, RP_VOICE_AGENTS, RP_CHAT_AGENTS } from "./callcenter-retell";
 import { commerceHealth } from "./callcenter-commerce";
-import { verifyChannelPing } from "./callcenter-tools";
 
 const BUSINESS_TZ = "America/New_York";
 
@@ -244,11 +244,19 @@ export function registerCallCenterRoutes(app: Express) {
       }
       if (b.state !== undefined) {
         if (!REQUEST_STATES.includes(b.state)) return res.status(400).json({ error: `state must be one of ${REQUEST_STATES.join(", ")}` });
-        set("state", b.state);
         if (b.state === "resolved" || b.state === "closed_no_action") {
+          // Hades handoff (2026-10-13): closing a ticket REQUIRES saying what
+          // happened — a concise outcome, not a silent state flip.
+          const note = String(b.resolution ?? "").trim();
+          if (!note && !String(cur.resolution ?? "").trim()) {
+            return res.status(400).json({ error: "A resolution note is required to resolve or close a request — one line on the outcome." });
+          }
           set("resolved_at", new Date()); set("resolved_by", me);
-          if (b.resolution) set("resolution", String(b.resolution).slice(0, 2000));
+          if (note) set("resolution", note.slice(0, 2000));
+        } else {
+          set("state", b.state);
         }
+        if (b.state === "resolved" || b.state === "closed_no_action") set("state", b.state);
       } else if (b.resolution !== undefined) set("resolution", String(b.resolution).slice(0, 2000));
       if (b.snooze_until !== undefined) {
         set("snoozed_until", b.snooze_until ? new Date(b.snooze_until) : null);
@@ -264,6 +272,37 @@ export function registerCallCenterRoutes(app: Express) {
       if (b.priority !== undefined) set("priority", String(b.priority));
       if (b.queue !== undefined && QUEUES.includes(b.queue)) set("queue", b.queue);
       if (b.order_reference !== undefined) set("order_reference", b.order_reference || null);
+      if (b.email_status !== undefined) {
+        if (!["confirmed", "declined", "unavailable", "not_asked"].includes(b.email_status)) {
+          return res.status(400).json({ error: "email_status must be confirmed, declined, unavailable or not_asked" });
+        }
+        set("email_status", b.email_status);
+      }
+
+      // Contact corrections (Hades handoff 2026-10-13): staff fix the CONTACT
+      // record, with provenance — a wrong number or a collected email lands on
+      // the contact, not buried in a note.
+      if ((b.contact_email !== undefined || b.contact_phone !== undefined || b.contact_name !== undefined) && cur.contact_id) {
+        const cSets: string[] = ["updated_at = NOW()"]; const cParams: any[] = [cur.contact_id];
+        const cset = (col: string, v: any) => { cParams.push(v); cSets.push(`${col} = $${cParams.length}`); };
+        const before = (await pool.query(`SELECT email_norm, phone_e164, name FROM cc_contacts WHERE id = $1`, [cur.contact_id])).rows[0];
+        if (b.contact_email !== undefined) {
+          const em = normalizeEmail(String(b.contact_email ?? ""));
+          cset("email_norm", em); cset("email_raw", b.contact_email || null);
+          if (em) set("email_status", "confirmed");
+        }
+        if (b.contact_phone !== undefined) {
+          cset("phone_e164", normalizePhone(String(b.contact_phone ?? ""))); cset("phone_raw", b.contact_phone || null);
+        }
+        if (b.contact_name !== undefined) cset("name", String(b.contact_name).slice(0, 120) || null);
+        await pool.query(`UPDATE cc_contacts SET ${cSets.join(", ")} WHERE id = $1`, cParams);
+        await logCcEvent(pool, {
+          requestId: id, conversationId: cur.conversation_id, actorType: "staff", actor: me,
+          type: "contact_corrected",
+          data: { before, after: { email: b.contact_email, phone: b.contact_phone, name: b.contact_name }, source: "staff" },
+        });
+        void notifyContactCorrection(pool, id, me).catch(() => {});
+      }
 
       await pool.query(`UPDATE cc_requests SET ${sets.join(", ")} WHERE id = $1`, params);
       await logCcEvent(pool, { requestId: id, conversationId: cur.conversation_id, actorType: "staff", actor: me, type: "request_updated", data: b });
@@ -382,6 +421,57 @@ export function registerCallCenterRoutes(app: Express) {
           WHERE status IN ('dead','failed') ORDER BY received_at DESC LIMIT 100`,
       );
       res.json({ rows: rows.rows });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * Email-recovery audit (Hades handoff 2026-10-13, §5): outstanding support
+   * requests from the last 96h with no contact email. Dry-run by default;
+   * apply=true adopts ONLY transcript-explicit single-address evidence (with
+   * provenance), sibling/order matches stay review candidates, and the rest
+   * are marked phone-only (email_status=unavailable) for Hades to collect by
+   * phone. Admin-only via the viewer write-block (no PERMISSION_ROUTES entry).
+   */
+  app.post("/api/ops/realpeptides/callcenter/email-audit", async (req: any, res) => {
+    try {
+      const apply = req.body?.apply === true;
+      const cutoff = new Date(Date.now() - 96 * 3600_000);
+      const { rows } = await pool.query(
+        `SELECT r.id, r.conversation_id, r.contact_id, r.email_status, c.transcript, ct.email_norm
+           FROM cc_requests r
+           LEFT JOIN cc_conversations c ON c.id = r.conversation_id
+           LEFT JOIN cc_contacts ct ON ct.id = r.contact_id
+          WHERE r.created_at >= $1 AND r.kind = 'support'
+            AND r.state NOT IN ('resolved','closed_no_action')
+            AND (ct.email_norm IS NULL OR ct.email_norm = '')
+          ORDER BY r.id`, [cutoff]);
+      const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+      const report: any = { cutoff: cutoff.toISOString(), outstanding: rows.length, applied: [], candidates: [], phoneOnly: [] };
+      for (const r of rows) {
+        const found = [...new Set(((r.transcript ?? "").match(EMAIL_RE) ?? []).map((e: string) => e.toLowerCase())
+          .filter((e: string) => !/realpeptides\.co$/.test(e)))];
+        // A sibling record from the SAME conversation already carrying an email.
+        const sib = r.conversation_id ? await pool.query(
+          `SELECT ct2.email_norm FROM cc_requests r2 JOIN cc_contacts ct2 ON ct2.id = r2.contact_id
+            WHERE r2.conversation_id = $1 AND r2.id <> $2 AND ct2.email_norm IS NOT NULL LIMIT 1`,
+          [r.conversation_id, r.id]) : { rows: [] as any[] };
+        if (found.length === 1) {
+          if (apply && r.contact_id) {
+            await pool.query(`UPDATE cc_contacts SET email_norm = $2, email_raw = $2, updated_at = NOW() WHERE id = $1`, [r.contact_id, found[0]]);
+            await pool.query(`UPDATE cc_requests SET email_status = 'confirmed', updated_at = NOW() WHERE id = $1`, [r.id]);
+            await logCcEvent(pool, { requestId: r.id, conversationId: r.conversation_id, actorType: "staff", actor: adminOf(req), type: "contact_corrected", data: { email: found[0], source: "transcript_backfill_96h", provenance: "caller stated in transcript" } });
+          }
+          report.applied.push({ request: r.id, email: found[0], evidence: "transcript", applied: apply });
+        } else if (found.length > 1 || sib.rows[0]) {
+          report.candidates.push({ request: r.id, transcriptEmails: found, siblingEmail: sib.rows[0]?.email_norm ?? null, note: "review required — ambiguous or indirect evidence, never auto-copied" });
+        } else {
+          if (apply) await pool.query(`UPDATE cc_requests SET email_status = 'unavailable', updated_at = NOW() WHERE id = $1 AND email_status = 'not_asked'`, [r.id]);
+          report.phoneOnly.push({ request: r.id });
+        }
+      }
+      res.json({ dryRun: !apply, ...report });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

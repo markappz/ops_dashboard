@@ -484,6 +484,11 @@ async function toolCreateFollowup(pool: Pool, ctx: ToolContext, entity: any): Pr
     // An explicitly declined contact request is respected: log, don't schedule.
     return { status: "rejected", customer_message: "Understood — we won't reach out. The note stays on file if you call back." };
   }
+  const emailStatus = (() => {
+    const v = str(ctx.args.email_status, 20).toLowerCase();
+    if (["confirmed", "declined", "unavailable"].includes(v)) return v;
+    return email ? "confirmed" : "not_asked";
+  })();
   const windowRaw = str(ctx.args.preferred_window ?? ctx.args.callback_window, 200) || null;
   const tz = str(ctx.args.timezone, 60) || null;
 
@@ -531,6 +536,7 @@ async function toolCreateFollowup(pool: Pool, ctx: ToolContext, entity: any): Pr
     source: "live_tool",
     idempotencyKey,
   });
+  if (created) await pool.query(`UPDATE cc_requests SET email_status = $2 WHERE id = $1`, [id, emailStatus]).catch(() => {});
   if (created && openPrior.length === 1) {
     await logCcEvent(pool, { conversationId, requestId: id, actorType: "system", type: "repeat_contact", data: { priorRequestId: openPrior[0].id, missedCallback } });
   }
@@ -554,42 +560,95 @@ async function toolCreateFollowup(pool: Pool, ctx: ToolContext, entity: any): Pr
 const SUPPORT_OWNER = () => process.env.CC_SUPPORT_OWNER_EMAIL || "ahmed@morellibrands.com";
 const WHOLESALE_OWNER = () => process.env.CC_WHOLESALE_OWNER_EMAIL || "josh@joshabely.com";
 
-async function notifyRequestOwner(pool: Pool, requestId: number): Promise<void> {
-  const base = process.env.RP_SITE_API_URL;
-  const token = process.env.RP_SITE_OPS_TOKEN;
-  if (!base || !token) return;
+async function staffNotificationPayload(pool: Pool, requestId: number): Promise<{ to: string; payload: Record<string, unknown>; isTest: boolean } | null> {
   const r = await pool.query(
-    `SELECT r.id, r.kind, r.reason, r.concern, r.priority, r.owner_email, r.contact_channel,
-            c.is_test, ct.phone_e164 AS phone, ct.email_norm
+    `SELECT r.id, r.kind, r.reason, r.concern, r.priority, r.owner_email, r.order_reference,
+            r.product_refs, r.callback_window_raw, r.callback_tz, r.email_status,
+            c.is_test,
+            ct.name AS contact_name, ct.phone_e164 AS phone, ct.email_norm,
+            (SELECT COUNT(*)::int FROM cc_events e WHERE e.request_id = r.id AND e.type IN ('repeat_contact','repeat_contact_escalated')) AS repeats
        FROM cc_requests r
        LEFT JOIN cc_conversations c ON c.id = r.conversation_id
        LEFT JOIN cc_contacts ct ON ct.id = r.contact_id
       WHERE r.id = $1`, [requestId]);
   const row = r.rows[0];
-  if (!row || row.is_test) return;
-  // One notification per request, ever — the ledger is the guard, not memory.
-  const already = await pool.query(
-    `SELECT 1 FROM cc_events WHERE request_id = $1 AND type = 'owner_notified' LIMIT 1`, [requestId]);
-  if (already.rows[0]) return;
+  if (!row) return null;
   const to = row.owner_email || (row.kind === "wholesale" ? WHOLESALE_OWNER() : SUPPORT_OWNER());
-  const resp = await fetch(`${base.replace(/\/$/, "")}/api/ops-transactional`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const products = Array.isArray(row.product_refs)
+    ? row.product_refs.map((p: any) => [p.name, p.variant, p.qty ? `x${p.qty}` : null].filter(Boolean).join(" ")).filter(Boolean).join("; ")
+    : null;
+  return {
+    to,
+    isTest: row.is_test === true,
+    payload: {
       kind: "staff-notification", to,
       requestId: String(row.id), reason: row.reason ?? row.kind,
       urgency: row.priority === "high" ? "urgent" : "normal",
       summary: String(row.concern ?? "").slice(0, 1000),
-      contact: row.phone ?? row.email_norm ?? null,
-    }),
+      customerName: row.contact_name ?? null,
+      email: row.email_norm ?? null,
+      // "no email" must mean the CUSTOMER has none on file, never a template miss.
+      emailStatus: row.email_norm ? "confirmed" : (row.email_status ?? "not_asked"),
+      phone: row.phone ?? null,
+      orderReference: row.order_reference ?? null,
+      products,
+      callbackWindow: row.callback_window_raw ? `${row.callback_window_raw}${row.callback_tz ? ` (${row.callback_tz})` : ""}` : null,
+      repeatContact: Number(row.repeats ?? 0) > 0,
+      opsUrl: `${process.env.OPS_PUBLIC_BASE_URL || "https://ops.fitscript.me"}/realpeptides/call-center?request=${row.id}`,
+    },
+  };
+}
+
+async function postStaffNotification(payload: Record<string, unknown>): Promise<boolean> {
+  const base = process.env.RP_SITE_API_URL;
+  const token = process.env.RP_SITE_OPS_TOKEN;
+  if (!base || !token) return false;
+  const resp = await fetch(`${base.replace(/\/$/, "")}/api/ops-transactional`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(10_000),
   });
-  const ok = resp.ok && (await resp.json().catch(() => ({} as any))).ok === true;
+  return resp.ok && (await resp.json().catch(() => ({} as any))).ok === true;
+}
+
+async function notifyRequestOwner(pool: Pool, requestId: number): Promise<void> {
+  const built = await staffNotificationPayload(pool, requestId);
+  if (!built || built.isTest) return;
+  // One notification per request, ever — the ledger is the guard, not memory.
+  const already = await pool.query(
+    `SELECT 1 FROM cc_events WHERE request_id = $1 AND type = 'owner_notified' LIMIT 1`, [requestId]);
+  if (already.rows[0]) return;
+  const ok = await postStaffNotification(built.payload);
   await logCcEvent(pool, {
     requestId, actorType: "system", type: ok ? "owner_notified" : "owner_notify_failed",
-    data: { to, delivered: ok },
+    data: { to: built.to, delivered: ok },
   });
   if (!ok) console.error(`[OPS][CC] owner notification failed for request ${requestId}`);
+}
+
+/**
+ * A MATERIAL contact correction on an already-notified open request gets ONE
+ * clearly-labeled update email, deduped by the corrected values' digest —
+ * replays, reconciles and unchanged saves never re-send.
+ */
+export async function notifyContactCorrection(pool: Pool, requestId: number, by: string): Promise<void> {
+  const built = await staffNotificationPayload(pool, requestId);
+  if (!built || built.isTest) return;
+  const notified = await pool.query(`SELECT 1 FROM cc_events WHERE request_id = $1 AND type = 'owner_notified' LIMIT 1`, [requestId]);
+  if (!notified.rows[0]) return; // never notified → the eventual first notification carries the fix
+  const open = await pool.query(`SELECT 1 FROM cc_requests WHERE id = $1 AND state NOT IN ('resolved','closed_no_action')`, [requestId]);
+  if (!open.rows[0]) return;
+  const digest = digestOf({ email: built.payload.email, phone: built.payload.phone, name: built.payload.customerName });
+  const dup = await pool.query(
+    `SELECT 1 FROM cc_events WHERE request_id = $1 AND type = 'owner_update_notified' AND data->>'digest' = $2 LIMIT 1`,
+    [requestId, digest]);
+  if (dup.rows[0]) return;
+  const ok = await postStaffNotification({ ...built.payload, update: "contact-correction", correctedBy: by });
+  await logCcEvent(pool, {
+    requestId, actorType: "system", type: ok ? "owner_update_notified" : "owner_notify_failed",
+    data: { to: built.to, digest, delivered: ok, update: "contact-correction" },
+  });
 }
 
 /** Open requests already on file for this contact — the repeat-callback brake. */
@@ -693,8 +752,10 @@ async function toolFindRequests(pool: Pool, ctx: ToolContext, entity: any): Prom
 
 async function toolAppendRequestNote(pool: Pool, ctx: ToolContext, entity: any): Promise<ToolResult> {
   const note = str(ctx.args.note ?? ctx.args.detail ?? ctx.args.correction, 800);
+  const newEmail = normalizeEmail(str(ctx.args.email, 120));
+  const newPhone = normalizePhone(str(ctx.args.phone, 40));
   const requestId = parseInt(str(ctx.args.request_id ?? ctx.args.receipt_id, 20), 10);
-  if (!note || !Number.isFinite(requestId)) {
+  if ((!note && !newEmail && !newPhone) || !Number.isFinite(requestId)) {
     return { status: "rejected", customer_message: "I need the request number and the new detail to add." };
   }
   const { conversationId, contactId } = await contactForConversation(pool, ctx, entity);
@@ -705,16 +766,39 @@ async function toolAppendRequestNote(pool: Pool, ctx: ToolContext, entity: any):
     return { status: "not_found", customer_message: "I can't match that request number to this caller — I can save the detail as a new request instead." };
   }
   await pool.query(`UPDATE cc_requests SET updated_at = NOW() WHERE id = $1`, [requestId]);
-  await logCcEvent(pool, {
-    conversationId, requestId, actorType: "provider", actor: "retell",
-    type: "caller_note_appended", data: { note },
-  });
+  // A supplied email/phone is a STRUCTURED correction (Hades handoff 2026-10-13):
+  // it lands on the contact record with provenance — a note containing an email
+  // is not a populated customer-email field.
+  let contactUpdated = false;
+  if (newEmail || newPhone) {
+    const reqRow = await pool.query(`SELECT contact_id, conversation_id FROM cc_requests WHERE id = $1`, [requestId]);
+    const cid = reqRow.rows[0]?.contact_id ?? contactId;
+    if (cid) {
+      const sets: string[] = ["updated_at = NOW()"]; const params: any[] = [cid];
+      if (newEmail) { params.push(newEmail); sets.push(`email_norm = $${params.length}`); params.push(str(ctx.args.email, 120)); sets.push(`email_raw = $${params.length}`); }
+      if (newPhone) { params.push(newPhone); sets.push(`phone_e164 = $${params.length}`); }
+      await pool.query(`UPDATE cc_contacts SET ${sets.join(", ")} WHERE id = $1`, params);
+      if (newEmail) await pool.query(`UPDATE cc_requests SET email_status = 'confirmed' WHERE id = $1`, [requestId]);
+      contactUpdated = true;
+      await logCcEvent(pool, {
+        conversationId, requestId, actorType: "provider", actor: "retell",
+        type: "contact_corrected", data: { email: newEmail, phone: newPhone, source: "caller_in_call" },
+      });
+      void notifyContactCorrection(pool, requestId, "marissa").catch(() => {});
+    }
+  }
+  if (note) {
+    await logCcEvent(pool, {
+      conversationId, requestId, actorType: "provider", actor: "retell",
+      type: "caller_note_appended", data: { note },
+    });
+  }
   void notifyRequestOwner(pool, requestId).catch(() => {});
   return {
     status: "ok",
     receipt_id: requestId,
-    customer_message: "I've added that detail to the saved request for the team.",
-    data: { request_id: requestId, note_recorded: true },
+    customer_message: contactUpdated ? "I've updated the contact details on the saved request." : "I've added that detail to the saved request for the team.",
+    data: { request_id: requestId, note_recorded: !!note, contact_updated: contactUpdated },
   };
 }
 

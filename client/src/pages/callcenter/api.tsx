@@ -46,6 +46,7 @@ export interface Conversation {
 }
 
 export interface CcRequest {
+  email_status?: string;
   id: number;
   conversation_id: number | null;
   contact_id: number | null;

@@ -248,7 +248,7 @@ export const PERMISSION_CATALOG: Array<{ key: string; label: string; detail: str
   },
 ];
 
-function permitsRequest(granted: string[], method: string, path: string): boolean {
+export function permitsRequest(granted: string[], method: string, path: string): boolean {
   for (const g of granted) {
     for (const route of PERMISSION_ROUTES[g] ?? []) {
       if (route.method === method.toUpperCase() && route.pattern.test(path)) return true;
@@ -726,7 +726,14 @@ export function registerAdminAuthRoutes(app: Express) {
     if (!claims) return res.status(401).json({ error: "invalid_session" });
     const role = resolveRole(claims.email);
     if (!role) return res.status(403).json({ error: "not_authorized" });
-    res.json({ email: claims.email, role, permissions: role === "admin" ? ["*"] : permissionsFor(claims.email) });
+    // Owner aliases (Hades 2026-10-13): requests owned by ahmed@morellibrands.com
+    // must be workable as "mine" by the support login he actually uses. Explicit
+    // config, never string guessing: CC_STAFF_ALIASES="login=owner1|owner2,..."
+    const aliases = (process.env.CC_STAFF_ALIASES || "support@realpeptides.co=ahmed@morellibrands.com")
+      .split(",").map((pair) => pair.split("="))
+      .filter(([l]) => l?.trim().toLowerCase() === claims.email.toLowerCase())
+      .flatMap(([, owners]) => (owners ?? "").split("|").map((o) => o.trim().toLowerCase()).filter(Boolean));
+    res.json({ email: claims.email, role, permissions: role === "admin" ? ["*"] : permissionsFor(claims.email), ownerAliases: aliases });
   });
 
   app.post("/api/ops/auth/logout", (_req, res) => {
