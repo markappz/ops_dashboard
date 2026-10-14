@@ -44,11 +44,11 @@ function num(v: unknown): number | null {
 }
 
 export function exportInventoryCsv(skus: Sku[]): void {
-  const head = ["SKU", "Product", "Form", "Current Stock", "Ideal Stock", "On Order", "Label Stock", "Label Ideal"];
+  const head = ["SKU", "Product", "Form", "Current Stock", "Ideal Stock", "On Order", "Label Stock", "Label Ideal", "Do Not Replenish"];
   const esc = (v: unknown) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const lines = [head, ...skus.map((s) => [
     s.sku_code, s.product_name, s.form ?? "", stockNum(s.current_stock) ?? "", stockNum(s.ideal_stock) ?? "",
-    stockNum(s.on_order) ?? "", stockNum(s.label_stock) ?? "", stockNum(s.label_ideal) ?? "",
+    stockNum(s.on_order) ?? "", stockNum(s.label_stock) ?? "", stockNum(s.label_ideal) ?? "", s.do_not_replenish ? "Yes" : "",
   ])].map((r) => r.map(esc).join(","));
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");

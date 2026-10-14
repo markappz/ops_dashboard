@@ -51,6 +51,7 @@ export default function RealPeptidesInventory() {
   const [query, setQuery] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [showForecast, setShowForecast] = useState(false);
+  const [showDiscontinued, setShowDiscontinued] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [openSku, setOpenSku] = useState<number | null>(null);
 
@@ -85,6 +86,13 @@ export default function RealPeptidesInventory() {
     () => (skusQ.data?.skus ?? []).filter((s) => s.requires_coa).sort((a, b) => a.product_name.localeCompare(b.product_name)),
     [skusQ.data],
   );
+  // Sunset products are hidden by default so the shelf, counts and export stay
+  // about what's actually being restocked; the toggle brings them back.
+  const discontinued = useMemo(() => rawSkus.filter((s) => s.do_not_replenish).length, [rawSkus]);
+  const visibleSkus = useMemo(
+    () => (showDiscontinued ? rawSkus : rawSkus.filter((s) => !s.do_not_replenish)),
+    [rawSkus, showDiscontinued],
+  );
 
   // Target mode: "manual" uses each product's saved target; a weeks mode
   // derives it from real velocity (weekly rate × weeks of cover), so the
@@ -98,8 +106,8 @@ export default function RealPeptidesInventory() {
     try { w === null ? localStorage.removeItem("rp-target-weeks") : localStorage.setItem("rp-target-weeks", String(w)); } catch { /* private mode */ }
   };
   const skus = useMemo(
-    () => (item === "product" ? applyTargetWeeks(rawSkus, velocity, targetWeeks) : rawSkus),
-    [rawSkus, targetWeeks, item, velocity],
+    () => (item === "product" ? applyTargetWeeks(visibleSkus, velocity, targetWeeks) : visibleSkus),
+    [visibleSkus, targetWeeks, item, velocity],
   );
 
   const counts = useMemo(() => ({
@@ -232,6 +240,13 @@ export default function RealPeptidesInventory() {
                 ))}
               </span>
             </label>
+          )}
+          {discontinued > 0 && (
+            <button type="button" onClick={() => setShowDiscontinued((v) => !v)}
+              title="Products marked do-not-replenish are hidden by default — they're being sold off, not restocked."
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition ${showDiscontinued ? "border-fitscript-green bg-fitscript-green/10 text-fitscript-green" : "border-ops-border text-ops-text-muted hover:text-ops-text"}`}>
+              <Ban size={12} /> {showDiscontinued ? "Hide" : "Show"} discontinued ({discontinued})
+            </button>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">

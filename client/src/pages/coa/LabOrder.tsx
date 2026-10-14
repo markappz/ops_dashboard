@@ -38,7 +38,7 @@ export function LabOrder({ skus, onClose, onSay, onChanged }: {
 
   const candidates = useMemo(
     () => skus
-      .filter((s) => s.requires_coa && statuses.has(s.status) && !atLab(s))
+      .filter((s) => s.requires_coa && statuses.has(s.status) && !atLab(s) && !s.do_not_replenish)
       .sort((a, b) => Number(inStock(b)) - Number(inStock(a)) || a.status.localeCompare(b.status) || a.product_name.localeCompare(b.product_name)),
     [skus, statuses],
   );
