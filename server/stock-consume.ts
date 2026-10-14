@@ -8,6 +8,9 @@
  *  - Real Peptides WHOLESALE (/api/ops-wholesale): PAYMENT_SUBMITTED (buyer
  *    claims they paid) and PAID (we confirmed) → hold; SHIPPED → deduct
  *    (Paul, 09-28: "when they claim they paid it gets held, then we confirm").
+ *    Deducts send allowNegative so an oversell drives stock below zero
+ *    (backorder: sell now, replenish later) instead of flooring at 0 — else a
+ *    later PO check-in adds onto 0 and overstates the true balance.
  *    Requests (NEW/CONTACTED/QUOTED/APPROVED) never touch inventory. An order
  *    that leaves those states (declined, claim rejected) drops out of the batch
  *    and the tracker releases its hold via releaseMissingPrefix below. Sheet
@@ -76,7 +79,7 @@ const K9_DROPS_SKU = "PG-K9DROP30";
 interface ConsumeOrder { id: string; number: string; createdAt: string; status: string; items: { sku?: string; name: string; qty: number }[] }
 export interface ConsumeResult { at: string; applied: number; alreadyApplied: number; unmatched: string[]; error?: string }
 
-async function postConsume(orders: ConsumeOrder[], release?: { releaseMissingPrefix: string; windowDays: number }): Promise<ConsumeResult> {
+async function postConsume(orders: ConsumeOrder[], release?: { releaseMissingPrefix: string; windowDays: number }, opts?: { allowNegative?: boolean }): Promise<ConsumeResult> {
   const tracker = trackerCfg();
   if (!tracker) return { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [], error: "tracker not configured" };
   if (!orders.length && !release) return { at: new Date().toISOString(), applied: 0, alreadyApplied: 0, unmatched: [] };
@@ -85,7 +88,7 @@ async function postConsume(orders: ConsumeOrder[], release?: { releaseMissingPre
   const r = await fetch(`${tracker.base}/api/orders/consume`, {
     method: "POST",
     headers: { Authorization: `Bearer ${tracker.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ orders, ...(release ?? {}) }),
+    body: JSON.stringify({ orders, ...(release ?? {}), ...(opts ?? {}) }),
     signal: AbortSignal.timeout(60_000),
   });
   const raw = await r.text();
@@ -130,7 +133,7 @@ export async function runWholesaleConsume(): Promise<ConsumeResult | null> {
       if (!items.length) continue;
       orders.push({ id: `WS-${o.ref}`, number: String(o.ref), createdAt: created, status: status === "SHIPPED" ? "fulfilled" : "paid", items });
     }
-    lastWholesaleSync = await postConsume(orders, { releaseMissingPrefix: "WS-", windowDays: WS_DAYS });
+    lastWholesaleSync = await postConsume(orders, { releaseMissingPrefix: "WS-", windowDays: WS_DAYS }, { allowNegative: true });
     if (lastWholesaleSync.applied) console.log(`[OPS][RP] wholesale stock consume: ${lastWholesaleSync.applied} applied${lastWholesaleSync.unmatched.length ? `, unmatched: ${lastWholesaleSync.unmatched.join(" | ")}` : ""}`);
   } catch (e: any) {
     console.error("[OPS][RP] wholesale stock consume:", e.message);
