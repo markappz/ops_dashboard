@@ -3984,3 +3984,16 @@ ambiguous → candidates, none → phone-only). UI: contact-fix row + email stat
 63/63 ×2. MARISSA ROLLOUT = scripts/marissa-email-rollout.ts (Paul runs; dry-run verified:
 v7→13 tools, SOP 15866→16797 chars w/ email ask; classifier blocks Claude on live-agent writes).
 Canonical SOP now in repo: server/callcenter-sop/unified-marissa-prompt.txt.
+
+## 2026-10-14 — Hades handoff DEPLOYED + VERIFIED (paul-ab)
+Marissa v8 PUBLISHED via scripts/marissa-email-rollout.ts (Paul-run; Retell version model:
+create-agent-version{base_version} auto-drafts the llm → patch llm → publish-agent-version;
+PATCH on published anything = refused). VERIFY all green: 13 tools, email ask in SOP, voice/
+webhook intact. PROD E2E (#42 via real signed intake, test-flagged after): phone+email saved
+(email_status confirmed); replay → same receipt; resolve-without-note 400; correction persisted;
+TWO Mailgun-accepted staff sends w/ messageIds (creation → ahmed + ONE labeled correction
+update); dupe correction → no third send. 96h audit dry-run: cutoff 2026-10-10T05:35Z,
+12 outstanding ALL phone-only (0 transcript-recoverable — Marissa only asks as of v8) =
+Hades's call-and-collect list. Grant live: support@realpeptides.co + realpeptides:call-center.
+PENDING: Hades's own first-login confirmation; #82 campaign acceptance check (fired? verify
+next session). Retell snapshots: scripts/retell-snapshots/2026-10-14T05-35-* (rollback).

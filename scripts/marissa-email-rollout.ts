@@ -65,13 +65,29 @@ async function main() {
     return;
   }
 
-  // Draft the agent first (this is what makes the LLM draftable), then the LLM.
-  await api("PATCH", `/update-agent/${AGENT}`, { response_engine: { type: "retell-llm", llm_id: LLM, version: null } });
-  const updatedLlm = await api("PATCH", `/update-retell-llm/${LLM}`, { general_tools: desired, general_prompt: SOP });
-  console.log(`llm draft now v${updatedLlm.version}`);
-  await api("PATCH", `/update-agent/${AGENT}`, { response_engine: { type: "retell-llm", llm_id: LLM, version: updatedLlm.version } });
-  const published = await api("POST", `/publish-agent/${AGENT}`, {});
-  console.log(`published: agent v${published.version ?? "?"}`);
+  // Retell version model (probed 2026-10-14): no free-floating drafts — a new
+  // draft agent version is CREATED from a base, its LLM becomes draftable,
+  // and publish-agent-version makes it live.
+  const draft = await api("POST", `/create-agent-version/${AGENT}`, { base_version: EXPECTED_PUBLISHED });
+  console.log(`agent draft v${draft.version} created from v${draft.base_version} (engine ${JSON.stringify(draft.response_engine)})`);
+
+  let newLlmVersion: number;
+  try {
+    const updatedLlm = await api("PATCH", `/update-retell-llm/${LLM}`, { general_tools: desired, general_prompt: SOP });
+    newLlmVersion = updatedLlm.version;
+    console.log(`llm updated -> v${newLlmVersion} (is_published=${updatedLlm.is_published})`);
+  } catch (e) {
+    // Some workspaces require targeting the draft agent's engine version explicitly.
+    const dv = draft.response_engine?.version;
+    console.log(`default llm patch refused (${(e as Error).message.slice(0, 80)}) — retrying against draft engine version ${dv}`);
+    const updatedLlm = await api("PATCH", `/update-retell-llm/${LLM}?version=${dv}`, { general_tools: desired, general_prompt: SOP });
+    newLlmVersion = updatedLlm.version;
+    console.log(`llm updated -> v${newLlmVersion}`);
+  }
+
+  await api("PATCH", `/update-agent/${AGENT}`, { response_engine: { type: "retell-llm", llm_id: LLM, version: newLlmVersion } });
+  await api("POST", `/publish-agent-version/${AGENT}`, { version: draft.version, version_title: "email-intake + request tools (2026-10-14)" });
+  console.log(`published agent v${draft.version}`);
 
   const check = await api("GET", `/get-agent/${AGENT}`);
   const checkLlm = await api("GET", `/get-retell-llm/${check.response_engine.llm_id}?version=${check.response_engine.version}`);
