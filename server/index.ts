@@ -49,6 +49,7 @@ import { registerRpImageSync, startRpImageSyncLoop } from "./realpeptides-images
 import { registerTargetRefresh, startTargetRefreshLoop } from "./realpeptides-targets";
 import { registerRpHoldRoutes } from "./realpeptides-holds";
 import { registerRpPoBatchRoutes } from "./realpeptides-po-batches";
+import { registerRpQuarantineRoutes } from "./realpeptides-quarantine";
 import { registerRpCoaFreshRoutes } from "./realpeptides-coa-fresh";
 import { registerRpCatalogRoutes } from "./realpeptides-catalog";
 import { registerChangeRequests } from "./change-requests";
@@ -158,6 +159,7 @@ registerRpImageSync(app);
 registerTargetRefresh(app);
 registerRpHoldRoutes(app);
 registerRpPoBatchRoutes(app);
+registerRpQuarantineRoutes(app);
 registerRpCoaFreshRoutes(app);
 registerRpCatalogRoutes(app);
 registerChangeRequests(app);

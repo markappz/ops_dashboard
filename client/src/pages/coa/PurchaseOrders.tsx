@@ -4,7 +4,7 @@ import {
   FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
   Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
 } from "lucide-react";
-import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
+import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, checkinQuarantine, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
 
 /**
@@ -62,6 +62,7 @@ export function PurchaseOrders({ skus, velocity = {}, onSay }: { skus: Sku[]; ve
     qc.invalidateQueries({ queryKey: ["coa-suppliers"] });
     qc.invalidateQueries({ queryKey: ["rp-po-batches"] });
     qc.invalidateQueries({ queryKey: ["coa-po-lots"] });
+    qc.invalidateQueries({ queryKey: ["coa-quarantine"] });
   };
   async function run(key: number | "new" | "paste", fn: () => Promise<unknown>, done?: string) {
     setBusy(key);
@@ -179,6 +180,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
   const [editing, setEditing] = useState(po.status === "draft");
   const [confirm, setConfirm] = useState<"delete" | "cancel" | null>(null);
   const [qtys, setQtys] = useState<Record<number, string>>({});
+  const [dest, setDest] = useState<Record<number, "live" | "quarantine">>({});
   const [editQtys, setEditQtys] = useState<Record<number, string>>({});
   const [addQ, setAddQ] = useState("");
   const [batchDraft, setBatchDraft] = useState(poBatch);
@@ -233,23 +235,24 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
     return skus.filter((s) => !on.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle))).slice(0, 6);
   }, [addQ, skus, po.items]);
 
-  const lines = () => po.items
-    .map((i) => ({ item_id: i.id, qty: Number(qtys[i.id] ?? "") }))
+  const entered = () => po.items
+    .map((item) => ({ item, qty: Number(qtys[item.id] ?? "") }))
     .filter((l) => Number.isFinite(l.qty) && l.qty > 0);
 
   const doCheckin = (close: boolean) => {
-    const ls = lines();
-    if (!ls.length) return onSay(close ? "Nothing checked in — enter what arrived, or delete the PO instead." : "Enter what arrived first.");
+    const all = entered();
+    if (!all.length) return onSay(close ? "Nothing checked in — enter what arrived, or delete the PO instead." : "Enter what arrived first.");
+    const quar = all.filter((l) => dest[l.item.id] === "quarantine");
+    const live = all.filter((l) => dest[l.item.id] !== "quarantine");
     run(po.id, async () => {
-      const r = await api<{ checkedIn: number; remaining: number }>(`/pos/${po.id}/checkin`, {
-        method: "POST", body: JSON.stringify({ lines: ls, close }),
-      });
-      setCheckin(false); setQtys({});
-      onSay(close && r.remaining === 0 && r.checkedIn < remaining
-        ? `PO #${po.id} closed — ${r.checkedIn} units stocked in, ${remaining - r.checkedIn} never received.`
-        : r.remaining > 0
-          ? `Checked in ${r.checkedIn} units — ${r.remaining} still open on PO #${po.id}.`
-          : `PO #${po.id} fully received — ${r.checkedIn} units stocked in.`);
+      for (const l of quar)
+        await checkinQuarantine({ po_id: po.id, item_id: l.item.id, sku_id: l.item.sku_id, sku_code: l.item.sku_code, product_name: l.item.product_name, qty: l.qty, lot: lots[lotKey(po.id, l.item.id)] || poBatch });
+      const r = live.length || close
+        ? await api<{ checkedIn: number; remaining: number }>(`/pos/${po.id}/checkin`, { method: "POST", body: JSON.stringify({ lines: live.map((l) => ({ item_id: l.item.id, qty: l.qty })), close }) })
+        : null;
+      const left = r ? r.remaining : Math.max(0, remaining - quar.reduce((a, l) => a + l.qty, 0));
+      setCheckin(false); setQtys({}); setDest({});
+      onSay(checkinMsg(po.id, live, quar, left));
     });
   };
 
@@ -342,6 +345,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
                 {po.status === "received" && got < Number(i.qty) && <span className="tabular-nums text-red-400">{Number(i.qty) - got} short</span>}
                 {checkin && po.status === "ordered" ? (
                   <>
+                    <DestToggle value={dest[i.id] ?? "live"} disabled={!left} onChange={(d) => setDest({ ...dest, [i.id]: d })} />
                     <input value={qtys[i.id] ?? ""} inputMode="numeric" placeholder={left ? `${left} open` : "done"} disabled={!left}
                       onChange={(e) => setQtys({ ...qtys, [i.id]: e.target.value.replace(/[^\d]/g, "") })}
                       className="h-7 w-20 rounded-md border border-ops-border bg-ops-bg px-1 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none disabled:opacity-40" />
@@ -381,7 +385,9 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
       )}
 
       {checkin && po.status === "ordered" && !editing && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ops-border bg-ops-bg/40 px-4 py-2.5">
+        <>
+        <div className="border-t border-ops-border px-4 pt-2 text-[11px] text-ops-text-muted">Per line: <span className="font-semibold text-fitscript-green">Live</span> stocks in for sale · <span className="font-semibold text-amber-500">Quarantine</span> holds it for COA testing (release it from the COA tab when the certificate is back).</div>
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-ops-bg/40 px-4 py-2.5">
           <button type="button" className="text-xs text-ops-text-muted underline-offset-2 hover:underline"
             onClick={() => setQtys(Object.fromEntries(po.items.filter((i) => remainingOf(i) > 0).map((i) => [i.id, String(remainingOf(i))])))}>Fill all open quantities</button>
           <div className="flex items-center gap-1.5">
@@ -389,8 +395,38 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
             <button type="button" disabled={busy !== null} onClick={() => doCheckin(true)} title="Stock in what's entered and close the PO — anything left never arrived and stops counting as on-order" className={`${ui.ghost} ${small} hover:text-red-400`}>Check in & close short</button>
           </div>
         </div>
+        </>
       )}
     </div>
+  );
+}
+
+type CheckinLine = { item: PoItem; qty: number };
+const unitsOf = (ls: CheckinLine[]) => ls.reduce((a, l) => a + l.qty, 0);
+
+function checkinMsg(poId: number, live: CheckinLine[], quar: CheckinLine[], remaining: number): string {
+  const parts: string[] = [];
+  if (unitsOf(live)) parts.push(`${unitsOf(live)} to live`);
+  if (unitsOf(quar)) parts.push(`${unitsOf(quar)} to quarantine → sent to lab`);
+  const head = `PO #${poId}: checked in ${parts.join(" · ")}`;
+  return remaining > 0 ? `${head}. ${remaining} still open.` : `${head}. Fully received.`;
+}
+
+// Per-line destination at check-in: Live stocks straight in; Quarantine holds
+// the units out of sale until their COA is back (released from the COA tab).
+function DestToggle({ value, disabled, onChange }: {
+  value: "live" | "quarantine"; disabled: boolean; onChange: (d: "live" | "quarantine") => void;
+}) {
+  return (
+    <span className="inline-flex overflow-hidden rounded-md border border-ops-border">
+      {(["live", "quarantine"] as const).map((d) => (
+        <button key={d} type="button" disabled={disabled} onClick={() => onChange(d)}
+          title={d === "quarantine" ? "Hold for COA testing — not for sale until released" : "Available for sale immediately"}
+          className={`px-2 py-1 text-[10px] font-semibold transition disabled:opacity-40 ${value === d ? (d === "quarantine" ? "bg-amber-500 text-white" : "bg-fitscript-green text-white") : "text-ops-text-muted hover:text-ops-text"}`}>
+          {d === "quarantine" ? "Quarantine" : "Live"}
+        </button>
+      ))}
+    </span>
   );
 }
 
