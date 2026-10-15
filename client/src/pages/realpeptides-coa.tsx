@@ -13,6 +13,7 @@ import { ActionSummary } from "./coa/ActionSummary";
 import { AlertSettings } from "./coa/AlertSettings";
 import { BulkUpload } from "./coa/BulkUpload";
 import { LabOrder } from "./coa/LabOrder";
+import { QuarantinePanel } from "./coa/Quarantine";
 import { exportSummaryCsv } from "./coa/export";
 
 /**
@@ -124,6 +125,8 @@ export default function RealPeptidesCoa() {
 
       <div className="space-y-5">
         <StatusDonut counts={counts} total={families.length} active={filter} onPick={setFilter} />
+
+        <QuarantinePanel canEdit={canEdit} onSay={say} />
 
         <div className="relative max-w-md">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-ops-text-muted" />

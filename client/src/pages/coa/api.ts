@@ -203,6 +203,57 @@ export async function savePoLot(poId: number, itemId: number, lotNumber: string)
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
 }
 
+/**
+ * A quarantined receipt: units received against a PO but held out of live
+ * stock until their COA is back. Tracked ops-side (the tracker owns stock but
+ * has no quarantine state), keyed to the tracker's PO/SKU ids.
+ */
+export interface Quarantine {
+  id: number;
+  sku_id: number;
+  sku_code: string | null;
+  product_name: string | null;
+  po_id: number | null;
+  item_id: number | null;
+  qty: number;
+  released_qty: number;
+  lot: string | null;
+  lab_name: string | null;
+  status: "sent_to_lab" | "released";
+  coa_result: string | null;
+  sent_date: string;
+  released_date: string | null;
+  created_by: string | null;
+  released_by: string | null;
+}
+
+const QUARANTINE = "/api/ops/realpeptides/inventory/quarantine";
+
+export async function fetchQuarantine(): Promise<Quarantine[]> {
+  const r = await fetch(QUARANTINE, { credentials: "include" });
+  if (!r.ok) return [];
+  return (await r.json()).quarantine ?? [];
+}
+
+export async function checkinQuarantine(body: {
+  po_id: number; item_id: number; sku_id: number;
+  sku_code: string; product_name: string; qty: number; lot: string;
+}): Promise<void> {
+  const r = await fetch(QUARANTINE, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+}
+
+export async function releaseQuarantine(id: number, qty: number, result: "received" | "approved"): Promise<void> {
+  const r = await fetch(`${QUARANTINE}/${id}/release`, {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ qty, result }),
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+}
+
 /** One parsed line from the fulfilment paste (dry-run /pos/checkin-parse). */
 export interface ParsedCheckinLine {
   raw: string;
