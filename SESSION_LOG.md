@@ -3997,3 +3997,14 @@ update); dupe correction → no third send. 96h audit dry-run: cutoff 2026-10-10
 Hades's call-and-collect list. Grant live: support@realpeptides.co + realpeptides:call-center.
 PENDING: Hades's own first-login confirmation; #82 campaign acceptance check (fired? verify
 next session). Retell snapshots: scripts/retell-snapshots/2026-10-14T05-35-* (rollback).
+
+## 2026-10-19 — Cerebrolysin 5-pack tracker units (Autom)
+- European Cerebrolysin retail relaunched as 5-ampoule packs; tracker row RP-CERE60V now
+  counts 5-PACKS (set 50 = 250 ampoules, audited note; renamed "European Cerebrolysin -
+  5-Pack (5 x 10mL)", coa_name alias "Cerebrolysin" kept for old order names). RP-PEG2V set
+  200 (Paul; was 85 - reconcile with shelf). Done via tracker API, no coa-repo code change.
+- stock-consume.ts (728cfe7, this push): wholesale items pin "Cerebrolysin (European)" ->
+  RP-CERE60V and new WS_VIALS_PER_TRACKER_UNIT divides its wholesale `vials` by 5 - a DP
+  10-ampoule pack deducts 2 tracker packs, not 10. Count in 5-PACKS on shelf counts and
+  PO check-ins for this SKU.
+- Loop verified: tracker feed 50/200 -> site cron sync unchanged -> PDPs show 50/200 live.
