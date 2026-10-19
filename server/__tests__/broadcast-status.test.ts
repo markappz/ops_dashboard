@@ -13,7 +13,8 @@ import pg from "pg";
 process.env.OPS_BROADCAST_POLL_MS = "30";
 process.env.OPS_BROADCAST_POLL_BUDGET_MS = "2000";
 
-import { firePlan, reconcilePendingSends, reconcilePlanFromEvidence, broadcastVerdict } from "../realpeptides-marketing";
+import { firePlan, reconcilePendingSends, reconcilePlanFromEvidence, broadcastVerdict, broadcastHtmlProblem } from "../realpeptides-marketing";
+import { EngineRefusal } from "../brand-engines";
 import { pool } from "../db";
 
 const DB_URL = process.env.CC_TEST_DATABASE_URL || "postgresql://localhost:5432/ops_callcenter_dev";
@@ -175,6 +176,36 @@ describe("reconciliation", () => {
     expect(out.note).toMatch(/34476 sent, 34463 delivered, 13 bounced/);
     expect(dispatches.length).toBe(0); // evidence-only: nothing was sent to do this
     expect((await rowOf(p.id)).status).toBe("sent");
+  });
+
+  it("plan #98 regression: an engine 4xx refusal is DEFINITIVE — send_failed with the engine's reason, surfaced to the caller", async () => {
+    const p = await plan();
+    engine.dispatch = () => ({ status: 400, body: { error: "full-document broadcast HTML must include an {{{unsubscribeUrl}}} unsubscribe link" } });
+    await expect(firePlan("realpeptides", p, "josh")).rejects.toThrow(EngineRefusal);
+    const row = await rowOf(p.id);
+    expect(row.status).toBe("send_failed");
+    expect(row.status_note).toMatch(/engine refused: .*unsubscribeUrl/);
+  });
+
+  it("plan #98 regression: ops refuses a full-document HTML with no unsubscribe link BEFORE dispatch", async () => {
+    const r = await scratch.query(
+      `INSERT INTO ops_email_plans (company, title, subject, html, status) VALUES ('realpeptides', 'Halloween launch', 'Spooky 🎃', '<!doctype html><html><body>sale</body></html>', 'approved') RETURNING id, title, subject, html, audience_id`,
+    );
+    const p = r.rows[0];
+    await expect(firePlan("realpeptides", p, "josh")).rejects.toThrow(/unsubscribe link/);
+    expect(dispatches.length).toBe(0); // never reached the engine
+    const row = await rowOf(p.id);
+    expect(row.status).toBe("send_failed");
+    expect(row.status_note).toMatch(/refused before dispatch/);
+  });
+
+  it("broadcastHtmlProblem: fragments pass (engine shell adds the footer), full docs need a token in any accepted form", () => {
+    expect(broadcastHtmlProblem("<p>hi</p>")).toBeNull();
+    expect(broadcastHtmlProblem(null)).toBeNull();
+    expect(broadcastHtmlProblem("<!doctype html><html><body>x</body></html>")).toMatch(/unsubscribe/);
+    expect(broadcastHtmlProblem('<html><body><a href="{{{unsubscribeUrl}}}">out</a></body></html>')).toBeNull();
+    expect(broadcastHtmlProblem('<html><body><a href="{{unsubscribeUrl}}">out</a></body></html>')).toBeNull();
+    expect(broadcastHtmlProblem('<!DOCTYPE html><body>{{{RESEND_UNSUBSCRIBE_URL}}}</body>')).toBeNull();
   });
 
   it("true zero-evidence failure stays send_failed", async () => {

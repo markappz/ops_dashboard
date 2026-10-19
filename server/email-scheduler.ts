@@ -1,6 +1,6 @@
 import { pool } from "./db";
 import { firePlan, reconcilePendingSends } from "./realpeptides-marketing";
-import { ENGINES, engineCompanies } from "./brand-engines";
+import { ENGINES, EngineRefusal, engineCompanies } from "./brand-engines";
 
 /** Loud failure alert straight to Paul's inbox (Paul 10-04, after the open-180d fire failed
  * silently: "we need to fix this so it doesn't happen again"). Rides the bridge's test-send
@@ -99,6 +99,13 @@ async function tick(): Promise<void> {
       const out = await firePlan(p.company, p, "scheduler");
       console.log(`[OPS][SCHEDULER] ${p.company} plan ${p.id} "${p.title}" fired at ${schedAt} ${p.send_tz}: ${out.sent}/${out.of} (${out.tag})`);
     } catch (e: any) {
+      if (e instanceof EngineRefusal) {
+        // Definitive no from the engine (or ops' own pre-dispatch check): firePlan already
+        // marked the plan send_failed with the reason. Alert the humans with that reason.
+        console.error(`[OPS][SCHEDULER] ${p.company} plan ${p.id} "${p.title}" refused: ${e.message}`);
+        await alertFailure(`Scheduled campaign refused: ${p.title}`, [`${label} plan ${p.id} ("${p.subject}") was refused before any email went out.`, `Reason: ${String(e.message).slice(0, 300)}`, `Fix the campaign HTML in ops → Email, then reschedule. Nothing was sent.`], label);
+        continue;
+      }
       // firePlan absorbs engine/transport failures itself now; reaching here is
       // unexpected — and after #81 (504 while 34k emails delivered) a transport
       // error may NOT be called a failure. Ambiguous until evidence says otherwise.

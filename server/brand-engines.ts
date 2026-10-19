@@ -80,6 +80,22 @@ export const hasEngine = (c: string) => {
 export const hasCapability = (c: string, cap: EngineCapability) =>
   Boolean(ENGINES[c]?.capabilities.includes(cap));
 
+/**
+ * A DEFINITIVE engine refusal (4xx with a reason): the engine received the request,
+ * understood it, and said no — nothing was dispatched. Callers may safely surface it
+ * to the human and mark the plan failed. Everything else (5xx, timeout, network cut,
+ * 408/429) stays a plain Error = AMBIGUOUS: the engine may be mid-send (campaign #81),
+ * so those are left to evidence-based reconciliation, never a failure verdict.
+ */
+export class EngineRefusal extends Error {
+  readonly httpStatus: number;
+  constructor(slug: string, httpStatus: number, message: string) {
+    super(message);
+    this.name = "EngineRefusal";
+    this.httpStatus = httpStatus;
+  }
+}
+
 /** Which brands can fire a scheduled send right now (env wired). */
 export const engineCompanies = () => Object.keys(ENGINES).filter(hasEngine);
 
@@ -113,7 +129,15 @@ export async function engineBridge(
   const text = await r.text();
   let j: any;
   try { j = JSON.parse(text); } catch { j = { raw: text.slice(0, 200) }; }
-  if (!r.ok) throw new Error(j.error || `${e.slug} engine ${r.status}`);
+  if (!r.ok) {
+    const message = j.error || `${e.slug} engine ${r.status}`;
+    // 4xx with a parsed reason = the engine refused (validation, bad action) — definitive.
+    // 408/429 are transport-ish; a WAF block page has no JSON error. Both stay ambiguous.
+    if (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429 && j.error) {
+      throw new EngineRefusal(e.slug, r.status, message);
+    }
+    throw new Error(message);
+  }
   return j;
 }
 

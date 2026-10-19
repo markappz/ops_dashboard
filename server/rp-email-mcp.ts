@@ -18,6 +18,7 @@
 import type { Express, Request, Response } from "express";
 import { wallClock } from "./email-scheduler";
 import { ENGINES } from "./brand-engines";
+import { broadcastHtmlProblem } from "./realpeptides-marketing";
 import { pool } from "./db";
 
 const PROTOCOL = "2025-03-26";
@@ -62,12 +63,11 @@ const TOOLS = [
         title: { type: "string", description: "Internal campaign name shown on the calendar." },
         subject: { type: "string" },
         preheader: { type: "string" },
-        html: { type: "string", description: "Full email body HTML from any builder. The engine adds brand chrome and the per-recipient unsubscribe footer at send time." },
-        html_base64: { type: "string", description: "The same HTML, base64-encoded. PREFER THIS: the dashboard sits behind a WAF that can reject raw HTML in JSON (403). Provide html or html_base64, not both." },
+        html_base64: { type: "string", description: "The email body HTML, base64-encoded. ALWAYS base64 — the dashboard sits behind a WAF that rejects raw HTML in JSON with a 403 before the app sees it. HTML fragments get brand chrome + unsubscribe footer automatically; a full <!doctype> document MUST contain {{{unsubscribeUrl}}} or it will be refused at send." },
         segment: { type: "string", description: "Segment slug; omit for everyone mailable." },
         send_date: { type: "string", description: "Intended send date YYYY-MM-DD (calendar placement only; sending is still manual)." },
       },
-      required: ["title", "subject"],
+      required: ["title", "subject", "html_base64"],
       additionalProperties: false,
     },
   },
@@ -79,7 +79,7 @@ const TOOLS = [
       properties: {
         plan_id: { type: "number" },
         title: { type: "string" }, subject: { type: "string" }, preheader: { type: "string" },
-        html: { type: "string" }, html_base64: { type: "string", description: "Base64-encoded HTML; preferred over raw html (WAF)." }, segment: { type: "string" }, send_date: { type: "string" },
+        html_base64: { type: "string", description: "Base64-encoded HTML — always base64, never raw (the WAF 403s raw HTML in JSON). Full documents must contain {{{unsubscribeUrl}}}." }, segment: { type: "string" }, send_date: { type: "string" },
       },
       required: ["plan_id"],
       additionalProperties: false,
@@ -105,8 +105,8 @@ const TOOLS = [
     description: "Send ONE rendered test email to a named inbox (brand chrome applied), exactly as the campaign would look. Use before asking a human to send.",
     inputSchema: {
       type: "object",
-      properties: { subject: { type: "string" }, html: { type: "string" }, html_base64: { type: "string", description: "Base64-encoded HTML; preferred over raw html (WAF)." }, to: { type: "string", description: "The test inbox." } },
-      required: ["subject", "to"],
+      properties: { subject: { type: "string" }, html_base64: { type: "string", description: "Base64-encoded HTML — always base64, never raw (the WAF 403s raw HTML in JSON)." }, to: { type: "string", description: "The test inbox." } },
+      required: ["subject", "html_base64", "to"],
       additionalProperties: false,
     },
   },
@@ -139,9 +139,11 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
          VALUES ('realpeptides', $1, $2, $3, 'draft', $4, $5, $6, 'mcp:josh') RETURNING id`,
         [String(args.title).trim(), String(args.subject), args.preheader ?? null, args.send_date ?? null, args.segment ?? null, html],
       );
+      const problem = broadcastHtmlProblem(html);
       return {
         plan_id: rows[0].id,
         status: "draft",
+        ...(problem ? { warning: `NOT SENDABLE YET: ${problem}` } : {}),
         next: "A human reviews and sends it: ops.fitscript.me → Real Peptides → Email → open the plan → Review & send.",
       };
     }
@@ -158,7 +160,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       }
       if (!sets.length) throw new Error("Nothing to update.");
       await pool.query(`UPDATE ops_email_plans SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1`, vals);
-      return { plan_id: id, updated: Object.keys(map).filter((k) => args[k] !== undefined) };
+      const problem = typeof args.html === "string" ? broadcastHtmlProblem(args.html) : null;
+      return { plan_id: id, updated: Object.keys(map).filter((k) => args[k] !== undefined), ...(problem ? { warning: `NOT SENDABLE YET: ${problem}` } : {}) };
     }
     case "schedule_campaign": {
       const id = Number(args?.id);
@@ -170,6 +173,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       if (!rows[0]) throw new Error("campaign not found");
       if (rows[0].status === "sent" || rows[0].status === "sending") throw new Error("that campaign already sent");
       if (!rows[0].subject || !rows[0].html) throw new Error("the draft needs a subject and HTML before scheduling");
+      const htmlProblem = broadcastHtmlProblem(rows[0].html);
+      if (htmlProblem) throw new Error(htmlProblem);
       const vetoFloor = wallClock(tz, new Date(Date.now() + 2 * 3600_000));
       if (`${date} ${time}` < vetoFloor) throw new Error(`needs a 2h human veto window — earliest allowed is ${vetoFloor} (${tz})`);
       // Preflight the audience through the real engine NOW — a resolve that would fail at

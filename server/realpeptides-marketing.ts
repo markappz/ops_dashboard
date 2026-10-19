@@ -19,9 +19,22 @@
  */
 import type { Express, Request, Response, NextFunction } from "express";
 import { pool } from "./db";
-import { ENGINES, engineBridge, hasEngine, type EngineCapability } from "./brand-engines";
+import { ENGINES, engineBridge, EngineRefusal, hasEngine, type EngineCapability } from "./brand-engines";
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+/**
+ * Ops-side mirror of every engine's compliance guard (plan #98, 2026-10-19: the RP engine
+ * refused a full-document campaign with no unsubscribe link AT FIRE TIME and the human only
+ * saw send_failed). Fragments are fine — the engine shell adds the footer. A full document
+ * must carry its own {{{unsubscribeUrl}}} (or {{unsubscribeUrl}} / RESEND_UNSUBSCRIBE_URL).
+ * Returns the actionable problem, or null when the HTML is sendable. Exported for tests.
+ */
+export function broadcastHtmlProblem(html: string | null | undefined): string | null {
+  if (!html || !/^\s*(<!doctype|<html)/i.test(html)) return null;
+  if (/\{\{\{?\s*(unsubscribeUrl|RESEND_UNSUBSCRIBE_URL)\s*\}?\}\}/.test(html)) return null;
+  return 'This full-document HTML has no unsubscribe link, so every engine will refuse to send it. Add <a href="{{{unsubscribeUrl}}}">Unsubscribe</a> to the footer (the placeholder becomes each recipient\'s one-click link at send time).';
+}
 
 /**
  * Fire one plan through its brand's engine bridge — shared by the send-rp route (human click)
@@ -74,6 +87,14 @@ export async function firePlan(
 ): Promise<{ sent: number; of: number; tag: string }> {
   const segment = p.audience_id?.trim() || undefined;
   const tag = `ops-${p.id}-${slugify(p.title || p.subject || "broadcast")}`;
+
+  // Refuse ops-side what the engine would refuse at dispatch — with the reason attached.
+  const problem = broadcastHtmlProblem(p.html);
+  if (problem) {
+    await applyVerdict(p.id, { status: "send_failed", note: `refused before dispatch: ${problem}` }, { sent: 0, of: 0 }, tag);
+    throw new EngineRefusal(company, 400, problem);
+  }
+
   await pool.query(
     `UPDATE ops_email_plans SET resend_broadcast_id = $2, updated_at = NOW() WHERE id = $1`,
     [p.id, tag],
@@ -85,6 +106,12 @@ export async function firePlan(
       body: { action: "send", confirm: true, subject: p.subject, html: p.html, segment, tag },
     });
   } catch (e) {
+    if (e instanceof EngineRefusal) {
+      // Definitive: the engine said no and dispatched nothing. Record WHY and surface it.
+      await applyVerdict(p.id, { status: "send_failed", note: `engine refused: ${e.message}` }, { sent: 0, of: 0 }, tag);
+      console.error(`[OPS][MARKETING] ${company} plan ${p.id} refused by engine: ${e.message}`);
+      throw e;
+    }
     // Ambiguous: the engine may be sending right now (that is exactly what #81 was).
     await pool.query(
       `UPDATE ops_email_plans SET status = 'sending', status_note = $2, updated_at = NOW() WHERE id = $1`,
@@ -395,6 +422,7 @@ export function registerRealPeptidesMarketing(app: Express) {
       console.log(`[OPS][MARKETING] ${company(req)} test send to ${to} by ${req.adminEmail}`);
       res.json(out);
     } catch (e: any) {
+      if (e instanceof EngineRefusal) return res.status(422).json({ error: e.message });
       res.status(502).json({ error: e.message });
     }
   });
@@ -409,6 +437,8 @@ export function registerRealPeptidesMarketing(app: Express) {
       if (p.status === "sent") return res.status(409).json({ error: "This plan has already been sent — duplicate a new plan rather than re-sending." });
       if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });
       if (!p.html) return res.status(400).json({ error: "Add the email design (HTML) first." });
+      const problem = broadcastHtmlProblem(p.html);
+      if (problem) return res.status(400).json({ error: problem });
 
       // The automation bearer may preflight (audience resolve + count) but never fire.
       if (req.adminEmail === "automation:claude" && req.body?.confirm) {
@@ -423,6 +453,8 @@ export function registerRealPeptidesMarketing(app: Express) {
       const out = await firePlan(p.company, p, req.adminEmail ?? "ops");
       res.json({ ok: true, ...out });
     } catch (e: any) {
+      // A refusal is actionable — show the human the engine's reason, not a generic 502.
+      if (e instanceof EngineRefusal) return res.status(422).json({ error: e.message });
       res.status(502).json({ error: e.message });
     }
   });

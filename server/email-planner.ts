@@ -11,6 +11,7 @@
 import type { Express } from "express";
 import { wallClock } from "./email-scheduler";
 import { hasEngine } from "./brand-engines";
+import { broadcastHtmlProblem } from "./realpeptides-marketing";
 import { pool } from "./db";
 
 const COMPANIES = new Set(["realpeptides", "fitscript", "peptideu", "pawgen", "northblu", "reverra"]);
@@ -248,6 +249,14 @@ export function registerEmailPlannerRoutes(app: Express) {
     try {
       const b = req.body ?? {};
       if (b.status !== undefined && !STATUSES.has(b.status)) return res.status(400).json({ error: "Bad status" });
+      if (b.status === "scheduled") {
+        // Refuse a schedule that is guaranteed to fail at fire time (unsubscribe guard).
+        const html = (b.html !== undefined || b.html_b64 !== undefined)
+          ? bodyHtml(b)
+          : (await pool.query(`SELECT html FROM ops_email_plans WHERE id = $1`, [parseInt(req.params.id, 10)])).rows[0]?.html;
+        const problem = broadcastHtmlProblem(html);
+        if (problem) return res.status(400).json({ error: problem });
+      }
       const { rows } = await pool.query(
         `UPDATE ops_email_plans SET
            title        = COALESCE($2, title),
@@ -328,6 +337,10 @@ export function registerEmailPlannerRoutes(app: Express) {
       if (!key) return res.status(503).json({ error: `Resend isn't connected for ${p.company} yet — set RESEND_API_KEY_${p.company.toUpperCase()} on ops.` });
       if (!p.subject) return res.status(400).json({ error: "Add a subject line first." });
       if (!p.html) return res.status(400).json({ error: "Paste the email design (HTML) first." });
+      {
+        const problem = broadcastHtmlProblem(p.html);
+        if (problem) return res.status(400).json({ error: problem });
+      }
       if (!p.from_address) return res.status(400).json({ error: "Set the from address first." });
       if (!p.audience_id) return res.status(400).json({ error: "Pick the Resend audience first." });
 
