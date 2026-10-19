@@ -68,6 +68,22 @@ const WS_SKU_MAP: Record<string, string> = {
   "klow|50/10/10/10mg": "RP-KLOW80V",
   "wolverine|10/10mg": "RP-WOLV10V",
   "wolverine|5/5mg": "RP-WOLV5V",
+  // European relaunch 10-16 renamed the sheet line ("Cerebrolysin (European)",
+  // "10 mL · 215.2 mg/mL" — canon strips the parens and the dot); pinned so the
+  // 10-19 tracker rename ("European Cerebrolysin - 5-Pack") can't break the match.
+  "cerebrolysin|10ml2152mg/ml": "RP-CERE60V",
+};
+
+/**
+ * Tracker units per wholesale AMPOULE/VIAL for SKUs whose tracker row counts
+ * retail sell-units, not loose vials. European Cerebrolysin (10-19): retail
+ * sells sealed 5-ampoule packs, so the tracker counts 5-packs (50 = 250
+ * ampoules) while the wholesale sheet sells 10-ampoule packs — a wholesale
+ * item's `vials` must divide by 5 or one DP pack would deduct 10 tracker
+ * units instead of 2.
+ */
+const WS_VIALS_PER_TRACKER_UNIT: Record<string, number> = {
+  "RP-CERE60V": 5,
 };
 
 const WOLVE_10_SKU = "RP-WOLV10V";
@@ -124,11 +140,15 @@ export async function runWholesaleConsume(): Promise<ConsumeResult | null> {
       const created = String(o.createdAt ?? o.created_at ?? "");
       if (!o.ref || !created || created < WS_SINCE) continue;
       const items = (o.items ?? [])
-        .map((i: any) => ({
-          sku: WS_SKU_MAP[wsKey(String(i.product ?? ""), String(i.strength ?? ""))],
-          name: `${i.product ?? ""} - ${i.strength ?? ""}`.trim(),
-          qty: Math.max(0, Number(i.vials ?? 0)),
-        }))
+        .map((i: any) => {
+          const sku = WS_SKU_MAP[wsKey(String(i.product ?? ""), String(i.strength ?? ""))];
+          const perUnit = (sku && WS_VIALS_PER_TRACKER_UNIT[sku]) || 1;
+          return {
+            sku,
+            name: `${i.product ?? ""} - ${i.strength ?? ""}`.trim(),
+            qty: Math.ceil(Math.max(0, Number(i.vials ?? 0)) / perUnit),
+          };
+        })
         .filter((i: any) => i.qty > 0);
       if (!items.length) continue;
       orders.push({ id: `WS-${o.ref}`, number: String(o.ref), createdAt: created, status: status === "SHIPPED" ? "fulfilled" : "paid", items });
