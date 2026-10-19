@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
-  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2,
+  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2, FilePlus,
 } from "lucide-react";
 import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, checkinQuarantine, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
 import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
@@ -33,7 +33,7 @@ const STATUS_TABS: { key: StatusFilter; label: string }[] = [
 export function PurchaseOrders({ skus, velocity = {}, onSay }: { skus: Sku[]; velocity?: Velocity; onSay: (m: string) => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<number | "new" | "paste" | null>(null);
-  const [mode, setMode] = useState<"list" | "new" | "paste">("list");
+  const [mode, setMode] = useState<"list" | "new" | "blank" | "paste">("list");
   const [supplierFilter, setSupplierFilter] = useState<string>(ALL);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const posQ = useQuery({ queryKey: ["coa-pos"], queryFn: () => api<{ pos: Po[] }>("/pos") });
@@ -76,16 +76,20 @@ export function PurchaseOrders({ skus, velocity = {}, onSay }: { skus: Sku[]; ve
   return (
     <div className="rounded-2xl border border-ops-border bg-ops-surface shadow-card">
         <div className="space-y-3 p-5">
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 sm:grid-cols-3">
             <button type="button" onClick={() => setMode(mode === "new" ? "list" : "new")} className={mode === "new" ? ui.ghost : ui.primary}>
               <Plus size={15} /> New PO{lowCount ? ` · ${lowCount} below target` : ""}
+            </button>
+            <button type="button" onClick={() => setMode(mode === "blank" ? "list" : "blank")}
+              className={mode === "blank" ? ui.primary : ui.ghost} title="Start from scratch — no pre-filled suggestions; add products and quantities yourself">
+              <FilePlus size={15} /> Blank PO
             </button>
             <button type="button" onClick={() => setMode(mode === "paste" ? "list" : "paste")}
               className={mode === "paste" ? ui.primary : ui.ghost}><ClipboardPaste size={15} /> Paste check-in</button>
           </div>
 
-          {mode === "new" && (
-            <PoBuilder skus={skus} velocity={velocity} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy !== null} onSay={onSay} bump={bump}
+          {(mode === "new" || mode === "blank") && (
+            <PoBuilder blank={mode === "blank"} skus={skus} velocity={velocity} suppliers={mergeSuppliers(supQ.data?.suppliers)} busy={busy !== null} onSay={onSay} bump={bump}
               onCreate={async (items, supplier, note) => {
                 let created: Po | null = null;
                 await run("new", async () => { created = await api<Po>("/pos", { method: "POST", body: JSON.stringify({ supplier, note, items }) }); },
@@ -459,10 +463,10 @@ function weeksOf(s: Sku, velocity: Velocity): string {
   return `${(cur / v.weekly).toFixed(1)}w · ${Math.round(v.weekly)}/wk`;
 }
 
-function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump }: {
+function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump, blank = false }: {
   skus: Sku[]; velocity: Velocity; suppliers: string[]; busy: boolean;
   onCreate: (items: { sku_id: number; qty: number }[], supplier: string, note: string) => void;
-  onSay: (m: string) => void; bump: () => void;
+  onSay: (m: string) => void; bump: () => void; blank?: boolean;
 }) {
   const unassigned = skus.filter((s) => !s.supplier).length;
   const firstWithNeed = suppliers.find((sp) => skus.some((s) => s.supplier === sp && isLow(s) && (orderQty(s) ?? 0) > 0));
@@ -472,11 +476,13 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump }: {
   const [lines, setLines] = useState<{ sku: Sku; qty: string }[]>([]);
   const [assigning, setAssigning] = useState(false);
 
-  // Pre-fill: everything below target for this supplier, with the recommended quantity.
+  // Pre-fill: everything below target for this supplier, with the recommended
+  // quantity. A blank PO skips this so the team builds every line themselves.
   useEffect(() => {
+    if (blank) return setLines([]);
     const pick = skus.filter((s) => (supplier === ALL || s.supplier === supplier) && isLow(s) && (orderQty(s) ?? 0) > 0);
     setLines(pick.map((s) => ({ sku: s, qty: String(orderQty(s) ?? "") })));
-  }, [supplier, skus]);
+  }, [supplier, skus, blank]);
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -525,7 +531,7 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump }: {
 
       <div className="relative">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ops-text-muted" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a product that isn't below target — search name or SKU…" className={`${ui.input} pl-8`} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={blank ? "Add a product — search name or SKU…" : "Add a product that isn't below target — search name or SKU…"} className={`${ui.input} pl-8`} />
         {hits.length > 0 && (
           <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-ops-border bg-ops-surface shadow-card">
             {hits.map((s) => {
@@ -545,7 +551,9 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump }: {
 
       {lines.length === 0 ? (
         <div className="rounded-xl border border-dashed border-ops-border p-6 text-center text-sm text-ops-text-muted">
-          Nothing below target for {supplier === ALL ? "any supplier" : supplier}. Add products above if you still want to order.
+          {blank
+            ? "Blank PO — search above to add products and set their quantities."
+            : `Nothing below target for ${supplier === ALL ? "any supplier" : supplier}. Add products above if you still want to order.`}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-ops-border">
