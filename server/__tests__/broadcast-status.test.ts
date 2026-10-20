@@ -100,6 +100,21 @@ describe("firePlan", () => {
     expect(out.sent).toBe(34476);
   });
 
+  it("ackAfterDispatch (human click): returns dispatched immediately, background poll still lands the verdict", async () => {
+    const p = await plan();
+    engine.dispatch = () => ({ body: { async: true, accepted: true, jobId: "j9", tag: "t", status: "QUEUED", sent: 0, of: 50476 } });
+    engine.status = (tag) => ({ body: { tag, status: "COMPLETED", sent: 50476, of: 50476 } });
+    const out = await firePlan("realpeptides", p, "paul", { ackAfterDispatch: true });
+    expect(out.dispatched).toBe(true);
+    expect(out.of).toBe(50476);
+    expect((await rowOf(p.id)).status).toBe("sending"); // honest interim state at ack time
+    await vi.waitFor(async () => {
+      const row = await rowOf(p.id);
+      expect(row.status).toBe("sent");
+      expect(row.sent_count).toBe(50476);
+    }, { timeout: 2000 });
+  });
+
   it("#81 regression: a 504 at dispatch leaves 'sending' + tag — NEVER send_failed", async () => {
     const p = await plan();
     engine.dispatch = () => ({ status: 504, body: { error: "upstream timeout" } });

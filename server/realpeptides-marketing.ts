@@ -84,7 +84,8 @@ export async function firePlan(
   company: string,
   p: { id: number; title: string | null; subject: string | null; html: string | null; audience_id: string | null },
   by: string,
-): Promise<{ sent: number; of: number; tag: string }> {
+  opts?: { ackAfterDispatch?: boolean },
+): Promise<{ sent: number; of: number; tag: string; dispatched?: boolean }> {
   const segment = p.audience_id?.trim() || undefined;
   const tag = `ops-${p.id}-${slugify(p.title || p.subject || "broadcast")}`;
 
@@ -129,8 +130,32 @@ export async function firePlan(
   }
 
   console.log(`[OPS][MARKETING] ${company} plan ${p.id} "${p.title}" dispatched as job ${out.jobId ?? out.tag} (${out.of} recipients) by ${by}`);
+  const initial = { status: String(out.status ?? "QUEUED"), sent: Number(out.sent ?? 0), of: Number(out.of ?? 0) };
+  await pool.query(
+    `UPDATE ops_email_plans SET status = 'sending', status_note = NULL, sent_count = $2, total_count = $3, updated_at = NOW() WHERE id = $1`,
+    [p.id, initial.sent, initial.of],
+  );
+  if (opts?.ackAfterDispatch) {
+    // Human-click path (10-19, Paul's HTTP 504 on the Halloween send): don't hold the HTTP
+    // response hostage to a 50k-recipient poll — the ALB cuts it and the human sees a bogus
+    // failure. Ack the accepted job now; the detached poll (plus the reconciler as backstop)
+    // resolves the row's final status exactly as the awaited path would.
+    void pollJobToVerdict(company, p, tag, initial).catch((e) =>
+      console.error(`[OPS][MARKETING] ${company} plan ${p.id} background poll crashed: ${(e as Error).message} — reconciler will resolve`));
+    return { sent: initial.sent, of: initial.of, tag, dispatched: true };
+  }
+  return pollJobToVerdict(company, p, tag, initial);
+}
+
+/** Poll an accepted engine job until it yields a verdict (or the budget runs out → reconciler). */
+async function pollJobToVerdict(
+  company: string,
+  p: { id: number; title: string | null },
+  tag: string,
+  initial: { status: string; sent: number; of: number },
+): Promise<{ sent: number; of: number; tag: string }> {
   const deadline = Date.now() + pollBudgetMs();
-  let last = { status: String(out.status ?? "QUEUED"), sent: Number(out.sent ?? 0), of: Number(out.of ?? 0) };
+  let last = initial;
   while (Date.now() < deadline) {
     await new Promise((res) => setTimeout(res, pollEveryMs()));
     try {
@@ -450,7 +475,7 @@ export function registerRealPeptidesMarketing(app: Express) {
         return res.json({ preview: true, recipients: preview.recipients, segment: preview.segment });
       }
 
-      const out = await firePlan(p.company, p, req.adminEmail ?? "ops");
+      const out = await firePlan(p.company, p, req.adminEmail ?? "ops", { ackAfterDispatch: true });
       res.json({ ok: true, ...out });
     } catch (e: any) {
       // A refusal is actionable — show the human the engine's reason, not a generic 502.

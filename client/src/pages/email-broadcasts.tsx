@@ -82,7 +82,7 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
     } catch { return ""; }
   });
   const [confirmInfo, setConfirmInfo] = useState<{ recipients: number; segment: string } | null>(null);
-  const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string } | null>(null);
+  const [sentInfo, setSentInfo] = useState<{ sent: number; of: number; tag: string; subject: string; dispatched?: boolean } | null>(null);
   const [openCampaign, setOpenCampaign] = useState<CampaignLike | null>(null);
   const [listTab, setListTab] = useState<"sent" | "drafts">("sent");
   // "Send later": date/time/zone for the server-side scheduler. Zone is the wall clock the
@@ -153,7 +153,7 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
     setConfirmInfo(null);
     // Clear the loaded email the moment it has sent (Paul 10-02: a sent blast must never sit
     // in the builder looking one click from re-sending) and show the confirmation screen.
-    setSentInfo({ sent: j.sent, of: j.of, tag: j.tag, subject: f.subject });
+    setSentInfo({ sent: j.sent, of: j.of, tag: j.tag, subject: f.subject, dispatched: !!j.dispatched });
     setPlanId(null);
     setF({ title: "", subject: "", preheader: "", segment: "", html: "" });
     setMsg(null);
@@ -264,8 +264,11 @@ export default function EmailBroadcasts({ company, label }: { company: string; l
           {sentInfo && (
             <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-6 text-center">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/20"><Check size={24} className="text-emerald-400" /></div>
-              <div className="text-lg font-bold text-ops-text">Sent to {sentInfo.sent.toLocaleString()} of {sentInfo.of.toLocaleString()} recipients</div>
+              <div className="text-lg font-bold text-ops-text">{sentInfo.dispatched
+                ? `Sending to ${sentInfo.of.toLocaleString()} recipients`
+                : `Sent to ${sentInfo.sent.toLocaleString()} of ${sentInfo.of.toLocaleString()} recipients`}</div>
               <div className="mt-1 text-xs text-ops-text-muted">"{sentInfo.subject}" · tag <code className="rounded bg-ops-bg px-1.5 py-0.5">{sentInfo.tag}</code></div>
+              {sentInfo.dispatched && <div className="mt-1 text-xs text-ops-text-muted">The engine accepted the job and is delivering in batches — final counts land in Sent &amp; stats below within a few minutes. It cannot double-send.</div>}
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
                 <a href={`/${company}/email`} className="rounded-lg bg-gradient-to-r from-brand-blue-600 to-brand-blue-500 px-4 py-2 text-sm font-semibold text-white">View analytics →</a>
                 <button type="button" onClick={() => setSentInfo(null)} className="rounded-lg border border-ops-border px-4 py-2 text-sm text-ops-text hover:bg-ops-bg">Start a new email</button>
