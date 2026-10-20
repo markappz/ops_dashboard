@@ -22,7 +22,7 @@ export interface BuilderFlow {
   key?: string;
   name: string;
   status: "draft" | "active" | "paused";
-  trigger: { type: "optin" | "first-purchase" | "segment-oneshot"; segment?: string };
+  trigger: { type: "optin" | "first-purchase" | "post-purchase" | "abandoned-checkout" | "segment-oneshot"; segment?: string };
   exitOnPurchase: boolean;
   splitOn?: "opened" | "clicked" | null;
   steps: BuilderStep[];
@@ -38,11 +38,16 @@ const postTo = async (company: string, body: unknown) => {
   return j;
 };
 
-const TRIGGERS: { key: BuilderFlow["trigger"]["type"]; label: string; hint: string }[] = [
+const TRIGGERS: { key: BuilderFlow["trigger"]["type"]; label: string; hint: string; companies?: string[] }[] = [
   { key: "optin", label: "Joins the list", hint: "fires on every guide/offer opt-in" },
-  { key: "first-purchase", label: "Places an order", hint: "fires on order completion" },
+  { key: "first-purchase", label: "First purchase", hint: "fires on a buyer's first completed order" },
+  // Engines that serve these triggers (pawgen since 10-20); other brands'
+  // engines refuse the save with "unknown trigger", so the picker hides them.
+  { key: "post-purchase", label: "Every purchase", hint: "fires on every completed order, repeat buyers included", companies: ["pawgen"] },
+  { key: "abandoned-checkout", label: "Abandons checkout", hint: "fires ~2h after a checkout with an email that never paid", companies: ["pawgen"] },
   { key: "segment-oneshot", label: "Segment (one-shot)", hint: "you enroll a segment manually, once" },
 ];
+const triggersFor = (company: string) => TRIGGERS.filter((t) => !t.companies || t.companies.includes(company));
 
 const fmtDelay = (h: number) => (h === 0 ? "immediately" : h % 24 === 0 ? `wait ${h / 24}d` : `wait ${h}h`);
 
@@ -389,7 +394,7 @@ export function FlowBuilder({ company, initial, onClose, onSaved }: { company: s
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-ops-text">Trigger</h3>
               <div className="space-y-2">
-                {TRIGGERS.map((t) => (
+                {triggersFor(company).map((t) => (
                   <button key={t.key} type="button" onClick={() => setFlow((f) => ({ ...f, trigger: { ...f.trigger, type: t.key } }))}
                     className={`block w-full rounded-xl border p-3 text-left transition ${flow.trigger.type === t.key ? "border-brand-blue-500 bg-brand-blue-500/5" : "border-ops-border hover:border-ops-border-strong"}`}>
                     <div className="text-xs font-bold text-ops-text">{t.label}</div>

@@ -4,6 +4,52 @@ Running history of every development session. Autom reads this at the start of e
 
 ---
 
+## 2026-10-19 — Josh's Halloween campaign: engine refusals surfaced + unsubscribe guard (all brands)
+
+Plan #98 (RP Halloween, created by mcp:josh) died as a blank `send_failed`: the RP engine
+refused the full-document HTML for missing `{{{unsubscribeUrl}}}` (400), but firePlan's #81
+rule classified the 4xx as an ambiguous transport error — the reason lived only in CloudWatch.
+Josh's visible 403 was the separate known WAF rule: raw HTML inside JSON is rejected before
+the app sees it (the MCP still advertised a raw `html` field).
+
+Shipped b469a0a (verified serving): `EngineRefusal` in brand-engines — 4xx with a parsed
+error from any engine is DEFINITIVE (5xx/timeout/408/429/WAF pages stay ambiguous per #81);
+firePlan records "engine refused: <reason>" + rethrows; send-rp and marketing/test answer 422
+with the reason; the scheduler alerts with it instead of parking at 'sending'.
+`broadcastHtmlProblem()` mirrors every engine's unsubscribe guard ops-side — enforced at
+Review & send preview, scheduling (PATCH status=scheduled + MCP schedule_campaign), scheduler
+fire, and Push to Resend (accepts `{{{unsubscribeUrl}}}`, `{{unsubscribeUrl}}`,
+`RESEND_UNSUBSCRIBE_URL`; fragments pass — the engine shell adds the footer). rp-email MCP is
+html_base64-ONLY now (raw `html` removed from schemas; create/update return a "NOT SENDABLE
+YET" warning). 4 new regression tests in broadcast-status.test.ts; suite 66/66.
+
+Plan #98 itself repaired in prod via PATCH (unsubscribe footer appended, status back to
+draft, note added) — Josh re-reviews and sends. Josh's account was never the problem (full
+admin); nothing auth-related changed. Josh's visible 403 turned out to be the DELIBERATE
+agent gate ("automation may preview, never send") — his MCP agent kept trying to fire the
+mass send; humans click Review & send.
+
+**Same evening — Halloween SENT + three follow-up deploys:**
+- Paul fired #98 from Broadcasts: **sent 50,476/50,476** (status 'sent', 00:27 UTC). His
+  "HTTP 504" was the ALB cutting the held send-rp response while the engine delivered.
+- 8d3856f: email-tab dialogs (calendar editor, campaign detail, flow preview) → ModalPortal.
+  Inline fixed overlays were captured by transformed layout ancestors and scrolled away with
+  the page (Paul's screenshot glitch). ModalPortal was the codebase's own documented cure.
+- 7a6aa89: (a) calendar PlanEditor save/test now ship html_b64 — it was the last page
+  PATCHing raw HTML in JSON (WAF 403s that), which is why Review & send worked from
+  Broadcasts but not the calendar popup; (b) send-rp acks after the engine accepts the job
+  (row → 'sending', detached poll + reconciler land the verdict) so humans never see a
+  bogus 504/failure on big sends; scheduler path still fully awaits. Both UIs show honest
+  "Sending to N — delivering in batches". Suite 67/67.
+- Scheduling: NO max horizon exists for humans (Send later on Broadcasts / status+date on
+  calendar); the "2h" Josh hit is the agent veto-window MINIMUM (Paul's 10-02 rule), kept.
+- **Pawgen drip discovery**: plans 88/89/90 (Oral Drops Oct 14/16/18) NEVER sent — same
+  missing-{{{unsubscribeUrl}}} refusal, silently absorbed; 91–97 scheduled into the same
+  wall. Classifier blocked the bulk repair → `~/Desktop/fix-pawgen-drip.js` for Paul to
+  paste in an ops DevTools console (adds footer to 88–97, marks 88–90 'missed').
+  ⚠️ PENDING until Paul runs it — #91 fires Oct 20 16:00 ET and will send_failed (loudly,
+  with alert email) if the script hasn't run.
+
 ## 2026-09-30 — Orders tile on the RP + pawgen command centers
 
 Paul: "add a box to command center that says orders" for the selected period. Both overview
@@ -4008,3 +4054,15 @@ next session). Retell snapshots: scripts/retell-snapshots/2026-10-14T05-35-* (ro
   10-ampoule pack deducts 2 tracker packs, not 10. Count in 5-PACKS on shelf counts and
   PO check-ins for this SKU.
 - Loop verified: tracker feed 50/200 -> site cron sync unchanged -> PDPs show 50/200 live.
+
+## 2026-10-20 — pawgen flow triggers in the builder (Autom)
+
+- `flow-builder.tsx`: trigger picker gains "Every purchase" (post-purchase) and "Abandons
+  checkout" (abandoned-checkout), gated to pawgen via a per-trigger `companies` list — other
+  brands' engines would refuse the save with "unknown trigger". "Places an order" relabeled
+  "First purchase" to match its (now enforced) engine semantics. Engine side shipped in the
+  pawgen repo (7d50d13): order-hook split first/post, pending-order abandon sweep + Stripe
+  checkout.session.expired rail, orders.abandoned_flow_at applied in Supabase.
+- Josh builds both flows himself: Email → Flows → New flow → pick the trigger. Exit-on-purchase
+  recommended ON for abandoned-checkout.
+- tsc clean, 67/67, prod build clean.
