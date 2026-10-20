@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, X, Trash2, Loader2, Send, Eye, CalendarDays, List, LayoutGrid, Plus } from "lucide-react";
 import { useEngine } from "../hooks/use-engines";
+import { ModalPortal } from "../components/modal-portal";
 
 /**
  * Email content calendar — one per brand, mounted inside its Email tab.
@@ -285,9 +286,9 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   }
   if (f === null) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <ModalPortal onClose={onClose}>
         <Loader2 size={22} className="animate-spin text-ops-text-muted" />
-      </div>
+      </ModalPortal>
     );
   }
   const set = (k: string, v: string) => setF({ ...f, [k]: v });
@@ -367,8 +368,10 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 backdrop-blur-sm sm:p-4" onClick={onClose}>
-      <div className="my-4 w-full max-w-3xl rounded-2xl border border-ops-border bg-ops-surface shadow-card sm:my-8" onClick={(e) => e.stopPropagation()}>
+    // ModalPortal (document.body) — an inline fixed overlay gets captured by the layout's
+    // transformed ancestors and scrolls away with the page (Paul's 10-19 email-tab glitch).
+    <ModalPortal onClose={onClose}>
+      <div className="my-4 w-full max-w-3xl self-start rounded-2xl border border-ops-border bg-ops-surface shadow-card sm:my-8" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-ops-border p-4">
           <input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Campaign name…"
             className="w-full bg-transparent text-base font-semibold text-ops-text placeholder:text-ops-text-muted focus:outline-none" autoFocus={isNew} />
@@ -523,6 +526,6 @@ function PlanEditor({ company, planId, defaultDate, defaultFrom, resendConnected
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }

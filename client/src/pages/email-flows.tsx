@@ -4,6 +4,7 @@ import { FlowBuilder, type BuilderFlow } from "../components/flow-builder";
 import { Plus } from "lucide-react";
 import { GitBranch, Table2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ModalPortal } from "../components/modal-portal";
 import { Eye, Loader2, ShieldCheck, Upload, X } from "lucide-react";
 import { PageHero } from "../components/page-hero";
 
@@ -342,8 +343,8 @@ function PreviewModal({ company, flowKey, stepIndex, instant, subject, onClose }
     staleTime: 10 * 60_000,
   });
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 backdrop-blur-sm sm:p-6" onClick={onClose}>
-      <div className="my-2 w-full max-w-2xl rounded-2xl border border-ops-border bg-ops-surface shadow-card" onClick={(e) => e.stopPropagation()}>
+    <ModalPortal onClose={onClose}>
+      <div className="my-2 w-full max-w-2xl self-start rounded-2xl border border-ops-border bg-ops-surface shadow-card" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-ops-border p-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-ops-text">{q.data?.subject ?? subject}</div>
@@ -411,7 +412,7 @@ function PreviewModal({ company, flowKey, stepIndex, instant, subject, onClose }
           </>)}
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
 

@@ -1,5 +1,6 @@
 import { X, Mail, MousePointerClick, DollarSign, Send as SendIcon, AlertTriangle } from "lucide-react";
 import { StatCard } from "./stat";
+import { ModalPortal } from "./modal-portal";
 
 /**
  * Campaign performance drawer (Paul, 10-02: "click directly on them, see how they performed,
@@ -52,8 +53,8 @@ export function CampaignDetail({ c, onClose }: { c: CampaignLike; onClose: () =>
   const revenue = c.attributedRevenueCents + (c.receivedRevenueCents ?? 0);
   const when = c.sentAt ?? c.lastSeen;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-2 backdrop-blur-sm sm:p-6" onClick={onClose}>
-      <div className="my-4 w-full max-w-3xl rounded-2xl border border-ops-border bg-ops-surface shadow-card-lg" onClick={(e) => e.stopPropagation()}>
+    <ModalPortal onClose={onClose}>
+      <div className="my-4 w-full max-w-3xl self-start rounded-2xl border border-ops-border bg-ops-surface shadow-card-lg" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 border-b border-ops-border p-5">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ops-text-muted">Campaign</div>
@@ -97,6 +98,6 @@ export function CampaignDetail({ c, onClose }: { c: CampaignLike; onClose: () =>
           </div>
         </div>
       </div>
-    </div>
+    </ModalPortal>
   );
 }
