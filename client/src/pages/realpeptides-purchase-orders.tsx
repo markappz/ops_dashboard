@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHero } from "../components/page-hero";
-import { api, ui, type Sku } from "./coa/api";
+import { api, ui, canonicalizeSkuSuppliers, type Sku } from "./coa/api";
 import { applyTargetWeeks } from "./coa/order-pdf";
 import { PurchaseOrders } from "./coa/PurchaseOrders";
 import { RequestChangeButton } from "../components/change-request";
@@ -29,7 +29,7 @@ export default function RealPeptidesPurchaseOrders() {
   });
   const canEdit = me?.role === "admin" || (me?.permissions ?? []).includes("realpeptides:coa-upload");
 
-  const skusQ = useQuery({ queryKey: ["coa-skus"], queryFn: () => api<{ skus: Sku[] }>("/skus"), retry: false });
+  const skusQ = useQuery({ queryKey: ["coa-skus"], queryFn: () => api<{ skus: Sku[] }>("/skus"), select: (d) => ({ skus: canonicalizeSkuSuppliers(d.skus) }), retry: false });
   const statsQ = useQuery({
     queryKey: ["rp-inventory-stats", "28,56"],
     queryFn: async () => (await fetch("/api/ops/realpeptides/inventory-stats?windows=28,56", { credentials: "include" })).json() as Promise<{ bySku?: Velocity }>,

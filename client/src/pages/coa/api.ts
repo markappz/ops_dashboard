@@ -16,10 +16,19 @@ export async function api<T = any>(path: string, init?: RequestInit): Promise<T>
  * have products assigned, so names live here to stay selectable before their
  * first product. mergeSuppliers keeps the tracker's list and adds any missing.
  */
-export const SUPPLIER_ROSTER = ["Mike", "Caleb", "Ming", "Max", "Brent and Alan", "Tracy"];
+export const SUPPLIER_ROSTER = ["Brent and Alan", "Caleb", "Max", "Mike", "Ming", "Nexaph", "PGB", "Tracy"];
+
+const MING_FORMS = new Set(["ming", "manufacturerming"]);
+
+/** Collapse the legacy "Manufacturer - Ming" / "Manufacturer.- MING" / "Ming" variants into one canonical name. */
+export function canonicalSupplier(name?: string | null): string {
+  const raw = (name ?? "").trim();
+  return MING_FORMS.has(raw.toLowerCase().replace(/[^a-z0-9]/g, "")) ? "Ming" : raw;
+}
 
 export const mergeSuppliers = (fromApi?: string[] | null): string[] =>
-  Array.from(new Set([...(fromApi ?? []), ...SUPPLIER_ROSTER]));
+  Array.from(new Set([...(fromApi ?? []).map(canonicalSupplier).filter(Boolean), ...SUPPLIER_ROSTER]))
+    .sort((a, b) => a.localeCompare(b));
 
 export interface Sku {
   id: number;
@@ -56,6 +65,10 @@ export interface Sku {
   family_key: string;
   family_label: string;
 }
+
+/** Remap SKUs saved under a legacy Ming variant onto the canonical "Ming" supplier. */
+export const canonicalizeSkuSuppliers = (skus: Sku[]): Sku[] =>
+  skus.map((s) => (s.supplier ? { ...s, supplier: canonicalSupplier(s.supplier) } : s));
 
 export interface Lab { id: number; name: string; active: boolean; is_default: boolean; address: string | null }
 

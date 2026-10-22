@@ -5,7 +5,7 @@ import {
   PackageOpen, AlertTriangle, CheckCircle2, Package, Tags, RefreshCw, FileUp, TrendingUp, ImageIcon, Ban,
 } from "lucide-react";
 import { PageHero } from "../components/page-hero";
-import { API, api, ui, thumbUrl, type Sku } from "./coa/api";
+import { API, api, ui, thumbUrl, canonicalizeSkuSuppliers, type Sku } from "./coa/api";
 import { downloadOrderPdf, isLow, orderQty, stockOf, idealOf, stockNum, applyTargetWeeks, type InvItem } from "./coa/order-pdf";
 import { Forecast } from "./coa/Forecast";
 import { TopSellers } from "./coa/TopSellers";
@@ -72,6 +72,7 @@ export default function RealPeptidesInventory() {
   const skusQ = useQuery({
     queryKey: ["coa-skus"],
     queryFn: () => api<{ skus: Sku[] }>("/skus"),
+    select: (d) => ({ skus: canonicalizeSkuSuppliers(d.skus) }),
     retry: false,
   });
   const statWindows = useMemo(() => {
