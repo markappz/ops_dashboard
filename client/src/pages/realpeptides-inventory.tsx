@@ -180,7 +180,10 @@ export default function RealPeptidesInventory() {
   }
 
   const err = skusQ.error as Error | null;
-  const opened = openSku !== null ? skus.find((s) => s.id === openSku) ?? null : null;
+  // The manage sheet is the EDIT surface: always hand it the raw sku with the SAVED target.
+  // Handing it the weeks-of-cover view made saved edits look ignored (Justin, 10-20: set
+  // Pinealon to 100, DB took it, the computed view kept showing "no target").
+  const opened = openSku !== null ? rawSkus.find((s) => s.id === openSku) ?? skus.find((s) => s.id === openSku) ?? null : null;
 
   return (
     <div>
@@ -271,6 +274,20 @@ export default function RealPeptidesInventory() {
           )}
         </div>
       </div>
+
+      {item === "product" && targetWeeks !== null && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+          <TrendingUp size={13} className="shrink-0" />
+          <span>
+            Targets below are <span className="font-semibold">computed for this view only</span>: live sales × {targetWeeks} weeks of cover.
+            Products with no recent sales show no target, and saved targets (including your edits) are hidden — nothing in the database is changed by this view.
+          </span>
+          <button type="button" onClick={() => pickTargetWeeks(null)}
+            className="ml-auto shrink-0 rounded-lg border border-amber-500/40 px-2.5 py-1 text-[11px] font-semibold text-amber-300 hover:bg-amber-500/10">
+            Show saved targets
+          </button>
+        </div>
+      )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi icon={<PackageOpen size={17} />} label="Products" value={counts.all} active={filter === "all"} onClick={() => setFilter("all")} />
