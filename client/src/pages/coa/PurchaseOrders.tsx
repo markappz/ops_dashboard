@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileDown, PackageCheck, Send, Trash2, ClipboardList, Loader2,
-  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2, FilePlus,
+  Plus, Minus, ClipboardPaste, Search, ChevronDown, ChevronUp, Wand2, Truck, Pencil, Undo2, CalendarDays, FilePlus,
 } from "lucide-react";
 import { api, ui, thumbUrl, mergeSuppliers, fetchPoLots, savePoLot, lotKey, checkinQuarantine, type Po, type PoItem, type PoBatch, type ParsedCheckinLine, type Sku } from "./api";
-import { downloadPoPdf, orderQty, isLow, stockNum } from "./order-pdf";
+import { downloadPoPdf, orderQty, isLow, stockNum, applyTargetWeeks } from "./order-pdf";
 
 /**
  * Purchase orders, per supplier. "New PO" opens a review list pre-filled with
@@ -180,6 +180,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
   saveLot: (item: PoItem, lot: string) => void;
 }) {
   const open = po.status === "draft" || po.status === "ordered";
+  const cover = coverWeeksOf(po.note);
   const [checkin, setCheckin] = useState(false);
   const [editing, setEditing] = useState(po.status === "draft");
   const [confirm, setConfirm] = useState<"delete" | "cancel" | null>(null);
@@ -267,6 +268,7 @@ function PoCard({ po, skus, suppliers, busy, run, onSay, poBatch, lots, saveLot 
         <div className="flex min-w-0 flex-wrap items-center gap-2.5">
           <span className="whitespace-nowrap text-sm font-semibold text-ops-text">PO #{po.id}</span>
           <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${CHIP[po.status]}`}>{partly ? "partly received" : po.status}</span>
+          {cover && <span className="whitespace-nowrap rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-500" title={`Ordered to cover ${cover} weeks of demand, not the standard 6`}>{cover}-week stock-up</span>}
           {open && editing ? (
             <select value={po.supplier ?? ""} onChange={(e) => setSupplier(e.target.value)} disabled={busy !== null} className="h-7 rounded-md border border-ops-border bg-ops-bg px-2 text-xs text-ops-text focus:border-fitscript-green focus:outline-none">
               <option value="">supplier…</option>
@@ -456,6 +458,21 @@ function LotField({ item, lot, fallback = "", editable, busy, onSave }: {
 const ALL = "__all__";
 const UNASSIGNED = "__unassigned__";
 
+// Coverage period for the recommended quantities. 6 weeks is the saved baseline
+// (leave targets as-is); any other period recalculates from live velocity for a
+// bigger stock-up without touching the stored targets.
+const DEFAULT_COVER = 6;
+const COVER_CHOICES = [4, 6, 8, 10];
+
+const withCoverTag = (note: string, weeks: number): string =>
+  [weeks === DEFAULT_COVER ? "" : `Covers ${weeks} weeks of stock.`, note.trim()].filter(Boolean).join(" ");
+
+/** A PO's stock-up weeks, read back from its note (null = standard 6-week). */
+function coverWeeksOf(note: string | null): number | null {
+  const m = note?.match(/^Covers (\d+) weeks of stock/);
+  return m ? Number(m[1]) : null;
+}
+
 function weeksOf(s: Sku, velocity: Velocity): string {
   const v = velocity[s.sku_code];
   if (!v?.weekly) return "—";
@@ -475,21 +492,30 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump, bla
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<{ sku: Sku; qty: string }[]>([]);
   const [assigning, setAssigning] = useState(false);
+  const [coverWeeks, setCoverWeeks] = useState<number>(DEFAULT_COVER);
+
+  // At 6 weeks the saved targets stand; any other period derives targets from
+  // live velocity (weekly × weeks) just for this draft — the DB stays untouched.
+  const builderSkus = useMemo(
+    () => (coverWeeks === DEFAULT_COVER ? skus : applyTargetWeeks(skus, velocity, coverWeeks)),
+    [skus, velocity, coverWeeks],
+  );
+  const custom = !COVER_CHOICES.includes(coverWeeks);
 
   // Pre-fill: everything below target for this supplier, with the recommended
   // quantity. A blank PO skips this so the team builds every line themselves.
   useEffect(() => {
     if (blank) return setLines([]);
-    const pick = skus.filter((s) => (supplier === ALL || s.supplier === supplier) && isLow(s) && (orderQty(s) ?? 0) > 0);
+    const pick = builderSkus.filter((s) => (supplier === ALL || s.supplier === supplier) && isLow(s) && (orderQty(s) ?? 0) > 0);
     setLines(pick.map((s) => ({ sku: s, qty: String(orderQty(s) ?? "") })));
-  }, [supplier, skus, blank]);
+  }, [supplier, builderSkus, blank]);
 
   const hits = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return [];
     const chosen = new Set(lines.map((l) => l.sku.id));
-    return skus.filter((s) => !chosen.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle))).slice(0, 6);
-  }, [q, skus, lines]);
+    return builderSkus.filter((s) => !chosen.has(s.id) && (s.product_name.toLowerCase().includes(needle) || s.sku_code.toLowerCase().includes(needle))).slice(0, 6);
+  }, [q, builderSkus, lines]);
 
   const items = lines.map((l) => ({ sku_id: l.sku.id, qty: Number(l.qty) })).filter((i) => i.qty > 0);
   const units = items.reduce((a, i) => a + i.qty, 0);
@@ -511,9 +537,32 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump, bla
   return (
     <div className="space-y-3 rounded-xl border border-ops-border p-4">
       <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><CalendarDays size={13} /> Coverage</span>
+        <span className="inline-flex rounded-lg border border-ops-border bg-ops-bg p-0.5">
+          {COVER_CHOICES.map((w) => (
+            <button key={w} type="button" onClick={() => setCoverWeeks(w)}
+              className={`rounded-md px-2.5 py-1 text-xs font-semibold tabular-nums transition ${coverWeeks === w ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+              {w}w
+            </button>
+          ))}
+          <button type="button" onClick={() => setCoverWeeks(custom ? coverWeeks : 12)}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${custom ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+            Custom
+          </button>
+        </span>
+        {custom && (
+          <input value={String(coverWeeks)} inputMode="numeric" aria-label="Custom coverage weeks"
+            onChange={(e) => setCoverWeeks(Math.max(1, Number(e.target.value.replace(/[^\d]/g, "")) || 1))}
+            className="h-7 w-16 rounded-md border border-ops-border bg-ops-bg px-2 text-center tabular-nums text-ops-text focus:border-fitscript-green focus:outline-none" />
+        )}
+        <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold ${coverWeeks === DEFAULT_COVER ? "text-ops-text-muted" : "bg-amber-500/15 text-amber-500"}`}>
+          Ordering for {coverWeeks} week{coverWeeks === 1 ? "" : "s"} of stock
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 text-xs text-ops-text-muted"><Truck size={13} /> Supplier</span>
         {suppliers.map((sp) => {
-          const need = skus.filter((s) => s.supplier === sp && isLow(s) && (orderQty(s) ?? 0) > 0).length;
+          const need = builderSkus.filter((s) => s.supplier === sp && isLow(s) && (orderQty(s) ?? 0) > 0).length;
           return (
             <button key={sp} type="button" onClick={() => setSupplier(sp)}
               className={`rounded-lg border px-3 py-1.5 text-sm transition ${supplier === sp ? "border-fitscript-green bg-fitscript-green/10 text-fitscript-green" : "border-ops-border text-ops-text hover:border-ops-text-muted"}`}>
@@ -609,12 +658,12 @@ function PoBuilder({ skus, velocity, suppliers, busy, onCreate, onSay, bump, bla
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note for the supplier (optional)" className={`${ui.input} flex-1`} />
         <button type="button" disabled={busy || !items.length || supplier === ALL} title={supplier === ALL ? "Pick a supplier — POs are per supplier" : undefined}
-          onClick={() => onCreate(items, supplier, note.trim())} className={ui.primary}>
+          onClick={() => onCreate(items, supplier, withCoverTag(note, coverWeeks))} className={ui.primary}>
           {busy ? <Loader2 size={15} className="animate-spin" /> : <ClipboardList size={15} />}
           Save PO for {supplier === ALL ? "…" : supplier} ({items.length} line{items.length === 1 ? "" : "s"} · {units} units)
         </button>
       </div>
-      <p className="text-[11px] text-ops-text-muted">Recommended quantity = target − (stock − held) − on order, rounded up to boxes of ten. Targets follow the "Stock up for" setting on the Inventory tab. Saving creates a draft; download the PDF from its card, then mark it ordered.</p>
+      <p className="text-[11px] text-ops-text-muted">Recommended quantity = target − (stock − held) − on order, rounded up to boxes of ten. The coverage selector recalculates these from live velocity for a larger stock-up — it never changes the saved 6-week targets. Saving creates a draft; download the PDF from its card, then mark it ordered.</p>
     </div>
   );
 }
