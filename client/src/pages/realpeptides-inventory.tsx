@@ -27,6 +27,12 @@ import { RequestChangeButton } from "../components/change-request";
 type Filter = "all" | "low" | "out" | "nofile";
 type Velocity = Record<string, { units: Record<number, number>; weekly: number }>;
 
+function stockParts(sku: Sku, total: number | null) {
+  const held = stockNum(sku.held) ?? 0;
+  const available = total === null ? null : Math.max(0, total - held);
+  return { held, available };
+}
+
 const ITEM_TEXT: Record<InvItem, { unit: string; order: string; out: string }> = {
   product: { unit: "units", order: "Order PDF", out: "Out of stock" },
   label: { unit: "labels", order: "Label print order", out: "Out of labels" },
@@ -431,6 +437,7 @@ function Row({ sku, item, canEdit, velocity, hold, onChanged, onHoldChanged, onS
   const { busy, run, adjust, toggleHold } = useAdjust(sku, item, onChanged, onSay);
 
   const cur = stockOf(sku, item);
+  const { held, available } = stockParts(sku, cur);
   const ideal = idealOf(sku, item);
   const need = orderQty(sku, item);
   const onOrder = stockNum(sku.on_order) ?? 0;
@@ -478,14 +485,18 @@ function Row({ sku, item, canEdit, velocity, hold, onChanged, onHoldChanged, onS
           ) : <span className="text-[11px] text-ops-text-muted">—</span>}
         </td>
         <td className="px-4 py-3 text-right">
-          <span className={`text-base font-bold tabular-nums ${onHold ? "text-orange-400" : out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</span>
+          <span className={`text-base font-bold tabular-nums ${onHold ? "text-orange-400" : out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`} title="Total units physically in stock">{cur ?? "—"}</span>
           {onHold && (
             <span className="mt-0.5 block" title={hold?.note ? `On hold: ${hold.note}` : "On hold — unavailable for sale despite stock on hand"}>
               <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-orange-400"><Ban size={10} /> On hold</span>
             </span>
           )}
-          {item === "product" && (stockNum(sku.held) ?? 0) > 0 && (
-            <span className="block text-[10px] text-brand-blue-400" title="Reserved by paid orders that haven't shipped yet">{stockNum(sku.held)} held</span>
+          {item === "product" && cur !== null && (
+            <span className="block text-[10px] text-ops-text-muted tabular-nums">
+              <span className="text-brand-blue-400" title="Reserved by paid orders that haven't shipped yet">{held} held</span>
+              {" · "}
+              <span title="Total minus held — sellable right now">{available} avail</span>
+            </span>
           )}
         </td>
         {item === "product" && (
@@ -555,6 +566,7 @@ function MobileCard({ sku, item, velocity, onHold, onOpen }: {
   sku: Sku; item: InvItem; velocity: Velocity; onHold: boolean; onOpen: () => void;
 }) {
   const cur = stockOf(sku, item);
+  const { held, available } = stockParts(sku, cur);
   const need = orderQty(sku, item);
   const out = cur !== null && cur <= 0;
   const low = isLow(sku, item);
@@ -575,6 +587,7 @@ function MobileCard({ sku, item, velocity, onHold, onOpen }: {
       </div>
       <div className="shrink-0 text-right">
         <div className={`text-lg font-bold tabular-nums ${onHold ? "text-orange-400" : out ? "text-red-400" : low ? "text-yellow-500" : "text-ops-text"}`}>{cur ?? "—"}</div>
+        {item === "product" && cur !== null && <div className="text-[10px] tabular-nums text-ops-text-muted">{held} held · {available} avail</div>}
         {need && need > 0 ? <div className="text-[10px] font-semibold text-yellow-500">order {need}</div> : null}
       </div>
     </button>
@@ -598,6 +611,7 @@ function SkuSheet({ sku, item, canEdit, velocity, hold, onClose, onChanged, onHo
   const onHold = hold?.on_hold ?? false;
 
   const cur = stockOf(sku, item);
+  const { held, available } = stockParts(sku, cur);
   const ideal = idealOf(sku, item);
   const onOrder = stockNum(sku.on_order) ?? 0;
   const img = thumbUrl(sku);
@@ -630,11 +644,15 @@ function SkuSheet({ sku, item, canEdit, velocity, hold, onClose, onChanged, onHo
 
         <div className="space-y-4 p-4">
           <div className="rounded-xl border border-ops-border bg-ops-bg/40 p-4 text-center">
-            <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{item === "label" ? "Labels on hand" : "In stock"}</div>
+            <div className="text-[11px] uppercase tracking-wider text-ops-text-muted">{item === "label" ? "Labels on hand" : "Total in stock"}</div>
             <div className="mt-1 text-4xl font-bold tabular-nums text-ops-text">{cur ?? "—"}</div>
+            {item === "product" && cur !== null && (
+              <div className="mt-1 text-[11px] tabular-nums text-ops-text-muted">
+                <span className="text-brand-blue-400">{held} held by paid orders</span> · {available} available to sell
+              </div>
+            )}
             <div className="mt-1 text-[11px] text-ops-text-muted">
               target {ideal ?? "not set"}{item === "product" && onOrder > 0 ? ` · +${onOrder} on order` : ""}
-              {item === "product" && (stockNum(sku.held) ?? 0) > 0 ? ` · ${stockNum(sku.held)} held by paid orders` : ""}
             </div>
           </div>
 
