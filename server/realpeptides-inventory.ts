@@ -118,7 +118,7 @@ export function startRpInventorySyncLoop() {
 
 // ─── Sales velocity for forecasting ────────────────────────────────
 
-const WINDOW_CHOICES = [1, 7, 14, 28, 30, 42, 56, 84, 90, 180, 365];
+const WINDOW_CHOICES = [1, 7, 14, 28, 30, 42, 56, 60, 84, 90, 180, 365];
 let statsCache: { at: number; key: string; data: any } | null = null;
 
 // Woo used a few sku codes the tracker doesn't: fold them into their successors.

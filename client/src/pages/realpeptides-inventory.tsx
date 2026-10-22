@@ -54,6 +54,7 @@ export default function RealPeptidesInventory() {
   const qc = useQueryClient();
   const [item, setItem] = useState<InvItem>("product");
   const [filter, setFilter] = useState<Filter>("all");
+  const [sortDays, setSortDays] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
   const [showForecast, setShowForecast] = useState(false);
@@ -73,9 +74,14 @@ export default function RealPeptidesInventory() {
     queryFn: () => api<{ skus: Sku[] }>("/skus"),
     retry: false,
   });
+  const statWindows = useMemo(() => {
+    const set = new Set<number>([28, 56]);
+    if (sortDays) set.add(sortDays);
+    return [...set].sort((a, b) => a - b).join(",");
+  }, [sortDays]);
   const statsQ = useQuery({
-    queryKey: ["rp-inventory-stats", "28,56"],
-    queryFn: async () => (await fetch("/api/ops/realpeptides/inventory-stats?windows=28,56", { credentials: "include" })).json() as Promise<Stats>,
+    queryKey: ["rp-inventory-stats", statWindows],
+    queryFn: async () => (await fetch(`/api/ops/realpeptides/inventory-stats?windows=${statWindows}`, { credentials: "include" })).json() as Promise<Stats>,
     staleTime: 5 * 60_000,
   });
   const velocity = statsQ.data?.bySku ?? {};
@@ -132,8 +138,13 @@ export default function RealPeptidesInventory() {
     else if (filter === "nofile") list = list.filter((s) => !s.label_doc_id);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((s) => s.product_name.toLowerCase().includes(q) || s.sku_code.toLowerCase().includes(q));
+    if (item === "product" && sortDays) {
+      list = [...list].sort((a, b) =>
+        (velocity[b.sku_code]?.units[sortDays] ?? 0) - (velocity[a.sku_code]?.units[sortDays] ?? 0)
+        || a.product_name.localeCompare(b.product_name));
+    }
     return list;
-  }, [skus, item, filter, query]);
+  }, [skus, item, filter, query, sortDays, velocity]);
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["coa-skus"] });
   const say = (m: string) => { setFlash(m); setTimeout(() => setFlash(null), 5000); };
@@ -245,6 +256,23 @@ export default function RealPeptidesInventory() {
                   <button key={w} type="button" onClick={() => pickTargetWeeks(w)}
                     className={`rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums transition ${targetWeeks === w ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
                     {w}w
+                  </button>
+                ))}
+              </span>
+            </label>
+          )}
+          {item === "product" && (
+            <label className="flex items-center gap-2 text-[11px] text-ops-text-muted" title="Sort the table by units sold over the chosen window, highest first. Off keeps the alphabetical order.">
+              Top sellers
+              <span className="inline-flex rounded-lg border border-ops-border bg-ops-surface p-0.5">
+                <button type="button" onClick={() => setSortDays(null)}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${sortDays === null ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+                  Off
+                </button>
+                {[7, 14, 30, 60, 90].map((d) => (
+                  <button key={d} type="button" onClick={() => setSortDays(d)}
+                    className={`rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums transition ${sortDays === d ? "bg-fitscript-green text-white" : "text-ops-text-muted hover:text-ops-text"}`}>
+                    {d}d
                   </button>
                 ))}
               </span>
