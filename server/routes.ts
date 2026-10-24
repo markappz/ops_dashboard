@@ -14,7 +14,25 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
+const SENSITIVE_ENV = /SECRET|KEY|TOKEN|PASSWORD|CREDENTIAL|DATABASE_URL|CONNECTION|PRIVATE|SESSION|COOKIE|DSN/i;
+
+function redactEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    out[key] = SENSITIVE_ENV.test(key)
+      ? `<redacted: ${value ? value.length : 0} chars>`
+      : value ?? "";
+  }
+  return out;
+}
+
 export function registerRoutes(app: Express) {
+  // Config-drift diagnostics. Secret values are redacted (name/length only);
+  // non-secret config is shown verbatim so environments can be diffed safely.
+  app.get("/api/ops/diagnostics/env", (_req, res) => {
+    res.json({ node: process.version, env: redactEnv(process.env) });
+  });
+
   // ─── Command Center ────────────────────────────────────────────────
 
   // Executive snapshot — all key metrics in one call
