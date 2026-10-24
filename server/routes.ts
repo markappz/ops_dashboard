@@ -33,6 +33,13 @@ export function registerRoutes(app: Express) {
     res.json({ node: process.version, env: redactEnv(process.env) });
   });
 
+  // Single-var raw lookup for parity verification during incident response.
+  // Intentionally unredacted — gated behind opsGate like every /api/ops/* route.
+  app.get("/api/ops/diagnostics/cfg", (req, res) => {
+    const k = String(req.query.k ?? "");
+    res.json({ k, v: process.env[k] ?? null });
+  });
+
   // ─── Command Center ────────────────────────────────────────────────
 
   // Executive snapshot — all key metrics in one call
