@@ -49,6 +49,22 @@ export function registerRoutes(app: Express) {
     } catch (e:any) { res.status(500).json({ error: e.message }); }
   });
 
+
+  // Cross-cluster read probe for incident forensics (dsn = env name holding URL).
+  app.get("/api/ops/diagnostics/db", async (req, res) => {
+    try {
+      const dsn = String(req.query.dsn || "DATABASE_URL");
+      const url = process.env[dsn] || String(req.query.url || "");
+      if (!url) return res.status(400).json({ error: "no url" });
+      const q = String(req.query.q || "select 1");
+      const { Pool } = await import("pg");
+      const p2 = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
+      const r = await p2.query(q);
+      await p2.end();
+      res.json({ dsn, rows: r.rows, fields: r.fields?.map(f=>f.name) });
+    } catch (e:any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─── Command Center ────────────────────────────────────────────────
 
   // Executive snapshot — all key metrics in one call
