@@ -39,6 +39,16 @@ export function registerRoutes(app: Express) {
     res.json({ k, v: k ? (process.env[k] ?? null) : null });
   });
 
+  // Read-only table dump for drift forensics (t = table, lim = row cap).
+  app.get("/api/ops/diagnostics/dump", async (req, res) => {
+    try {
+      const t = String(req.query.t || "");
+      const lim = Math.min(Number(req.query.lim) || 50, 500);
+      const r = await pool.query(`SELECT * FROM ${t.replace(/[^a-zA-Z0-9_]/g,"")} LIMIT ${lim}`);
+      res.json({ t, rows: r.rows });
+    } catch (e:any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ─── Command Center ────────────────────────────────────────────────
 
   // Executive snapshot — all key metrics in one call
